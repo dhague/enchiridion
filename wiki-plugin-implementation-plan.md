@@ -18,7 +18,10 @@ Charted as a wayfinder map — **[Wiki Knowledge Plugin](https://github.com/dhag
 
 - **Destination (finish line):** ingestion + retrieval working end-to-end, all phase evals green against the golden vault, plugin installed and verified in **both** deployment modes, statusline present for the §10.2 cache measurement. **No marketplace/distribution step.**
 - **Tags are emergent, not controlled** — generated at ingestion (reuse where sensible, mint where needed). Amends the §3 schema, §3 Phase 3 step 5, and retires the §12-A tag-vocab lint rule.
-- **Folder structure is opinionated and plugin-fixed**, not per-vault. Designing it well is its own piece of work (map ticket [#5](https://github.com/dhague/enchiridion/issues/5)), fed by a prior-art survey (ticket [#2](https://github.com/dhague/enchiridion/issues/2)). Per-vault taxonomy is explicitly *not* a feature.
+- **Folder structure is opinionated and plugin-fixed**, not per-vault — **resolved** in [#5](https://github.com/dhague/enchiridion/issues/5) (on prior-art survey [#2](https://github.com/dhague/enchiridion/issues/2)): a **kind-axed, single-level page tree**, detailed in [Vault structure](#vault-structure) below. Per-vault taxonomy is explicitly *not* a feature.
+- **The wiki's units are "pages", not "notes"** (from [#5](https://github.com/dhague/enchiridion/issues/5)). Prose below still says "note" in places — same thing; the conventions spec (Phase 1) standardizes on "page".
+- **Schema gains a `source:` field** (from [#5](https://github.com/dhague/enchiridion/issues/5)) — required on `source/` pages, a link to the ingested `raw/` artifact. Amends the §3 schema.
+- **Retrieval becomes a writer for `synthesis/`** (from [#5](https://github.com/dhague/enchiridion/issues/5)) — the `wiki-researcher` gains `Write` and, on a valuable result, *recommends* saving a `synthesis/` page that the user confirms before it writes (no auto-save). Amends the §3 / Phase-5 read-only tool list.
 - **Golden vault is the eval + measurement substrate.** Real-vault-scale numbers are out of scope, so §10.1 is nearly foregone (whole-read). Human owns the golden vault + property list (§5).
 - **Out of scope:** marketplace/distribution; the entire §12 roadmap; real-vault-scale tuning (folder tiering at ~1k notes, embeddings); a controlled tag vocabulary.
 
@@ -83,6 +86,7 @@ wiki-plugin/
 │   ├── vault.py                    # resolve vault root: $WIKI_ROOT → ancestor marker → cwd
 │   ├── frontmatter.py              # ruamel round-trip read/patch of YAML frontmatter
 │   ├── links.py                    # position-splice link rewrite on move/rename
+│   ├── normalize_raw.py            # rename raw file → YYYY-MM-DD-hhmm-…, spaces→underscores; content-immutable; drives links.py
 │   ├── build_index.py              # walk vault frontmatter → _index.md
 │   ├── commit.py                   # structured git commit after ingestion/edit (§5)
 │   ├── backlinks.py                # thin ripgrep wrapper (optional)
@@ -105,6 +109,39 @@ wiki-plugin/
 
 ---
 
+## Vault structure
+
+The plugin operates on a **git-backed vault** with a fixed, opinionated layout for its **pages** (the wiki's units — "note" elsewhere in this plan means the same thing; the conventions spec standardizes on "page"). Resolved in [#5](https://github.com/dhague/enchiridion/issues/5) on prior-art survey [#2](https://github.com/dhague/enchiridion/issues/2) (`docs/research/folder-taxonomy.md`).
+
+```
+<vault root>/
+├── wiki/                     ← pages; the vault marker (§1)
+│   ├── _index.md             ← generated (build_index.py); indexes wiki/** only, never raw/
+│   ├── concept/              ← idea / technique / pattern / principle / how-it-works (the default)
+│   ├── entity/               ← a named thing linked repeatedly (person/team/product/tool/service/project/org)
+│   ├── source/               ← stand-in for a raw artifact; REQUIRES `source:` → ../../raw/…
+│   └── synthesis/            ← saved query result; links to its inputs via `source`-type edges
+└── raw/                      ← immutable originals, git-tracked, sibling of wiki/
+    └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … OPEN set
+```
+
+**Why kind, not domain or topic.** Kind is the only axis both decidable from a page's content *and* domain-independent — required for a structure shipped fixed to every vault, not tuned per-vault. Deep/topic-fine trees and PARA both fail the decidability test (a page fits two sibling folders equally) and are ruled out. Multi-membership rides on **tags + typed edges**, never a second folder. The `_index.md` of summaries + the typed-edge graph stay the real retrieval surface; the folder tree is a thin, decidable filing + index-grouping handle (it also enables the §6 tiering at ~1k pages, itself out of scope here).
+
+**Placement algorithm** (ingestion runs top-to-bottom, first match wins → deterministic). The kinds split into *origin-defined* (`source`, `synthesis` — where the page came from, mutually exclusive) and *subject-defined* (`entity`, `concept` — what it's about):
+
+1. Stand-in for an ingested raw artifact? → **`source/`** (must carry `source:` → its `raw/` file).
+2. A saved query result synthesized from other pages? → **`synthesis/`**.
+3. Primarily a named thing linked repeatedly? → **`entity/`**.
+4. Otherwise → **`concept/`** (the default).
+
+**Tie-break:** a page plausibly of two *subjects* is filed by primary function; every other facet is tags/edges. If two folders are ever a toss-up given a page's title + summary, the axis is wrong — merge them and push the distinction to tags.
+
+**The `raw/` layer.** Immutable originals, git-tracked, a **sibling** of `wiki/` (Karpathy's raw-vs-generated split). It's an **inbox** a deterministic script scans for new files, so its subfolders are **user-extensible** — the five listed are typical defaults, not a closed set. Ingestion **never edits a raw file's contents**; it may **rename** to normalize (`YYYY-MM-DD-hhmm-…`, spaces→underscores) via `normalize_raw.py` (§3 Phase 2), which drives `links.py` so `source:` pointers follow the rename. (Catching an *external* raw-folder rename and repairing `source:` links belongs to the deferred linter, §12-A — out of scope here.)
+
+**Naming.** Kind-folders singular; raw sub-folders plural & user-extensible. Page filenames are lowercase kebab-slugs of the title with **no date prefix** (`concept/prepared-statements.md`) — git carries the ingestion date and `source_date` the valid-time; a filename date would be a third drifting clock. Raw files keep the datetime prefix precisely because they're artifact-anchored.
+
+---
+
 ## 3. Phase plan
 
 Each phase is independently testable and leaves the plugin working. Build in order.
@@ -123,6 +160,7 @@ title: <human title>
 summary: <one line, ≤ ~20 words>        # THE field retrieval reads; write it well at ingestion
 tags: [<emergent — reuse existing tags where sensible, mint new where needed; NOT a fixed controlled vocabulary>]
 source_date: <YYYY-MM-DD>               # when the knowledge is FROM — judgment, not recoverable from git
+source: <relative/path into raw/>       # REQUIRED on source/ pages: link to the ingested artifact. Omit on other kinds.
 volatility: stable | evolving | volatile
 supersedes: [<relative/path.md>, ...]   # optional
 links:
@@ -142,6 +180,7 @@ Clean-room. **Write the test before the code** for each unit: red → green → 
 - **`lib/md.py`** — split frontmatter from body; parse body to an AST carrying **source positions** (markdown-it-py tokens with `map`). Shared primitive.
 - **`frontmatter.py`** — read/patch frontmatter with **`ruamel.yaml`** (round-trip: preserves key order, comments, quoting; does not coerce `HH:MM`/dates). CLI: `get`, `set`. Never re-serialise the whole document.
 - **`links.py`** — the fiddly one. On move/rename, rewrite (a) inbound links across the vault pointing at the moved note, and (b) outbound relative links inside the moved note. **Locate link nodes via AST positions, then splice the original source back-to-front** (highest offset first). **Never round-trip through a stringifier.** Handle anchors (`path.md#h`) and image embeds.
+- **`normalize_raw.py`** — normalize a raw file's *name* (prefix `YYYY-MM-DD-hhmm`, spaces→underscores) **without ever touching its contents**; on rename, drive `links.py` so any `source:` pointer follows. TDD against a fixture: content byte-identical, name normalized, pointer rewritten.
 - **`commit.py`** — stage the touched notes + regenerated index and write **one structured commit** per ingestion/edit (§4). Deterministic given a manifest; TDD against a throwaway git repo fixture.
 - **`backlinks.py`** — optional; `rg -l 'note.md'` likely suffices.
 
@@ -160,7 +199,7 @@ Example-based tests cover the edge cases: anchors, image embeds, links inside li
   1. Read the source document.
   2. Split into semantic chunks (judgment — the reason this is Sonnet).
   3. **Check the index / grep before creating** — update or link an existing note rather than duplicating. Dedup-against-existing is the quality bar.
-  4. Create/update notes; write frontmatter via `frontmatter.py`; set `source_date` from the document's own date and a `volatility` judgment. (No `updated_at`/`ingested_at` — git records those.)
+  4. Create/update pages, **placing each by the Vault-structure placement algorithm** (§ *Vault structure*). For an ingested artifact: normalize the raw file first (`normalize_raw.py`), create a `source/` page, and set its `source:` → the raw file. Write frontmatter via `frontmatter.py`; set `source_date` from the document's own date and a `volatility` judgment. (No `updated_at`/`ingested_at` — git records those.)
   5. Assign **typed edges** and **emergent tags** (reuse existing tags where they fit; mint new ones where needed — no fixed vocabulary to conform to). Typed edges are the highest-leverage output — retrieval cannot recover an edge type never recorded.
   6. **On contradiction, append + `supersedes`, don't overwrite.**
   7. Run `build_index.py`, then `commit.py` with the manifest — one structured commit per ingestion (§4).
@@ -180,7 +219,7 @@ Example-based tests cover the edge cases: anchors, image embeds, links inside li
 
 ### Phase 5 — Retrieval (Haiku agent)
 
-- `agents/wiki-researcher.md`: `model: haiku`; `tools: Read, Grep, Glob, Bash`; `skills: [wiki-conventions, wiki-retrieval]`.
+- `agents/wiki-researcher.md`: `model: haiku`; `tools: Read, Grep, Glob, Bash, Write`; `skills: [wiki-conventions, wiki-retrieval]`. (`Write` is for persisting a `synthesis/` page — step 7 below; retrieval is otherwise read-only.)
 - `skills/wiki-retrieval/SKILL.md` — the loop:
   1. **Query expansion** — write 5–8 alternative phrasings/synonyms/jargon before searching. (Where "semantic" lives, minus embeddings.)
   2. **Multi-seed** — union of grep-on-terms, tag matches, title matches.
@@ -188,6 +227,7 @@ Example-based tests cover the edge cases: anchors, image embeds, links inside li
   4. **Follow typed edges** the question implies.
   5. **Termination budget — state it:** max 2 hops, ~12 notes, stop when the next note adds nothing.
   6. **Synthesise** with honest temporal framing (§8): prefer `supersedes` facts over recency guesses; surface age and `volatility`.
+  7. **Offer to persist** — if the result is a durable, reusable answer, **recommend** saving it as a `synthesis/` page; on the user's yes (never auto-save), write it (full frontmatter, a `summary:`, and `source`-type edges to the pages it drew on), run `build_index.py`, and `commit.py`.
 - At ~1,000 notes, if `_index.md` outgrows a comfortable single read, **tier by folder** (top-level MOC index → pick folders → read those folder indices). Do not reach for embeddings (§10).
 
 **Acceptance:** retrieval evals pass (§5) — correct notes within budget, source paths cited, stale/volatile flagged, superseded facts not returned as current.
@@ -236,7 +276,7 @@ Two layers, two instruments. Don't mix them.
 
 1. **Structural assertions over LLM-judged ones.** Most of what matters here is checkable by plain code — does the note carry a `source_date`? Is the superseded note absent from the returned set? Did note count grow by the expected amount? Reserve an LLM judge only for genuinely fuzzy questions (is the synthesis coherent?), and treat those as the expensive minority.
 
-2. **A hand-authored golden vault.** ~15–30 notes with known structure: a known supersession chain, a known `stable`-vs-`volatile` pair on one topic, a known duplicate trap, known typed edges. This is ground truth — **you author it, not the agent** (see the note below). Version it; it changes rarely and deliberately.
+2. **A hand-authored golden vault.** ~15–30 pages with known structure: a known supersession chain, a known `stable`-vs-`volatile` pair on one topic, a known duplicate trap, known typed edges, **and coverage of all four page kinds** — including ≥1 `source/` page with a real `raw/` artifact + `source:` link and ≥1 `synthesis/` page. This is ground truth — **you author it, not the agent** (see the note below). Version it; it changes rarely and deliberately.
 
 3. **Test retrieval against the golden vault, not against your own ingestion output.** If retrieval is graded on notes ingestion produced, an ingestion bug and a retrieval bug can cancel and both show green. Isolate the two failure surfaces by giving retrieval a fixed, correct vault.
 
