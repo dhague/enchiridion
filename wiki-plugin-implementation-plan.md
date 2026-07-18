@@ -12,6 +12,18 @@ The plugin ships **no MCP server**. Everything is skills + agents + Python scrip
 
 ---
 
+## Wayfinding decisions (2026-07-18)
+
+Charted as a wayfinder map — **[Wiki Knowledge Plugin](https://github.com/dhague/enchiridion/issues/1)** (issue #1). This build is a **hybrid** map: execution is carried into tickets, but genuine design decisions gate the build tickets they inform. Decisions taken while charting, which amend the plan below:
+
+- **Destination (finish line):** ingestion + retrieval working end-to-end, all phase evals green against the golden vault, plugin installed and verified in **both** deployment modes, statusline present for the §10.2 cache measurement. **No marketplace/distribution step.**
+- **Tags are emergent, not controlled** — generated at ingestion (reuse where sensible, mint where needed). Amends the §3 schema, §3 Phase 3 step 5, and retires the §12-A tag-vocab lint rule.
+- **Folder structure is opinionated and plugin-fixed**, not per-vault. Designing it well is its own piece of work (map ticket [#5](https://github.com/dhague/enchiridion/issues/5)), fed by a prior-art survey (ticket [#2](https://github.com/dhague/enchiridion/issues/2)). Per-vault taxonomy is explicitly *not* a feature.
+- **Golden vault is the eval + measurement substrate.** Real-vault-scale numbers are out of scope, so §10.1 is nearly foregone (whole-read). Human owns the golden vault + property list (§5).
+- **Out of scope:** marketplace/distribution; the entire §12 roadmap; real-vault-scale tuning (folder tiering at ~1k notes, embeddings); a controlled tag vocabulary.
+
+---
+
 ## 0. Four efficiency lenses (apply to every decision)
 
 Acceptance criteria, not aspirations.
@@ -100,7 +112,7 @@ Each phase is independently testable and leaves the plugin working. Build in ord
 ### Phase 1 — Scaffold + conventions spec
 
 - Write `plugin.json` (name, version, description, author) — minimal.
-- Write `skills/wiki-conventions/SKILL.md` — the **single source of truth**: frontmatter schema (below), folder map (Karpathy), link format (relative markdown), typed-edge vocabulary. Preloaded by both agents, so it is the contract between ingestion and retrieval.
+- Write `skills/wiki-conventions/SKILL.md` — the **single source of truth**: frontmatter schema (below), the **opinionated, plugin-fixed folder structure** (designed deliberately — see the wayfinding note above; Karpathy is the reference, not a copy), link format (relative markdown), typed-edge vocabulary. Preloaded by both agents, so it is the contract between ingestion and retrieval. Note the split: the folder structure is the *fixed* half of the contract; **tags are the emergent half** (generated at ingestion), so they are not enumerated here.
 - Confirm project-scope install and that both (empty) agents are discoverable.
 
 **Frontmatter schema.** Only fields that are *judgment* live here; anything git can tell us is derived, not authored (see §4):
@@ -109,7 +121,7 @@ Each phase is independently testable and leaves the plugin working. Build in ord
 ---
 title: <human title>
 summary: <one line, ≤ ~20 words>        # THE field retrieval reads; write it well at ingestion
-tags: [<controlled vocabulary>]
+tags: [<emergent — reuse existing tags where sensible, mint new where needed; NOT a fixed controlled vocabulary>]
 source_date: <YYYY-MM-DD>               # when the knowledge is FROM — judgment, not recoverable from git
 volatility: stable | evolving | volatile
 supersedes: [<relative/path.md>, ...]   # optional
@@ -149,7 +161,7 @@ Example-based tests cover the edge cases: anchors, image embeds, links inside li
   2. Split into semantic chunks (judgment — the reason this is Sonnet).
   3. **Check the index / grep before creating** — update or link an existing note rather than duplicating. Dedup-against-existing is the quality bar.
   4. Create/update notes; write frontmatter via `frontmatter.py`; set `source_date` from the document's own date and a `volatility` judgment. (No `updated_at`/`ingested_at` — git records those.)
-  5. Assign **typed edges** and controlled-vocabulary tags. Highest-leverage output — retrieval cannot recover an edge type never recorded.
+  5. Assign **typed edges** and **emergent tags** (reuse existing tags where they fit; mint new ones where needed — no fixed vocabulary to conform to). Typed edges are the highest-leverage output — retrieval cannot recover an edge type never recorded.
   6. **On contradiction, append + `supersedes`, don't overwrite.**
   7. Run `build_index.py`, then `commit.py` with the manifest — one structured commit per ingestion (§4).
 - `commands/wiki-ingest.md`: thin `/wiki-ingest <path>` delegating to the agent.
@@ -283,7 +295,7 @@ Everything here needs only Bash + filesystem + Python, so a server would add pre
 
 ## 10. Open questions to resolve *by measurement*
 
-1. **Index token count on the real vault.** Under ~15k → read whole, retrieval design closes, spend effort on typed-edge quality. Well over → tier by folder (§6). Gates Phase 5.
+1. **Index token count.** Under ~15k → read whole, retrieval design closes, spend effort on typed-edge quality. Well over → tier by folder (§6). Gates Phase 5. *(Wayfinding scope: measured against the ~15–30 note golden vault, so the index is tiny and this is nearly foregone → whole-read. Real-vault-scale tuning — folder tiering, embeddings — is out of scope for this build; see the wayfinding note up top.)*
 2. **Does `skills:`-preloaded content cache across subagent invocations?** Ask the researcher one question, then a second within 5 minutes; watch `cache_creation_input_tokens` via the statusline. Determines free-per-session vs paid-per-question.
 3. **Is Haiku's synthesis good enough?** Run the retrieval evals; if conflict resolution or temporal framing is weak, escalate *only the synthesis step* to Sonnet (researcher gathers on Haiku, returns the note set, main thread synthesises) rather than moving the whole agent up.
 
@@ -312,7 +324,7 @@ No Node, no MCP SDK, no embedding model, no vector store. That absence is the de
 
 Sequenced by dependency. All four lean on git (§4), which is why git is in the core build and these are not.
 
-**A. Deterministic linter (no model).** Dead links, orphan notes, missing/invalid frontmatter, tags outside the vocabulary, broken `supersedes` pointers, asymmetric links. Pure scripts — `links.py` already parses the nodes, so this is a cheap extension. Wire it as a **pre-commit hook** so a broken vault can't be committed. This is the highest-value roadmap item because it protects ingestion quality and costs no inference. Build first.
+**A. Deterministic linter (no model).** Dead links, orphan notes, missing/invalid frontmatter, broken `supersedes` pointers, asymmetric links. *(The "tags outside the vocabulary" rule is retired — tags are emergent, not controlled; see the wayfinding note up top.)* Pure scripts — `links.py` already parses the nodes, so this is a cheap extension. Wire it as a **pre-commit hook** so a broken vault can't be committed. This is the highest-value roadmap item because it protects ingestion quality and costs no inference. Build first.
 
 **B. Contradiction detection (rides into ingestion, Sonnet).** *Not* a batch vault scan — that's O(n²) and a bad deal. Fold it into the ingestion pass: you're already reading the overlapping notes for dedup, which is exactly when the relevant notes are in context. On a detected contradiction, **surface it to the human to resolve at ingestion time** — never auto-resolve. Recency is offered only as a *weak hint* ("the existing note is older; the incoming doc is more recent, so it's *more likely* current — but the new doc may simply contain an error"). The human always decides. This deliberately stays on the safe side of the recency trap (§8): recency informs a human's contradiction call, it never re-ranks retrieval.
 
