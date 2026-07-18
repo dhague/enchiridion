@@ -31,6 +31,9 @@ def _yaml() -> YAML:
     y = YAML()  # typ='rt' — round-trip, preserves formatting
     y.preserve_quotes = True
     y.width = 4096  # never line-wrap long scalars
+    # Match the conventions-spec indentation so block sequences (the per-type
+    # edge keys, `supersedes`, …) round-trip byte-for-byte: `  - "[t](p.md)"`.
+    y.indent(mapping=2, sequence=4, offset=2)
     return y
 
 

@@ -82,6 +82,59 @@ def test_noop_set_is_byte_identical():
     assert out == text
 
 
+def test_get_per_type_edge_key_returns_link_list():
+    # Amended schema (19be866): typed edges are one key per type, a list of
+    # quoted markdown links.
+    text = (
+        "---\n"
+        "title: Pooling\n"
+        "refines:\n"
+        '  - "[Prepared statements](../concept/prepared-statements.md)"\n'
+        '  - "[Indexing](../concept/indexing.md)"\n'
+        "---\n"
+        "# Body\n"
+    )
+    edges = frontmatter.get(text, "refines")
+    assert list(edges) == [
+        "[Prepared statements](../concept/prepared-statements.md)",
+        "[Indexing](../concept/indexing.md)",
+    ]
+
+
+def test_get_raw_source_returns_single_link():
+    text = (
+        "---\n"
+        "title: X\n"
+        'raw_source: "[x.md](../../raw/notes/x.md)"\n'
+        "---\n"
+        "# X\n"
+    )
+    assert frontmatter.get(text, "raw_source") == "[x.md](../../raw/notes/x.md)"
+
+
+def test_set_scalar_leaves_edge_and_raw_source_blocks_byte_identical():
+    text = (
+        "---\n"
+        "title: X source\n"
+        "summary: old summary\n"
+        'raw_source: "[x.md](../../raw/notes/x.md)"\n'
+        "source:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+        "---\n"
+        "# X\n"
+    )
+    out = frontmatter.set(text, "summary", "new summary")
+    assert frontmatter.get(out, "summary") == "new summary"
+    # The raw_source line and the whole source: edge block survive untouched.
+    assert 'raw_source: "[x.md](../../raw/notes/x.md)"\n' in out
+    assert (
+        "source:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out
+
+
 def test_set_creates_frontmatter_when_absent():
     text = "# just a body\n"
     out = frontmatter.set(text, "title", "New")
@@ -91,11 +144,16 @@ def test_set_creates_frontmatter_when_absent():
 
 # --- property: the reformatting-stringifier guard ----------------------------
 
+# YAML keywords that ruamel must quote when used as a plain scalar key/value —
+# excluded so generated frontmatter is unambiguous and its raw text is canonical
+# (this test isolates round-trip fidelity, not ruamel's scalar disambiguation).
+_YAML_KEYWORDS = {"true", "false", "yes", "no", "on", "off", "null", "y", "n"}
+
 _ident = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz_",
     min_size=1,
     max_size=8,
-).filter(lambda s: not s[0].isdigit())
+).filter(lambda s: s not in _YAML_KEYWORDS)
 
 _scalar = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
@@ -115,6 +173,46 @@ def test_prop_untouched_key_byte_identical(mapping, body):
     for key, value in mapping.items():
         out = frontmatter.set(text, key, value)
         assert out == text, f"no-op set of {key!r} was not byte-identical"
+
+
+_link = st.builds(
+    lambda title, path: f'"[{title}]({path}.md)"',
+    st.sampled_from(["A", "B", "C", "Prepared statements"]),
+    st.sampled_from(["../concept/a", "../entity/b", "../../raw/notes/x"]),
+)
+
+
+# Values that ruamel emits unquoted and reads back identically, so raw
+# `key: value` text is already canonical — isolating the indentation invariant
+# from scalar-quoting noise.
+_safe_scalar = st.sampled_from(
+    ["stable", "evolving", "volatile", "Prepared statements", "hello world", "A"]
+)
+
+
+@settings(max_examples=200)
+@given(
+    scalars=st.dictionaries(_ident, _safe_scalar, min_size=1, max_size=3),
+    edges=st.dictionaries(
+        st.sampled_from(["refines", "source", "related", "supersedes"]),
+        st.lists(_link, min_size=1, max_size=3),
+        min_size=1,
+        max_size=3,
+    ),
+    body=st.text(alphabet="abc \n#", max_size=30),
+)
+def test_prop_untouched_key_byte_identical_with_edge_lists(scalars, edges, body):
+    """No-op set stays byte-identical even with 2-space-indented edge lists.
+
+    This is the shape the earlier scalar-only property test could not reach —
+    and the one that exposed the block-sequence reindentation bug (19be866).
+    """
+    fm = "".join(f"{k}: {v}\n" for k, v in scalars.items())
+    for key, items in edges.items():
+        fm += f"{key}:\n" + "".join(f"  - {item}\n" for item in items)
+    text = "---\n" + fm + "---\n" + body
+    for key, value in scalars.items():
+        assert frontmatter.set(text, key, value) == text
 
 
 @settings(max_examples=200)

@@ -120,9 +120,18 @@ _DIRS = ["wiki/concept", "wiki/entity", "wiki/source", "raw/notes"]
 _NAMES = ["a", "b", "c", "d", "e"]
 
 
+_EDGE_KEYS = ["refines", "contradicts", "example-of", "source", "related"]
+
+
 @st.composite
 def _vaults(draw):
-    """A small vault of markdown files whose relative links all resolve."""
+    """A small vault whose relative links — in body *and* per-key frontmatter — resolve.
+
+    Each page carries an amended-schema frontmatter block: a title, a flow-list
+    `tags`, and zero or more typed-edge keys, each holding quoted markdown links
+    to other pages. This exercises the move invariant against frontmatter links,
+    not just body links.
+    """
     rels = draw(
         st.lists(
             st.tuples(st.sampled_from(_DIRS), st.sampled_from(_NAMES)),
@@ -135,16 +144,35 @@ def _vaults(draw):
     files = {}
     for rel in rels:
         others = [r for r in rels if r != rel]
-        targets = draw(st.lists(st.sampled_from(others or [rel]), max_size=3))
-        lines = ["# " + rel]
-        for t in targets:
-            dest = posixpath.relpath(t, posixpath.dirname(rel) or ".")
-            use_anchor = draw(st.booleans())
-            if use_anchor:
+        rel_dir = posixpath.dirname(rel) or "."
+
+        def _md_link(target, with_anchor=False):
+            dest = posixpath.relpath(target, rel_dir)
+            if with_anchor:
                 dest += "#sec"
-            lines.append(f"- see [link]({dest})")
-        lines.append("plain trailing line")
-        files[rel] = "\n".join(lines) + "\n"
+            return f"[{posixpath.basename(target)}]({dest})"
+
+        # --- frontmatter with per-key typed edges (quoted markdown links) ---
+        fm = ["---", f"title: {posixpath.basename(rel)}", "tags: [x, y]"]
+        edge_keys = draw(
+            st.lists(st.sampled_from(_EDGE_KEYS), unique=True, max_size=2)
+        )
+        for key in edge_keys:
+            edge_targets = draw(
+                st.lists(st.sampled_from(others or [rel]), min_size=1, max_size=2)
+            )
+            fm.append(f"{key}:")
+            for t in edge_targets:
+                fm.append(f'  - "{_md_link(t)}"')
+        fm.append("---")
+
+        # --- body links ---
+        body = ["# " + rel]
+        for t in draw(st.lists(st.sampled_from(others or [rel]), max_size=3)):
+            body.append(f"- see {_md_link(t, with_anchor=draw(st.booleans()))}")
+        body.append("plain trailing line")
+
+        files[rel] = "\n".join(fm + body) + "\n"
     return files
 
 
