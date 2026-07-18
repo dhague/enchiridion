@@ -1,0 +1,9 @@
+# Local dev environment + tooling caches — never committed.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+
+# Resilio Sync scratch artifacts.
+*.rsls
