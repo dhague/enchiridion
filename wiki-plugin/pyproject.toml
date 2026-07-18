@@ -1,0 +1,18 @@
+[project]
+name = "wiki-knowledge"
+version = "0.1.0"
+description = "Deterministic script layer for the wiki-knowledge Claude Code plugin."
+requires-python = ">=3.10"
+dependencies = [
+    "ruamel.yaml",     # round-trip frontmatter — NOT pyyaml (pyyaml coerces types / loses formatting)
+    "markdown-it-py",  # AST with source maps for position-splice link rewriting
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis",      # property tests for frontmatter round-trip + link-move invariants
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
