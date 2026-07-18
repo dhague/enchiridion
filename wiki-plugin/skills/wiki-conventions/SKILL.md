@@ -67,11 +67,22 @@ title: <human title>
 summary: <one line, ≤ ~20 words>        # THE field retrieval reads first; write it well at ingestion
 tags: [<emergent — reuse existing tags where sensible, mint new where needed; NOT a controlled vocabulary>]
 source_date: <YYYY-MM-DD>               # when the knowledge is FROM (valid time) — judgment, not recoverable from git
-source: <relative/path into raw/>       # REQUIRED on source/ pages; a link to the ingested artifact. Omit on other kinds.
+raw_source: "[<filename>](<relative/path into raw/>)"   # REQUIRED on source/ pages; a single link (title = filename) to the ingested artifact. Omit on other kinds.
 volatility: stable | evolving | volatile
-supersedes: [<relative/path.md>, ...]   # optional; this page replaces the listed page(s)
-links:
-  - {to: <relative/path.md>, type: refines | contradicts | example-of | source | related}
+# Relationships — each an optional list of relative-markdown links (quoted, so YAML doesn't read the [ as a flow sequence).
+# Include only the keys that have links; omit the rest.
+supersedes:                             # pages this page replaces (a recorded fact; see notes)
+  - "[<title>](<relative/path.md>)"
+refines:                                # typed edges: one key per edge type (see Typed edges)
+  - "[<title>](<relative/path.md>)"
+contradicts:
+  - "[<title>](<relative/path.md>)"
+example-of:
+  - "[<title>](<relative/path.md>)"
+source:
+  - "[<title>](<relative/path.md>)"
+related:
+  - "[<title>](<relative/path.md>)"
 ---
 ```
 
@@ -81,10 +92,10 @@ Field notes:
 - **`summary`** — the single most important field. Retrieval judges a candidate page by its `summary` before ever reading the body, and `build_index.py` lifts it verbatim into `_index.md`. One line, ≤ ~20 words, written well at ingestion.
 - **`tags`** — emergent, not controlled. See [Tags](#tags).
 - **`source_date`** — the **valid time**: when the knowledge is *from* (the document's own date, the meeting's date). This is a judgment git cannot reconstruct, and it is what temporal queries key off. Distinct from when the page was committed.
-- **`source`** — a relative path into `raw/`, **required on `source/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for. Do not confuse it with the `source`-type *edge* (see [Typed edges](#typed-edges)): the field points into `raw/`; the edge points at another `wiki/` page.
+- **`raw_source`** — a **single markdown link into `raw/`** (use the artifact's filename as the link title), **required on `source/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for — one link, not a list, since a `source/` page stands in for exactly one artifact. Distinct from the `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; the edge points at another `wiki/` page. The two were split onto different keys (`raw_source:` vs `source:`) precisely so nothing has to guess which is meant.
 - **`volatility`** — `stable` | `evolving` | `volatile`. Drives conditional decay at retrieval: `stable` facts do not age out, `volatile` ones are flagged as possibly current-only. A blanket recency prior is wrong on exactly the facts that were `stable`, which is why this is authored, not inferred.
-- **`supersedes`** — optional list of relative paths this page replaces. A **recorded fact**, stronger than any "newer wins" guess: retrieval prefers a `supersedes` relationship over recency. On a contradiction, ingestion **appends a new page and records `supersedes`; it does not overwrite** the old one.
-- **`links`** — the typed-edge list; see [Typed edges](#typed-edges).
+- **`supersedes`** — optional list of markdown links to the pages this page replaces. A **recorded fact**, stronger than any "newer wins" guess: retrieval prefers a `supersedes` relationship over recency. On a contradiction, ingestion **appends a new page and records `supersedes`; it does not overwrite** the old one.
+- **typed-edge keys** (`refines`, `contradicts`, `example-of`, `source`, `related`) — each an optional list of markdown links to the target pages; see [Typed edges](#typed-edges).
 
 ### Derived from git
 
@@ -106,16 +117,27 @@ Links between pages are **relative markdown links — not wikilinks.**
 
 All links are **position-spliced** on move/rename by `links.py` (both inbound links across the vault and outbound links inside a moved page), so a page can be re-filed without hand-editing references. Keep links as plain relative paths; do not URL-encode or absolutize them.
 
+**Frontmatter relationships use the same link form.** The `raw_source` field, the `supersedes` key, and every typed-edge key hold this identical `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse the leading `[` as a flow sequence. `raw_source` holds a **single** such link; `supersedes` and the typed-edge keys hold a **list** (one link per item, `- "[…](…)"`). Writing them as real markdown links keeps every relationship clickable in plain markdown viewers and in Obsidian's Properties panel with no loss of semantics, and lets `links.py` rewrite frontmatter and body links by the same rule.
+
 ## Typed edges
 
-Typed edges are the **highest-leverage output of ingestion** — retrieval cannot recover an edge type that was never recorded. Each edge is one entry in the page's `links:` list: `{to: <relative/path.md>, type: <type>}`. The edge is **directional** — it reads *this page* → *type* → *target*.
+Typed edges are the **highest-leverage output of ingestion** — retrieval cannot recover an edge type that was never recorded. **Each edge type is its own frontmatter key**, holding a list of markdown links to the target pages:
+
+```yaml
+refines:
+  - "[Prepared statements](../concept/prepared-statements.md)"
+source:
+  - "[Deploy runbook](../source/deploy-github-actions.md)"
+```
+
+The edge is **directional** — it reads *this page* → *key* → *target*. Include only the keys that have edges; omit the rest.
 
 | Type | Reads as | Use when |
 |---|---|---|
 | **`refines`** | *this page refines the target* | This page sharpens, extends, or adds precision to the target's idea. The target is the broader/earlier statement; this page is the finer one. |
 | **`contradicts`** | *this page contradicts the target* | This page's claim conflicts with the target's. Record the edge even before the conflict is resolved; when it *is* resolved by replacement, also set `supersedes`. |
 | **`example-of`** | *this page is an example of the target* | This page is a concrete instance / case study of the general concept the target describes. |
-| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. The canonical use: a `synthesis/` page links (via `source` edges) to each `wiki/` page it was synthesized from. **Not** the same as the `source:` frontmatter field, which points a `source/` page into `raw/`. |
+| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. The canonical use: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from. **Not** the same as the `raw_source:` frontmatter field, which points a `source/` page into `raw/`. |
 | **`related`** | *this page is associatively related to the target* | A real connection that is none of the above. The catch-all — prefer a sharper type whenever one fits, because retrieval can follow a specific type purposefully and can only wander a `related` one. |
 
 **Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
