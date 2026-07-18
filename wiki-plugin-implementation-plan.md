@@ -149,7 +149,7 @@ Each phase is independently testable and leaves the plugin working. Build in ord
 ### Phase 1 — Scaffold + conventions spec
 
 - Write `plugin.json` (name, version, description, author) — minimal.
-- Write `skills/wiki-conventions/SKILL.md` — the **single source of truth**: frontmatter schema (below), the **opinionated, plugin-fixed folder structure** (designed deliberately — see the wayfinding note above; Karpathy is the reference, not a copy), link format (relative markdown), typed-edge vocabulary. Preloaded by both agents, so it is the contract between ingestion and retrieval. Note the split: the folder structure is the *fixed* half of the contract; **tags are the emergent half** (generated at ingestion), so they are not enumerated here.
+- Write `skills/wiki-conventions/SKILL.md` — the **single source of truth**: frontmatter schema (below), the **opinionated, plugin-fixed folder structure** (designed deliberately — see the wayfinding note above; Karpathy is the reference, not a copy), link format (relative markdown), typed-edge vocabulary. Preloaded by both agents, so it is the contract between ingestion and retrieval. Note the split: the folder structure is the *fixed* half of the contract; **tags are the emergent half** (generated at ingestion), so they are not enumerated here. **→ Delivered:** [`wiki-plugin/skills/wiki-conventions/SKILL.md`](wiki-plugin/skills/wiki-conventions/SKILL.md) (resolved [#6](https://github.com/dhague/enchiridion/issues/6)) — the authoritative artifact; the schema block below is a mirror.
 - Confirm project-scope install and that both (empty) agents are discoverable.
 
 **Frontmatter schema.** Only fields that are *judgment* live here; anything git can tell us is derived, not authored (see §4):
