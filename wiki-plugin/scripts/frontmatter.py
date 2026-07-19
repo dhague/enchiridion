@@ -23,6 +23,7 @@ from io import StringIO
 from pathlib import Path
 
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from lib import md
 
@@ -72,12 +73,31 @@ def load(text: str) -> dict | None:
     return _load(fm)
 
 
+def _quote_links(value):
+    """Wrap a fresh markdown-link scalar (or each item of a list of them) in
+    :class:`DoubleQuotedScalarString`, so a value set for the first time —
+    with no prior double-quoted style to round-trip from — still renders
+    double-quoted per the conventions spec, not ruamel's default single-quote.
+    Only strings that look like a link (``[label](dest)``) are touched —
+    image embeds (``![…]``) never appear in frontmatter per the conventions
+    spec, so that form isn't handled here.
+    """
+    if isinstance(value, str):
+        if value.startswith("["):
+            return DoubleQuotedScalarString(value)
+        return value
+    if isinstance(value, list):
+        return [_quote_links(item) for item in value]
+    return value
+
+
 def set(text: str, key: str, value) -> str:
     """Return ``text`` with frontmatter ``key`` set to ``value``.
 
     Creates a frontmatter block if the document has none. Only the block is
     reformatted; the body is preserved exactly.
     """
+    value = _quote_links(value)
     fm, body, _offset = md.split_frontmatter(text)
     if fm is None:
         # No frontmatter yet — mint a fresh block ahead of the untouched body.

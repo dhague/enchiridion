@@ -142,6 +142,30 @@ def test_set_creates_frontmatter_when_absent():
     assert out.endswith("# just a body\n")
 
 
+def test_set_new_raw_source_link_is_double_quoted():
+    # A freshly-set link-shaped scalar (no prior double-quoted style to
+    # round-trip from) must still come out double-quoted per the conventions
+    # spec, not ruamel's default single-quote.
+    text = "---\ntitle: X\n---\n# X\n"
+    out = frontmatter.set(text, "raw_source", "[x.md](../../raw/notes/x.md)")
+    assert 'raw_source: "[x.md](../../raw/notes/x.md)"\n' in out
+    assert frontmatter.get(out, "raw_source") == "[x.md](../../raw/notes/x.md)"
+
+
+def test_set_new_edge_list_links_are_double_quoted():
+    text = "---\ntitle: X\n---\n# X\n"
+    out = frontmatter.set(
+        text,
+        "refines",
+        ["[A](../concept/a.md)", "[B](../concept/b.md)"],
+    )
+    assert (
+        "refines:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out
+
+
 # --- load ----------------------------------------------------------------
 
 def test_load_returns_full_mapping():
