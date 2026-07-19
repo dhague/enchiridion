@@ -1,0 +1,14 @@
+{
+  "name": "enchiridion-wiki-plugin",
+  "owner": {
+    "name": "Darren Hague",
+    "email": "darren.hague@fortybeans.com"
+  },
+  "plugins": [
+    {
+      "name": "wiki-knowledge",
+      "source": "./",
+      "description": "Clean-room ingestion and retrieval over a git-backed markdown wiki vault, following the Karpathy LLM-wiki pattern."
+    }
+  ]
+}
