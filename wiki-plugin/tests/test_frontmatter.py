@@ -142,6 +142,28 @@ def test_set_creates_frontmatter_when_absent():
     assert out.endswith("# just a body\n")
 
 
+# --- load ----------------------------------------------------------------
+
+def test_load_returns_full_mapping():
+    text = (
+        "---\n"
+        "title: Pooling\n"
+        "tags: [db, perf]\n"
+        "related:\n"
+        '  - "[B](../entity/b.md)"\n'
+        "---\n"
+        "# Body\n"
+    )
+    data = frontmatter.load(text)
+    assert data["title"] == "Pooling"
+    assert list(data["tags"]) == ["db", "perf"]
+    assert list(data["related"]) == ["[B](../entity/b.md)"]
+
+
+def test_load_no_frontmatter_returns_none():
+    assert frontmatter.load("# just a body\n") is None
+
+
 # --- property: the reformatting-stringifier guard ----------------------------
 
 # YAML keywords that ruamel must quote when used as a plain scalar key/value —

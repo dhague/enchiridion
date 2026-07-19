@@ -60,6 +60,18 @@ def get(text: str, key: str):
     return data.get(key)
 
 
+def load(text: str) -> dict | None:
+    """Return ``text``'s full frontmatter mapping, or ``None`` if it has none.
+
+    Unlike :func:`get`, this hands back every key at once — used by callers
+    (``build_index.py``) that need the whole record rather than one field.
+    """
+    fm, _body, _offset = md.split_frontmatter(text)
+    if fm is None:
+        return None
+    return _load(fm)
+
+
 def set(text: str, key: str, value) -> str:
     """Return ``text`` with frontmatter ``key`` set to ``value``.
 
