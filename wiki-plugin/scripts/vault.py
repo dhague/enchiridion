@@ -1,6 +1,7 @@
 """Resolve the vault root.
 
-Order (§1 of the implementation plan), highest priority first:
+See docs/adr/0004-deployment-modes-and-vault-root-resolution.md for why.
+Order, highest priority first:
 
 1. ``$WIKI_ROOT`` if set — wins always (the query-from-anywhere mode).
 2. else the nearest ancestor of ``start`` containing a vault marker: a ``wiki/``
