@@ -203,6 +203,11 @@ _link = st.builds(
     st.sampled_from(["../concept/a", "../entity/b", "../../raw/notes/x"]),
 )
 
+_EDGE_KEYS = {"refines", "source", "related", "supersedes"}
+# Disjoint from _EDGE_KEYS so a drawn scalar key can never collide with a
+# drawn edge key and produce two identical keys in one YAML document.
+_scalar_key = _ident.filter(lambda s: s not in _EDGE_KEYS)
+
 
 # Values that ruamel emits unquoted and reads back identically, so raw
 # `key: value` text is already canonical — isolating the indentation invariant
@@ -214,9 +219,9 @@ _safe_scalar = st.sampled_from(
 
 @settings(max_examples=200)
 @given(
-    scalars=st.dictionaries(_ident, _safe_scalar, min_size=1, max_size=3),
+    scalars=st.dictionaries(_scalar_key, _safe_scalar, min_size=1, max_size=3),
     edges=st.dictionaries(
-        st.sampled_from(["refines", "source", "related", "supersedes"]),
+        st.sampled_from(sorted(_EDGE_KEYS)),
         st.lists(_link, min_size=1, max_size=3),
         min_size=1,
         max_size=3,
