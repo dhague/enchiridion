@@ -1,6 +1,6 @@
 {
   "name": "wiki-knowledge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Clean-room ingestion and retrieval over a git-backed markdown wiki vault, following the Karpathy LLM-wiki pattern.",
   "author": {
     "name": "Darren Hague",
