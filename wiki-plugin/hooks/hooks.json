@@ -1,0 +1,15 @@
+{
+  "description": "Records this session's transcript_path at start so /save-conversation can find it reliably, even with multiple sessions running in parallel (#23)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/store_transcript_path.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
