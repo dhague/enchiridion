@@ -23,8 +23,12 @@ def main():
     write_transcript_path(session_id, transcript_path)
 
 
-if __name__ == "__main__":
+def main_swallowing_errors():
     try:
         main()
     except Exception:
         pass
+
+
+if __name__ == "__main__":
+    main_swallowing_errors()
