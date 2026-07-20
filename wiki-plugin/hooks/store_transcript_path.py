@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from session_state import write_transcript_path  # noqa: E402
+from session_state import sessions_dir, write_transcript_path  # noqa: E402
 
 
 def main():
@@ -20,7 +20,10 @@ def main():
     transcript_path = payload.get("transcript_path")
     if not session_id or not transcript_path:
         return
-    write_transcript_path(session_id, transcript_path)
+    # Use the hook payload's own cwd (the project root at session start)
+    # rather than this process's cwd, so state always lands in the project
+    # the session actually belongs to.
+    write_transcript_path(session_id, transcript_path, state_dir=sessions_dir(payload.get("cwd")))
 
 
 def main_swallowing_errors():

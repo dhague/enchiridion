@@ -5,20 +5,25 @@ The `SessionStart` hook (``hooks/store_transcript_path.py``) writes here;
 has to guess which of several concurrently running sessions' transcripts is
 "current" — see #23.
 
-State lives under the user's home directory (not the vault, not the repo)
-so it resolves the same way regardless of deployment mode or cwd, and one
-JSON file per session_id so parallel sessions can't clobber each other.
+State lives under the current project's ``.claude/wiki-knowledge/sessions/``
+(gitignored), not the vault — the vault may live somewhere else entirely
+under query-from-anywhere deployment mode. One JSON file per session_id so
+parallel sessions sharing a project don't clobber each other.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-DEFAULT_STATE_DIR = Path.home() / ".claude" / "wiki-knowledge" / "sessions"
+
+def sessions_dir(root: Path | str | None = None) -> Path:
+    """The sessions directory under ``root`` (default: cwd)."""
+    base = Path(root) if root is not None else Path.cwd()
+    return base / ".claude" / "wiki-knowledge" / "sessions"
 
 
 def _state_path(session_id: str, state_dir: Path | None = None) -> Path:
-    return (state_dir if state_dir is not None else DEFAULT_STATE_DIR) / f"{session_id}.json"
+    return (state_dir if state_dir is not None else sessions_dir()) / f"{session_id}.json"
 
 
 def write_transcript_path(session_id: str, transcript_path: str, state_dir: Path | None = None) -> None:

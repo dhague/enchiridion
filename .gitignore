@@ -1,2 +1,6 @@
 # Resilio Sync scratch artifacts — this repo lives inside a synced folder.
 *.rsls
+
+# Per-session transcript_path state written by the wiki-knowledge plugin's
+# SessionStart hook (wiki-plugin/hooks/store_transcript_path.py) — see #23.
+.claude/wiki-knowledge/sessions/

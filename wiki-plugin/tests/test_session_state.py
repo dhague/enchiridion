@@ -1,4 +1,6 @@
 """TDD for session_state.py — per-session transcript_path storage (#23)."""
+from pathlib import Path
+
 import session_state
 
 
@@ -39,3 +41,14 @@ def test_write_creates_state_dir_if_missing(tmp_path):
     nested = tmp_path / "nested" / "sessions"
     session_state.write_transcript_path("session-a", "/path/to/a.jsonl", state_dir=nested)
     assert session_state.read_transcript_path("session-a", state_dir=nested) == "/path/to/a.jsonl"
+
+
+def test_sessions_dir_is_under_given_root():
+    assert session_state.sessions_dir("/some/project") == (
+        Path("/some/project") / ".claude" / "wiki-knowledge" / "sessions"
+    )
+
+
+def test_sessions_dir_defaults_to_cwd(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert session_state.sessions_dir() == tmp_path / ".claude" / "wiki-knowledge" / "sessions"

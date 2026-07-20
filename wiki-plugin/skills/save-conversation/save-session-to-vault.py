@@ -4,12 +4,14 @@ enchiridion-vault inbox (raw/conversations/), for later wiki-ingest.
 Run manually (via the save-conversation skill), not as a hook, so there is
 no hook JSON payload here to read transcript_path from directly. Instead,
 the plugin's `SessionStart` hook (hooks/store_transcript_path.py) records
-transcript_path per session_id as each session starts; this script looks
-itself up by the $CLAUDE_CODE_SESSION_ID env var (which Claude Code exports
-to every process it launches, including this one). This replaced a
-"most-recently-modified transcript in this project's directory" heuristic
-that broke when more than one session was running against the same project
-in parallel - see #23.
+transcript_path per session_id, under this project's
+`.claude/wiki-knowledge/sessions/` (gitignored), as each session starts;
+this script looks itself up by the $CLAUDE_CODE_SESSION_ID env var (which
+Claude Code exports to every process it launches, including this one) and
+its own cwd, which must match the project the hook recorded it under. This
+replaced a "most-recently-modified transcript in this project's directory"
+heuristic that broke when more than one session was running against the
+same project in parallel - see #23.
 
 Prints the vault-relative path of the raw file it wrote, so the calling
 skill can pass it straight to wiki-ingest.
