@@ -43,6 +43,11 @@ class Manifest:
     updated: list[str] = field(default_factory=list)
     superseded: list[tuple[str, str]] = field(default_factory=list)
     source_date: str | None = None
+    #: The normalized raw/ artifact this ingestion is sourced from, if any —
+    #: staged automatically so the source document always lands in the same
+    #: commit as the pages it produced, without the caller having to remember
+    #: to fold it into extra_paths by hand.
+    raw_source: str | None = None
     #: Extra paths to stage that aren't a page edit — e.g. the regenerated index.
     extra_paths: list[str] = field(default_factory=list)
 
@@ -55,6 +60,7 @@ class Manifest:
             updated=list(d.get("updated", [])),
             superseded=[tuple(pair) for pair in d.get("superseded", [])],
             source_date=d.get("source_date"),
+            raw_source=d.get("raw_source"),
             extra_paths=list(d.get("extra_paths", [])),
         )
 
@@ -68,6 +74,8 @@ class Manifest:
         for old, new in self.superseded:
             paths.append(old)
             paths.append(new)
+        if self.raw_source:
+            paths.append(self.raw_source)
         paths.extend(self.extra_paths)
         seen: set[str] = set()
         ordered: list[str] = []

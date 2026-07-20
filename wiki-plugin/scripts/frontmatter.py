@@ -109,6 +109,23 @@ def set(text: str, key: str, value) -> str:
     return "---\n" + _dump(data) + "---\n" + body
 
 
+def merge(text: str, key: str, values: list) -> str:
+    """Return ``text`` with ``values`` unioned into ``key``'s existing list.
+
+    Order-preserving: existing entries keep their position, new ones are
+    appended, duplicates dropped. Equivalent to ``set`` when ``key`` is absent.
+    This replaces the get-then-union-then-set procedure a caller would
+    otherwise have to perform by hand to avoid clobbering a list-valued key
+    (``tags``, the typed-edge keys) that already has entries.
+    """
+    existing = get(text, key)
+    merged = list(existing) if existing else []
+    for value in values:
+        if value not in merged:
+            merged.append(value)
+    return set(text, key, merged)
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
@@ -125,6 +142,14 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     s.add_argument("value")
     s.add_argument("--json", action="store_true", help="parse value as JSON")
 
+    m = sub.add_parser(
+        "merge",
+        help="union a JSON list into an existing list-valued key (tags, edge keys)",
+    )
+    m.add_argument("file")
+    m.add_argument("key")
+    m.add_argument("value", help="JSON list of values to union in")
+
     args = parser.parse_args(argv)
     path = Path(args.file)
     text = path.read_text(encoding="utf-8")
@@ -134,6 +159,11 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
         if value is None:
             return 1
         print(value)
+        return 0
+
+    if args.cmd == "merge":
+        values = json.loads(args.value)
+        path.write_text(merge(text, args.key, values), encoding="utf-8")
         return 0
 
     value = json.loads(args.value) if args.json else args.value

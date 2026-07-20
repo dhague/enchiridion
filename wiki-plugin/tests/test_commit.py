@@ -91,6 +91,25 @@ def test_commit_writes_structured_message_and_stages_files(git_repo):
     assert _git(git_repo, "status", "--porcelain") == ""
 
 
+def test_commit_stages_raw_source(git_repo):
+    (git_repo / "wiki" / "source").mkdir(parents=True)
+    (git_repo / "raw").mkdir()
+    page = git_repo / "wiki" / "source" / "a.md"
+    page.write_text("# A\n", encoding="utf-8")
+    raw = git_repo / "raw" / "2026-03-01-0900-a.md"
+    raw.write_text("raw\n", encoding="utf-8")
+
+    m = commit.Manifest(
+        action="ingest",
+        title="Seed A",
+        created=["wiki/source/a.md"],
+        raw_source="raw/2026-03-01-0900-a.md",
+    )
+    commit.commit(git_repo, m)
+    tracked = _git(git_repo, "ls-files")
+    assert "raw/2026-03-01-0900-a.md" in tracked
+
+
 def test_commit_stages_both_sides_of_supersede(git_repo):
     (git_repo / "wiki").mkdir()
     old = git_repo / "wiki" / "old.md"

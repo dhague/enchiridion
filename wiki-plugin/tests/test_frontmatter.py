@@ -166,6 +166,37 @@ def test_set_new_edge_list_links_are_double_quoted():
     ) in out
 
 
+# --- merge ---------------------------------------------------------------
+
+def test_merge_unions_with_existing_list():
+    text = "---\ntitle: X\ntags: [db, sql]\n---\nbody\n"
+    out = frontmatter.merge(text, "tags", ["sql", "perf"])
+    assert list(frontmatter.get(out, "tags")) == ["db", "sql", "perf"]
+
+
+def test_merge_on_missing_key_behaves_like_set():
+    text = "---\ntitle: X\n---\nbody\n"
+    out = frontmatter.merge(text, "related", ["[A](../concept/a.md)"])
+    assert list(frontmatter.get(out, "related")) == ["[A](../concept/a.md)"]
+
+
+def test_merge_new_links_are_double_quoted():
+    text = "---\ntitle: X\nrefines:\n  - \"[A](../concept/a.md)\"\n---\nbody\n"
+    out = frontmatter.merge(text, "refines", ["[B](../concept/b.md)"])
+    assert (
+        "refines:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out
+
+
+def test_merge_is_idempotent():
+    text = "---\ntitle: X\ntags: [db]\n---\nbody\n"
+    once = frontmatter.merge(text, "tags", ["db", "sql"])
+    twice = frontmatter.merge(once, "tags", ["db", "sql"])
+    assert once == twice
+
+
 # --- load ----------------------------------------------------------------
 
 def test_load_returns_full_mapping():
