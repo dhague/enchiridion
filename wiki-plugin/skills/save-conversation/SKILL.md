@@ -13,7 +13,7 @@ Manually captures the current session's transcript into `$WIKI_ROOT/raw/conversa
    ```
    WIKI_ROOT="<path to vault>" python "${CLAUDE_PLUGIN_ROOT}/skills/save-conversation/save-session-to-vault.py"
    ```
-   It locates the current session's transcript by convention (the most recently modified `*.jsonl` in `~/.claude/projects/<encoded-cwd>/`), writes a markdown transcript to the vault's `raw/conversations/` inbox, and prints the vault-relative path of the file it wrote (e.g. `raw/conversations/2026-07-20-1530-abcd1234-session.md`).
-   - If it exits non-zero (nothing to save yet, or no transcript found), report that and stop.
+   It looks up the current session's transcript by `$CLAUDE_CODE_SESSION_ID`, using the path the plugin's `SessionStart` hook (`hooks/store_transcript_path.py`) recorded for that session_id when this session started — not a "most recently modified transcript" guess, which broke when another session was running in parallel (#23). It writes a markdown transcript to the vault's `raw/conversations/` inbox and prints the vault-relative path of the file it wrote (e.g. `raw/conversations/2026-07-20-1530-abcd1234-session.md`).
+   - If it exits non-zero (nothing to save yet, no transcript recorded for this session, or not enough conversation to save), report that and stop.
 2. Ingest the file it just wrote: delegate to the `wiki-ingest` agent (`Task` with `subagent_type: "wiki-ingest"`) with a prompt of `Ingest <path> into the vault.`, using the exact path printed in step 1.
 3. Relay the ingest manifest (pages created/updated) back to the user.
