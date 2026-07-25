@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — enchiridion / wiki-plugin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      body { font-family: ui-sans-serif, system-ui, sans-serif; }
+      .font-serif-head { font-family: Georgia, 'Times New Roman', serif; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+      <header class="space-y-3 border-b border-slate-200 pb-6">
+        <h1 class="font-serif-head text-3xl">Architecture review — enchiridion / wiki-plugin</h1>
+        <p class="text-sm text-slate-500">2026-07-19 · scope: <span class="font-mono">wiki-plugin/scripts/</span> (the only hot commit path — 5 of the last 9 commits touch it)</p>
+        <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 pt-2">
+          <span><span class="inline-block w-4 h-3 border border-slate-400 align-middle mr-1"></span>module</span>
+          <span><span class="inline-block w-4 border-t-2 border-dashed border-slate-400 align-middle mr-1"></span>seam</span>
+          <span><span class="inline-block w-4 border-t-2 border-red-600 align-middle mr-1"></span>leakage</span>
+          <span><span class="inline-block w-4 h-3 deep align-middle mr-1"></span>deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-14">
+
+        <!-- Candidate 1 -->
+        <article id="candidate-1" class="space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif-head text-2xl">Give the typed-edge schema a module</h2>
+            <span class="text-xs font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">Strong</span>
+            <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">wiki-plugin/scripts/frontmatter.py · wiki-plugin/skills/wiki-conventions/SKILL.md · wiki-plugin/tests/test_links_frontmatter.py</p>
+
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</div>
+              <pre class="mermaid">
+                flowchart TB
+                  A["wiki-conventions SKILL.md<br/>(prose: 6 edge types,<br/>quoting rule, single-vs-list)"]
+                  B["ingestion agent<br/>(builds the quoted-link<br/>string by hand)"]
+                  C["frontmatter.py<br/>get/set(text, key, value)"]
+                  A -.read by.-> B
+                  B -- "set(text, 'refines', [..])" --> C
+                  C -.leak.-> D["schema knowledge lives<br/>nowhere in code"]
+                  classDef leak stroke:#dc2626,stroke-width:2px;
+                  class D leak
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">After</div>
+              <pre class="mermaid">
+                flowchart TB
+                  A["wiki-conventions SKILL.md<br/>(schema source of truth)"]
+                  B["ingestion agent"]
+                  E["edges.py<br/>add_edge / set_raw_source<br/>(deep)"]
+                  C["frontmatter.py<br/>get/set (unchanged)"]
+                  A -.read by.-> E
+                  B -- "add_edge(text, 'refines', title, path)" --> E
+                  E --> C
+                  classDef deep fill:#0f172a,color:#fff,stroke:#0f172a;
+                  class E deep
+              </pre>
+            </div>
+          </div>
+
+          <p><span class="font-medium">Problem —</span> the typed-edge schema (six edge keys, the single-vs-list split between <span class="font-mono">raw_source</span> and the edges, the quoted-link format, the YAML-flow-list trap tested by <span class="font-mono">test_tags_flow_list_not_mistaken_for_a_link</span>) exists only as prose in <span class="font-mono">SKILL.md</span> and as regression assertions in <span class="font-mono">test_links_frontmatter.py</span>. <span class="font-mono">frontmatter.py</span> is a shallow generic key/value module — its interface is nearly as complex as its implementation (get one value, set one value) — so every edge-shape rule is pushed onto the LLM ingestion agent constructing the quoted-link string by hand, un-tested, every time it writes a relationship.</p>
+
+          <p><span class="font-medium">Solution —</span> add a small module that knows the wiki's edge vocabulary and exposes <span class="font-mono">add_edge(text, edge_type, title, rel_path)</span>, <span class="font-mono">set_raw_source(text, title, rel_path)</span>, and validation of edge-type names, built on top of the existing <span class="font-mono">frontmatter.get/set</span>. The quoting and single-vs-list mechanics move behind this interface once, instead of living in agent-generated strings.</p>
+
+          <div class="grid grid-cols-2 gap-x-8 text-sm">
+            <div>
+              <div class="text-xs uppercase tracking-wider text-slate-400 mb-1">Wins</div>
+              <ul class="list-disc list-inside space-y-1">
+                <li>leverage: one interface, every edge write</li>
+                <li>locality: edge-format bugs concentrate in one module</li>
+                <li>deletion test passes: schema logic reappears at every agent call site today</li>
+                <li>235-line frontmatter test file shrinks to scalar get/set only; edge-shape tests move onto the deep module's own surface</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- Candidate 2 -->
+        <article id="candidate-2" class="space-y-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="font-serif-head text-2xl">Vault page-loading walk (links.py) has no seam yet</h2>
+            <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-400">Speculative</span>
+            <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300">hypothetical seam</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">wiki-plugin/scripts/links.py (apply_move) · wiki-plugin/skills/wiki-conventions/SKILL.md (build_index.py, not yet built)</p>
+
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</div>
+              <pre class="mermaid">
+                flowchart TB
+                  L["links.py apply_move()<br/>rglob *.md, read every page"]
+                  V["vault.py<br/>resolve_vault_root() only"]
+                  L --> V
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">After (if a 2nd caller appears)</div>
+              <pre class="mermaid">
+                flowchart TB
+                  L["links.py apply_move()"]
+                  I["build_index.py<br/>(planned, per SKILL.md)"]
+                  V["vault.py<br/>+ load_pages()"]
+                  L --> V
+                  I --> V
+                  classDef deep fill:#0f172a,color:#fff,stroke:#0f172a;
+                  class V deep
+              </pre>
+            </div>
+          </div>
+
+          <p><span class="font-medium">Problem —</span> <span class="font-mono">links.py apply_move</span> hand-rolls its own "read every <span class="font-mono">*.md</span> under the vault root" walk. <span class="font-mono">SKILL.md</span> references a <span class="font-mono">build_index.py</span> that will need the same walk, but it doesn't exist yet — today there is exactly one caller.</p>
+
+          <p><span class="font-medium">Solution —</span> not yet. One adapter is a hypothetical seam, not a real one — extracting <span class="font-mono">vault.load_pages()</span> now would be guessing at an interface before a second caller proves what it needs to look like.</p>
+
+          <p class="text-sm text-slate-500">Flagged only so it isn't re-discovered from scratch: when <span class="font-mono">build_index.py</span> (or a linter) lands and needs the same walk, that's the moment to pull <span class="font-mono">load_pages()</span> into <span class="font-mono">vault.py</span> — not before.</p>
+        </article>
+
+      </section>
+
+      <section id="top-recommendation">
+        <div class="rounded-lg border-2 border-emerald-600 bg-emerald-50 p-6">
+          <div class="text-xs uppercase tracking-wider text-emerald-700 mb-1">Top recommendation</div>
+          <h3 class="font-serif-head text-xl mb-2"><a href="#candidate-1" class="hover:underline">Give the typed-edge schema a module</a></h3>
+          <p class="text-sm">The deletion test passes cleanly: delete the proposed module and the edge-format knowledge doesn't vanish, it reappears — inside every ingestion call that has to hand-build a quoted markdown link with the right key. That knowledge is currently untestable because it lives in agent-generated text, not in the deterministic script layer the rest of this codebase is built on.</p>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>
