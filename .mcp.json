@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "python-lsp": {
+      "command": "C:/Users/darre/go/bin/mcp-language-server.exe",
+      "args": [
+        "-workspace",
+        "${CLAUDE_PROJECT_DIR}/wiki-plugin",
+        "-lsp",
+        "${CLAUDE_PROJECT_DIR}/wiki-plugin/.venv/Scripts/pyright-langserver.exe",
+        "--",
+        "--stdio"
+      ]
+    }
+  }
+}
