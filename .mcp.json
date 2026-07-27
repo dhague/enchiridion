@@ -4,9 +4,9 @@
       "command": "C:/Users/darre/go/bin/mcp-language-server.exe",
       "args": [
         "-workspace",
-        "${CLAUDE_PROJECT_DIR}/wiki-plugin",
+        "C:/Users/darre/Code/enchiridion/wiki-plugin",
         "-lsp",
-        "${CLAUDE_PROJECT_DIR}/wiki-plugin/.venv/Scripts/pyright-langserver.exe",
+        "C:/Users/darre/Code/enchiridion/wiki-plugin/.venv/Scripts/pyright-langserver.exe",
         "--",
         "--stdio"
       ]
