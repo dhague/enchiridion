@@ -11,7 +11,7 @@ Manually captures the current session's transcript into `$WIKI_ROOT/raw/conversa
 
 1. Run the capture script, with `WIKI_ROOT` set to the target vault (per the deployment-mode resolution in `scripts/vault.py` — the script does not run inside the vault, so it can't rely on marker-directory discovery from cwd). The script itself lives in this plugin's own install directory, not the vault, so invoke it via `${CLAUDE_PLUGIN_ROOT}` (substituted before you see this text — resolves correctly regardless of cwd or deployment mode):
    ```
-   WIKI_ROOT="<path to vault>" python "${CLAUDE_PLUGIN_ROOT}/skills/save-conversation/save-session-to-vault.py"
+   WIKI_ROOT="<path to vault>" python "${CLAUDE_PLUGIN_ROOT}/scripts/save-session-to-vault.py"
    ```
    It looks up the current session's transcript by `$CLAUDE_CODE_SESSION_ID`, using the path the plugin's `SessionStart` hook (`hooks/store_transcript_path.py`) recorded for that session_id when this session started — not a "most recently modified transcript" guess, which broke when another session was running in parallel (#23). It writes a markdown transcript to the vault's `raw/conversations/` inbox and prints the vault-relative path of the file it wrote (e.g. `raw/conversations/2026-07-20-1530-abcd1234-session.md`).
    - If it exits non-zero (nothing to save yet, no transcript recorded for this session, or not enough conversation to save), report that and stop.

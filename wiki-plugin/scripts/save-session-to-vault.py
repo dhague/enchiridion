@@ -22,7 +22,7 @@ import os
 import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+sys.path.insert(0, os.path.dirname(__file__))
 from session_state import read_transcript_path  # noqa: E402
 from vault import resolve_vault_root  # noqa: E402
 
