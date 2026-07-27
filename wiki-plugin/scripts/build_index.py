@@ -8,7 +8,7 @@ source_date, volatility, and its outgoing edges (``raw_source``,
 ``supersedes``, and the five typed-edge keys). Per the amended frontmatter
 contract (19be866), each of those holds quoted markdown links rather than a
 flat ``links:`` list, so recovering a target means stripping the markdown —
-reusing ``lib.md.iter_links``, which already parses this shape — and then
+reusing ``wikipage.iter_links``, which already parses this shape — and then
 re-basing the path from the *page's* directory to be relative to ``wiki/``
 (the directory ``_index.md`` itself lives in), since a flat index can't
 otherwise say what a page-relative link resolves to.
@@ -24,8 +24,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import frontmatter
-from lib import md
+import wikipage
 
 #: Order mirrors the frontmatter schema block in the conventions spec.
 _EDGE_KEYS = (
@@ -62,7 +61,7 @@ class PageRecord:
 
 def _link_target(markdown_link: str) -> str:
     """Strip a quoted markdown link (``[title](path)``) down to its path."""
-    match = next(iter(md.iter_links(markdown_link)), None)
+    match = next(iter(wikipage.iter_links(markdown_link)), None)
     if match is None:
         raise ValueError(f"not a markdown link: {markdown_link!r}")
     return match.dest
@@ -74,7 +73,7 @@ def _rebase_to_wiki_root(target: str, page_dir: str) -> str:
 
 
 def _page_record(rel: str, text: str) -> PageRecord:
-    data = frontmatter.load(text) or {}
+    data = wikipage.WikiPage(text).frontmatter or {}
     page_dir = posixpath.dirname(rel)
 
     edges: list[tuple[str, list[str]]] = []

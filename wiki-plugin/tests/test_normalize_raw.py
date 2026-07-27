@@ -3,7 +3,7 @@
 normalize_raw.py never touches a raw file's *contents* (byte-identical
 rename); it only fixes the *name* (`YYYY-MM-DD-hhmm-` prefix, spaces to
 underscores) and, if any `source/` page's `raw_source` link points at the old
-name, follows the rename there too. The rewrite reuses links.py's
+name, follows the rename there too. The rewrite reuses wikipage.py's
 `plan_move` directly: the raw file is deliberately never added to the
 `{rel: text}` pages map (it usually isn't markdown at all), so `plan_move`'s
 per-file loop only ever rewrites *inbound* links at the old raw path —

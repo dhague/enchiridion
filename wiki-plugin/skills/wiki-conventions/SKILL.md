@@ -49,7 +49,7 @@ Ingestion runs this **top-to-bottom, first match wins**, so placement is determi
 
 ### The `raw/` layer
 
-`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. It may **rename** one to normalize the filename (see [Naming](#naming)) via `normalize_raw.py`, which drives `links.py` so any `source:` pointer follows the rename. (Repairing `source:` links after an *external* rename is deferred linter work — out of scope for the core build.)
+`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. It may **rename** one to normalize the filename (see [Naming](#naming)) via `normalize_raw.py`, which drives `wikipage.py` so any `source:` pointer follows the rename. (Repairing `source:` links after an *external* rename is deferred linter work — out of scope for the core build.)
 
 ### Naming
 
@@ -115,9 +115,9 @@ Links between pages are **relative markdown links — not wikilinks.**
 - **Anchors:** append a heading fragment — `[the budget rule](../wiki-retrieval/SKILL.md#termination-budget)` / `[…](../concept/caching.md#ttl)`. The fragment is the GitHub-style slug of the target heading.
 - **Image embeds:** the leading-bang form — `![cache diagram](../raw/diagrams/2026-03-01-cache.png)`. Embeds may point into `raw/` (e.g. an extracted figure); ordinary links between pages stay within `wiki/`.
 
-All links are **position-spliced** on move/rename by `links.py` (both inbound links across the vault and outbound links inside a moved page), so a page can be re-filed without hand-editing references. Keep links as plain relative paths; do not URL-encode or absolutize them.
+All links are **position-spliced** on move/rename by `wikipage.py` (both inbound links across the vault and outbound links inside a moved page), so a page can be re-filed without hand-editing references. Keep links as plain relative paths; do not URL-encode or absolutize them.
 
-**Frontmatter relationships use the same link form.** The `raw_source` field, the `supersedes` key, and every typed-edge key hold this identical `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse the leading `[` as a flow sequence. `raw_source` holds a **single** such link; `supersedes` and the typed-edge keys hold a **list** (one link per item, `- "[…](…)"`). Writing them as real markdown links keeps every relationship clickable in plain markdown viewers and in Obsidian's Properties panel with no loss of semantics, and lets `links.py` rewrite frontmatter and body links by the same rule.
+**Frontmatter relationships use the same link form.** The `raw_source` field, the `supersedes` key, and every typed-edge key hold this identical `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse the leading `[` as a flow sequence. `raw_source` holds a **single** such link; `supersedes` and the typed-edge keys hold a **list** (one link per item, `- "[…](…)"`). Writing them as real markdown links keeps every relationship clickable in plain markdown viewers and in Obsidian's Properties panel with no loss of semantics, and lets `wikipage.py` rewrite frontmatter and body links by the same rule.
 
 ## Typed edges
 

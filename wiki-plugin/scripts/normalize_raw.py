@@ -6,7 +6,7 @@ The file's *content* is never touched; a rename asserts the bytes are
 identical before and after.
 
 Any ``source/`` page whose ``raw_source`` link points at the old path is
-updated to follow the rename. This reuses :func:`links.plan_move` directly:
+updated to follow the rename. This reuses :func:`wikipage.plan_move` directly:
 the raw file is deliberately **not** added to the ``{rel: text}`` pages map
 (it usually isn't markdown, and its content must never be parsed/rewritten),
 so ``plan_move``'s per-file loop only ever touches *inbound* links at the old
@@ -33,13 +33,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-import links
+import wikipage
 
 _PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}-")
 
 # `raw_source`'s label is, by convention, the artifact's filename — so unlike
-# an ordinary link label (a human title, untouched by links.plan_move) it must
-# track a rename too. links.plan_move already fixed the destination; this
+# an ordinary link label (a human title, untouched by wikipage.plan_move) it must
+# track a rename too. wikipage.plan_move already fixed the destination; this
 # regex retargets just the label, and only on the `raw_source` line whose
 # (already-rewritten) destination now resolves to the renamed file.
 _RAW_SOURCE_RE = re.compile(r'(raw_source:\s*"\[)([^\]]*)(\]\()([^)]*)(\)")')
@@ -111,7 +111,7 @@ def apply_normalize(
     new_raw_rel = posixpath.join(posixpath.dirname(raw_rel), new_name)
 
     pages = _load_wiki_pages(root)
-    planned = links.plan_move(pages, raw_rel, new_raw_rel)
+    planned = wikipage.plan_move(pages, raw_rel, new_raw_rel)
 
     old_bytes = raw_path.read_bytes()
     new_path = root / new_raw_rel

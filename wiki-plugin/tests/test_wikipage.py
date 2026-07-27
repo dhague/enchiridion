@@ -1,0 +1,774 @@
+"""TDD for wikipage.py — WikiPage (pure) + Vault (I/O) + the shared markdown
+primitives they're built on (frontmatter split, AST-positioned link discovery).
+
+Consolidates the coverage that previously lived in test_frontmatter.py,
+test_links.py, test_links_frontmatter.py and test_md.py (#32 replaces
+frontmatter.py + lib/md.py + links.py with this one module). Both required
+hypothesis property tests carry forward unchanged in spirit:
+
+* ``test_prop_untouched_key_byte_identical*`` — a naive YAML round-trip would
+  reformat the *whole* document; this is the guard.
+* ``test_prop_move_only_touches_link_lines_and_resolves`` — the guard against
+  a move rewriting a link by round-tripping through a stringifier (reformats
+  everything) or by naive text replace (wrong offsets / collateral edits).
+"""
+import posixpath
+from io import StringIO
+
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from ruamel.yaml import YAML
+
+import wikipage
+from wikipage import LinkMatch, Vault, WikiPage
+
+# --- split_frontmatter ---------------------------------------------------
+
+
+def test_split_with_frontmatter():
+    text = "---\ntitle: Foo\ntags: [a, b]\n---\n# Body\n\nhello\n"
+    fm, body, offset = wikipage.split_frontmatter(text)
+    assert fm == "title: Foo\ntags: [a, b]\n"
+    assert body == "# Body\n\nhello\n"
+    assert text[offset:] == body
+
+
+def test_split_without_frontmatter():
+    text = "# Just a body\n\nno frontmatter here\n"
+    fm, body, offset = wikipage.split_frontmatter(text)
+    assert fm is None
+    assert body == text
+    assert offset == 0
+
+
+def test_thematic_break_is_not_frontmatter():
+    # A `---` that is not on the very first line is a horizontal rule, not frontmatter.
+    text = "# Title\n\n---\n\nbody\n"
+    fm, body, offset = wikipage.split_frontmatter(text)
+    assert fm is None
+    assert offset == 0
+
+
+def test_empty_frontmatter_block():
+    text = "---\n---\nbody\n"
+    fm, body, offset = wikipage.split_frontmatter(text)
+    assert fm == ""
+    assert body == "body\n"
+
+
+# --- iter_links ------------------------------------------------------------
+
+
+def test_iter_links_plain_link_offsets():
+    body = "see [the page](concept/foo.md) now\n"
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    lk = links[0]
+    assert lk.dest == "concept/foo.md"
+    assert body[lk.start:lk.end] == "concept/foo.md"
+    assert lk.is_image is False
+
+
+def test_iter_links_image_embed():
+    body = "![alt text](assets/pic.png)\n"
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    assert links[0].is_image is True
+    assert links[0].dest == "assets/pic.png"
+    assert body[links[0].start:links[0].end] == "assets/pic.png"
+
+
+def test_iter_links_preserves_anchor_in_dest():
+    body = "jump [here](entity/bar.md#section-2)\n"
+    (lk,) = list(wikipage.iter_links(body))
+    assert lk.dest == "entity/bar.md#section-2"
+    assert body[lk.start:lk.end] == "entity/bar.md#section-2"
+
+
+def test_iter_links_skips_code_fence():
+    body = "real [a](one.md)\n\n```\nfake [b](two.md)\n```\n"
+    dests = [lk.dest for lk in wikipage.iter_links(body)]
+    assert dests == ["one.md"]
+
+
+def test_iter_links_multiple_same_line_distinct_offsets():
+    body = "[a](x.md) and [b](x.md) and [c](y.md)\n"
+    links = list(wikipage.iter_links(body))
+    assert [lk.dest for lk in links] == ["x.md", "x.md", "y.md"]
+    starts = [lk.start for lk in links]
+    assert starts == sorted(starts)
+    assert len(set(starts)) == 3
+    for lk in links:
+        assert body[lk.start:lk.end] == lk.dest
+
+
+def test_iter_links_ignores_title_after_dest():
+    body = '[a](path.md "a title")\n'
+    (lk,) = list(wikipage.iter_links(body))
+    assert lk.dest == "path.md"
+    assert body[lk.start:lk.end] == "path.md"
+
+
+# --- WikiPage.get ------------------------------------------------------------
+
+
+def test_get_existing_key():
+    text = "---\ntitle: Prepared statements\nvolatility: stable\n---\nbody\n"
+    page = WikiPage(text)
+    assert page.get("title") == "Prepared statements"
+    assert page.get("volatility") == "stable"
+
+
+def test_get_missing_key_returns_none():
+    page = WikiPage("---\ntitle: Foo\n---\nbody\n")
+    assert page.get("nope") is None
+
+
+def test_get_no_frontmatter_returns_none():
+    assert WikiPage("# just a body\n").get("title") is None
+
+
+def test_get_per_type_edge_key_returns_link_list():
+    text = (
+        "---\n"
+        "title: Pooling\n"
+        "refines:\n"
+        '  - "[Prepared statements](../concept/prepared-statements.md)"\n'
+        '  - "[Indexing](../concept/indexing.md)"\n'
+        "---\n"
+        "# Body\n"
+    )
+    edges = WikiPage(text).get("refines")
+    assert list(edges) == [
+        "[Prepared statements](../concept/prepared-statements.md)",
+        "[Indexing](../concept/indexing.md)",
+    ]
+
+
+def test_get_raw_source_returns_single_link():
+    text = (
+        "---\n"
+        "title: X\n"
+        'raw_source: "[x.md](../../raw/notes/x.md)"\n'
+        "---\n"
+        "# X\n"
+    )
+    assert WikiPage(text).get("raw_source") == "[x.md](../../raw/notes/x.md)"
+
+
+# --- WikiPage.set --------------------------------------------------------------
+
+
+def test_set_updates_value_and_get_roundtrips():
+    text = "---\ntitle: Foo\nvolatility: stable\n---\nbody\n"
+    out = WikiPage(text).set("volatility", "evolving")
+    assert out.get("volatility") == "evolving"
+    assert out.get("title") == "Foo"
+
+
+def test_set_adds_new_key():
+    text = "---\ntitle: Foo\n---\nbody\n"
+    out = WikiPage(text).set("source_date", "2026-03-01")
+    assert out.get("source_date") == "2026-03-01"
+    assert "title: Foo" in out.text
+
+
+def test_set_preserves_body_exactly_including_thematic_break():
+    body = "# Heading\n\nsome text\n\n---\n\nafter the rule\n"
+    text = "---\ntitle: Foo\n---\n" + body
+    out = WikiPage(text).set("title", "Bar")
+    assert out.text.endswith(body)
+
+
+def test_set_preserves_comment_on_other_key():
+    text = "---\ntitle: Foo\nvolatility: stable  # do not lose me\n---\nbody\n"
+    out = WikiPage(text).set("title", "Bar")
+    assert "# do not lose me" in out.text
+
+
+def test_set_preserves_flow_list_on_other_key():
+    text = "---\ntitle: Foo\ntags: [db, sql]\n---\nbody\n"
+    out = WikiPage(text).set("title", "Bar")
+    assert "tags: [db, sql]" in out.text
+
+
+def test_noop_set_is_byte_identical():
+    text = "---\ntitle: Foo\ntags: [db, sql]\nvolatility: stable\n---\n# Body\n\nhi\n"
+    out = WikiPage(text).set("title", "Foo")
+    assert out.text == text
+
+
+def test_set_scalar_leaves_edge_and_raw_source_blocks_byte_identical():
+    text = (
+        "---\n"
+        "title: X source\n"
+        "summary: old summary\n"
+        'raw_source: "[x.md](../../raw/notes/x.md)"\n'
+        "source:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+        "---\n"
+        "# X\n"
+    )
+    out = WikiPage(text).set("summary", "new summary")
+    assert out.get("summary") == "new summary"
+    assert 'raw_source: "[x.md](../../raw/notes/x.md)"\n' in out.text
+    assert (
+        "source:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out.text
+
+
+def test_set_creates_frontmatter_when_absent():
+    out = WikiPage("# just a body\n").set("title", "New")
+    assert out.get("title") == "New"
+    assert out.text.endswith("# just a body\n")
+
+
+def test_set_new_raw_source_link_is_double_quoted():
+    text = "---\ntitle: X\n---\n# X\n"
+    out = WikiPage(text).set("raw_source", "[x.md](../../raw/notes/x.md)")
+    assert 'raw_source: "[x.md](../../raw/notes/x.md)"\n' in out.text
+    assert out.get("raw_source") == "[x.md](../../raw/notes/x.md)"
+
+
+def test_set_new_edge_list_links_are_double_quoted():
+    text = "---\ntitle: X\n---\n# X\n"
+    out = WikiPage(text).set("refines", ["[A](../concept/a.md)", "[B](../concept/b.md)"])
+    assert (
+        "refines:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out.text
+
+
+# --- WikiPage.merge ------------------------------------------------------------
+
+
+def test_merge_unions_with_existing_list():
+    text = "---\ntitle: X\ntags: [db, sql]\n---\nbody\n"
+    out = WikiPage(text).merge("tags", ["sql", "perf"])
+    assert list(out.get("tags")) == ["db", "sql", "perf"]
+
+
+def test_merge_on_missing_key_behaves_like_set():
+    text = "---\ntitle: X\n---\nbody\n"
+    out = WikiPage(text).merge("related", ["[A](../concept/a.md)"])
+    assert list(out.get("related")) == ["[A](../concept/a.md)"]
+
+
+def test_merge_new_links_are_double_quoted():
+    text = '---\ntitle: X\nrefines:\n  - "[A](../concept/a.md)"\n---\nbody\n'
+    out = WikiPage(text).merge("refines", ["[B](../concept/b.md)"])
+    assert (
+        "refines:\n"
+        '  - "[A](../concept/a.md)"\n'
+        '  - "[B](../concept/b.md)"\n'
+    ) in out.text
+
+
+def test_merge_is_idempotent():
+    text = "---\ntitle: X\ntags: [db]\n---\nbody\n"
+    once = WikiPage(text).merge("tags", ["db", "sql"])
+    twice = once.merge("tags", ["db", "sql"])
+    assert once.text == twice.text
+
+
+# --- WikiPage.frontmatter (full mapping) --------------------------------------
+
+
+def test_frontmatter_returns_full_mapping():
+    text = (
+        "---\n"
+        "title: Pooling\n"
+        "tags: [db, perf]\n"
+        "related:\n"
+        '  - "[B](../entity/b.md)"\n'
+        "---\n"
+        "# Body\n"
+    )
+    data = WikiPage(text).frontmatter
+    assert data["title"] == "Pooling"
+    assert list(data["tags"]) == ["db", "perf"]
+    assert list(data["related"]) == ["[B](../entity/b.md)"]
+
+
+def test_frontmatter_no_frontmatter_returns_none():
+    assert WikiPage("# just a body\n").frontmatter is None
+
+
+# --- property: the reformatting-stringifier guard -----------------------------
+
+_YAML_KEYWORDS = {"true", "false", "yes", "no", "on", "off", "null", "y", "n"}
+
+_ident = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=1, max_size=8
+).filter(lambda s: s not in _YAML_KEYWORDS)
+
+_scalar = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    min_size=1,
+    max_size=20,
+).map(str.strip).filter(bool)
+
+
+def _canonical_fm(mapping: dict) -> str:
+    y = YAML()
+    y.preserve_quotes = True
+    y.width = 4096
+    buf = StringIO()
+    y.dump(mapping, buf)
+    return buf.getvalue()
+
+
+@settings(max_examples=200)
+@given(
+    mapping=st.dictionaries(_ident, _scalar, min_size=1, max_size=6),
+    body=st.text(alphabet="abc \n#", max_size=40),
+)
+def test_prop_untouched_key_byte_identical(mapping, body):
+    """Re-writing a key with its own value leaves every byte identical."""
+    text = "---\n" + _canonical_fm(mapping) + "---\n" + body
+    for key, value in mapping.items():
+        out = WikiPage(text).set(key, value)
+        assert out.text == text, f"no-op set of {key!r} was not byte-identical"
+
+
+_link = st.builds(
+    lambda title, path: f'"[{title}]({path}.md)"',
+    st.sampled_from(["A", "B", "C", "Prepared statements"]),
+    st.sampled_from(["../concept/a", "../entity/b", "../../raw/notes/x"]),
+)
+
+_EDGE_KEYS = {"refines", "source", "related", "supersedes"}
+_scalar_key = _ident.filter(lambda s: s not in _EDGE_KEYS)
+
+_safe_scalar = st.sampled_from(
+    ["stable", "evolving", "volatile", "Prepared statements", "hello world", "A"]
+)
+
+
+@settings(max_examples=200)
+@given(
+    scalars=st.dictionaries(_scalar_key, _safe_scalar, min_size=1, max_size=3),
+    edges=st.dictionaries(
+        st.sampled_from(sorted(_EDGE_KEYS)),
+        st.lists(_link, min_size=1, max_size=3),
+        min_size=1,
+        max_size=3,
+    ),
+    body=st.text(alphabet="abc \n#", max_size=30),
+)
+def test_prop_untouched_key_byte_identical_with_edge_lists(scalars, edges, body):
+    """No-op set stays byte-identical even with 2-space-indented edge lists.
+
+    This is the shape the earlier scalar-only property test could not reach —
+    and the one that exposed the block-sequence reindentation bug (19be866).
+    """
+    fm = "".join(f"{k}: {v}\n" for k, v in scalars.items())
+    for key, items in edges.items():
+        fm += f"{key}:\n" + "".join(f"  - {item}\n" for item in items)
+    text = "---\n" + fm + "---\n" + body
+    for key, value in scalars.items():
+        assert WikiPage(text).set(key, value).text == text
+
+
+@settings(max_examples=200)
+@given(
+    mapping=st.dictionaries(_ident, _scalar, min_size=2, max_size=6),
+    new_value=_scalar,
+)
+def test_prop_changing_one_key_leaves_other_lines_identical(mapping, new_value):
+    """Changing one key never disturbs the physical lines of the others."""
+    text = "---\n" + _canonical_fm(mapping) + "---\nbody\n"
+    target = next(iter(mapping))
+    out = WikiPage(text).set(target, new_value)
+    before = text.splitlines()
+    after = out.text.splitlines()
+    assert len(before) == len(after)
+    for b, a in zip(before, after):
+        if b.startswith(f"{target}:"):
+            continue
+        assert b == a
+
+
+# --- plan_move: example cases --------------------------------------------------
+
+
+def test_inbound_link_rewritten_on_move():
+    files = {
+        "wiki/concept/a.md": "see [b](../entity/b.md)\n",
+        "wiki/entity/b.md": "# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert out["wiki/concept/a.md"] == "see [b](b.md)\n"
+    assert "wiki/concept/b.md" in out
+
+
+def test_outbound_links_recomputed_when_file_moves():
+    files = {
+        "wiki/concept/a.md": "see [b](b.md) and [c](../entity/c.md)\n",
+        "wiki/concept/b.md": "# B\n",
+        "wiki/entity/c.md": "# C\n",
+    }
+    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
+    assert out["wiki/entity/a.md"] == "see [b](../concept/b.md) and [c](c.md)\n"
+
+
+def test_anchor_preserved():
+    files = {
+        "wiki/concept/a.md": "jump [x](../entity/b.md#section-2)\n",
+        "wiki/entity/b.md": "# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert out["wiki/concept/a.md"] == "jump [x](b.md#section-2)\n"
+
+
+def test_image_embed_rewritten():
+    files = {
+        "wiki/concept/a.md": "![pic](../raw/img.png)\n",
+        "raw/img.png": "",
+    }
+    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/a.md")
+    assert out["wiki/a.md"] == "![pic](raw/img.png)\n"
+
+
+def test_link_inside_list_item():
+    files = {
+        "wiki/concept/a.md": "- first\n- see [b](../entity/b.md)\n- last\n",
+        "wiki/entity/b.md": "# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert out["wiki/concept/a.md"] == "- first\n- see [b](b.md)\n- last\n"
+
+
+def test_self_link_follows_the_move():
+    files = {"wiki/concept/a.md": "I link to [myself](a.md) here\n"}
+    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
+    assert out["wiki/entity/a.md"] == "I link to [myself](a.md) here\n"
+
+
+def test_pure_rename_same_dir_updates_inbound_only():
+    files = {
+        "wiki/concept/a.md": "see [old](old-name.md)\n",
+        "wiki/concept/old-name.md": "# Old\nlink to [a](a.md)\n",
+    }
+    out = wikipage.plan_move(files, "wiki/concept/old-name.md", "wiki/concept/new-name.md")
+    assert out["wiki/concept/a.md"] == "see [old](new-name.md)\n"
+    assert out["wiki/concept/new-name.md"] == "# Old\nlink to [a](a.md)\n"
+
+
+def test_external_and_anchor_only_links_untouched():
+    files = {
+        "wiki/concept/a.md": "[web](https://example.com/b.md) and [frag](#heading)\n",
+        "wiki/entity/b.md": "# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert out["wiki/concept/a.md"] == files["wiki/concept/a.md"]
+
+
+def test_unrelated_file_untouched_bytewise():
+    files = {
+        "wiki/concept/a.md": "see [b](../entity/b.md)\n",
+        "wiki/entity/b.md": "# B\n",
+        "wiki/concept/unrelated.md": "no links here, just [text] brackets\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert out["wiki/concept/unrelated.md"] == files["wiki/concept/unrelated.md"]
+
+
+# --- plan_move: frontmatter-link regressions -----------------------------------
+
+
+def _resolves(files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        for lk in wikipage.iter_links(text):
+            path = lk.dest.split("#", 1)[0]
+            if "://" in path or path.startswith(("/", "#")) or path == "":
+                continue
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel) or ".", path))
+            assert target in files, f"dangling {lk.dest!r} in {rel} -> {target}"
+
+
+def test_inbound_frontmatter_edge_rewritten_on_move():
+    files = {
+        "wiki/concept/pooling.md": (
+            "---\n"
+            "title: Connection pooling\n"
+            "refines:\n"
+            '  - "[Prepared statements](../concept/prepared-statements.md)"\n'
+            "---\n"
+            "# Pooling\n"
+        ),
+        "wiki/concept/prepared-statements.md": "---\ntitle: PS\n---\n# PS\n",
+    }
+    out = wikipage.plan_move(
+        files, "wiki/concept/prepared-statements.md", "wiki/entity/prepared-statements.md"
+    )
+    assert (
+        '  - "[Prepared statements](../entity/prepared-statements.md)"\n'
+        in out["wiki/concept/pooling.md"]
+    )
+    _resolves(out)
+
+
+def test_outbound_frontmatter_edges_rebased_when_page_moves():
+    files = {
+        "wiki/concept/a.md": (
+            "---\n"
+            "title: A\n"
+            "related:\n"
+            '  - "[B](../entity/b.md)"\n'
+            "supersedes:\n"
+            '  - "[Old A](a-old.md)"\n'
+            "---\n"
+            "# A\n"
+        ),
+        "wiki/entity/b.md": "---\ntitle: B\n---\n# B\n",
+        "wiki/concept/a-old.md": "---\ntitle: Old A\n---\n# old\n",
+    }
+    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/source/a.md")
+    moved = out["wiki/source/a.md"]
+    assert '  - "[B](../entity/b.md)"\n' in moved
+    assert '  - "[Old A](../concept/a-old.md)"\n' in moved
+    _resolves(out)
+
+
+def test_raw_source_survives_cross_dir_move():
+    files = {
+        "wiki/source/x.md": (
+            "---\n"
+            "title: X source\n"
+            'raw_source: "[x.md](../../raw/notes/x.md)"\n'
+            "---\n"
+            "# X\n"
+        ),
+        "raw/notes/x.md": "raw bytes\n",
+    }
+    out = wikipage.plan_move(files, "wiki/source/x.md", "wiki/x.md")
+    moved = out["wiki/x.md"]
+    assert 'raw_source: "[x.md](../raw/notes/x.md)"\n' in moved
+    target = posixpath.normpath(posixpath.join("wiki", "../raw/notes/x.md"))
+    assert target == "raw/notes/x.md"
+
+
+def test_same_dir_rename_leaves_raw_source_untouched():
+    files = {
+        "wiki/source/deploy.md": (
+            "---\n"
+            "title: Deploy\n"
+            'raw_source: "[deploy.md](../../raw/notes/deploy.md)"\n'
+            "---\n"
+            "# Deploy\n"
+        ),
+        "raw/notes/deploy.md": "raw\n",
+    }
+    out = wikipage.plan_move(files, "wiki/source/deploy.md", "wiki/source/deploy-github-actions.md")
+    assert (
+        'raw_source: "[deploy.md](../../raw/notes/deploy.md)"\n'
+        in out["wiki/source/deploy-github-actions.md"]
+    )
+
+
+def test_synthesis_source_edge_rewritten_others_byte_identical():
+    files = {
+        "wiki/synthesis/s.md": (
+            "---\n"
+            "title: S\n"
+            "source:\n"
+            '  - "[A](../concept/a.md)"\n'
+            '  - "[B](../concept/b.md)"\n'
+            "---\n"
+            "# S\n"
+        ),
+        "wiki/concept/a.md": "---\ntitle: A\n---\n# A\n",
+        "wiki/concept/b.md": "---\ntitle: B\n---\n# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
+    s = out["wiki/synthesis/s.md"]
+    assert '  - "[A](../entity/a.md)"\n' in s
+    assert '  - "[B](../concept/b.md)"\n' in s
+    _resolves(out)
+
+
+def test_supersedes_link_rewritten_on_target_move():
+    files = {
+        "wiki/source/new.md": (
+            "---\n"
+            "title: New deploy\n"
+            "supersedes:\n"
+            '  - "[Old deploy](old.md)"\n'
+            "---\n"
+            "# New\n"
+        ),
+        "wiki/source/old.md": "---\ntitle: Old deploy\n---\n# old\n",
+    }
+    out = wikipage.plan_move(files, "wiki/source/old.md", "wiki/concept/old.md")
+    assert '  - "[Old deploy](../concept/old.md)"\n' in out["wiki/source/new.md"]
+    _resolves(out)
+
+
+def test_tags_flow_list_not_mistaken_for_a_link():
+    files = {
+        "wiki/concept/a.md": (
+            "---\ntitle: A\ntags: [db, sql]\n"
+            'related:\n  - "[B](../entity/b.md)"\n---\n# A\n'
+        ),
+        "wiki/entity/b.md": "---\ntitle: B\n---\n# B\n",
+    }
+    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
+    assert "tags: [db, sql]\n" in out["wiki/concept/a.md"]
+    assert '  - "[B](b.md)"\n' in out["wiki/concept/a.md"]
+
+
+# --- plan_move: property test ---------------------------------------------------
+
+_DIRS = ["wiki/concept", "wiki/entity", "wiki/source", "raw/notes"]
+_NAMES = ["a", "b", "c", "d", "e"]
+_MOVE_EDGE_KEYS = ["refines", "contradicts", "example-of", "source", "related"]
+
+
+def _resolve(file_rel: str, dest: str) -> str:
+    path = dest.split("#", 1)[0]
+    return posixpath.normpath(posixpath.join(posixpath.dirname(file_rel) or ".", path))
+
+
+@st.composite
+def _vaults(draw):
+    """A small vault whose relative links — in body *and* per-key frontmatter — resolve."""
+    rels = draw(
+        st.lists(
+            st.tuples(st.sampled_from(_DIRS), st.sampled_from(_NAMES)),
+            min_size=2,
+            max_size=6,
+            unique=True,
+        ).map(lambda pairs: [f"{d}/{n}.md" for d, n in pairs])
+    )
+    rels = list(dict.fromkeys(rels))
+    files = {}
+    for rel in rels:
+        others = [r for r in rels if r != rel]
+        rel_dir = posixpath.dirname(rel) or "."
+
+        def _md_link(target, with_anchor=False):
+            dest = posixpath.relpath(target, rel_dir)
+            if with_anchor:
+                dest += "#sec"
+            return f"[{posixpath.basename(target)}]({dest})"
+
+        fm = ["---", f"title: {posixpath.basename(rel)}", "tags: [x, y]"]
+        edge_keys = draw(st.lists(st.sampled_from(_MOVE_EDGE_KEYS), unique=True, max_size=2))
+        for key in edge_keys:
+            edge_targets = draw(st.lists(st.sampled_from(others or [rel]), min_size=1, max_size=2))
+            fm.append(f"{key}:")
+            for t in edge_targets:
+                fm.append(f'  - "{_md_link(t)}"')
+        fm.append("---")
+
+        body = ["# " + rel]
+        for t in draw(st.lists(st.sampled_from(others or [rel]), max_size=3)):
+            body.append(f"- see {_md_link(t, with_anchor=draw(st.booleans()))}")
+        body.append("plain trailing line")
+
+        files[rel] = "\n".join(fm + body) + "\n"
+    return files
+
+
+@settings(max_examples=250, deadline=None)
+@given(data=st.data())
+def test_prop_move_only_touches_link_lines_and_resolves(data):
+    files = data.draw(_vaults())
+    rels = list(files)
+    old_rel = data.draw(st.sampled_from(rels))
+    dest_dir = data.draw(st.sampled_from(_DIRS))
+    new_name = data.draw(st.sampled_from(_NAMES + ["moved"]))
+    new_rel = f"{dest_dir}/{new_name}.md"
+    assume_ok = new_rel == old_rel or new_rel not in files
+    if not assume_ok:
+        return
+
+    out = wikipage.plan_move(files, old_rel, new_rel)
+
+    for rel, text in out.items():
+        for lk in wikipage.iter_links(text):
+            path = lk.dest.split("#", 1)[0]
+            if "://" in path or path.startswith(("/", "#")) or path == "":
+                continue
+            target = _resolve(rel, lk.dest)
+            assert target in out, f"dangling link {lk.dest!r} in {rel} -> {target}"
+
+    for rel, text in files.items():
+        new_rel_for = new_rel if rel == old_rel else rel
+        before = text.splitlines()
+        after = out[new_rel_for].splitlines()
+        assert len(before) == len(after)
+        for b, a in zip(before, after):
+            if b != a:
+                assert "](" in b, f"non-link line changed in {rel}: {b!r} -> {a!r}"
+
+
+# --- Vault: I/O + cross-page move -----------------------------------------------
+
+
+@pytest.fixture
+def small_vault(tmp_path):
+    (tmp_path / "wiki/concept").mkdir(parents=True)
+    (tmp_path / "wiki/entity").mkdir(parents=True)
+    (tmp_path / "wiki/concept/a.md").write_text(
+        "---\ntitle: A\n---\nsee [b](../entity/b.md)\n", encoding="utf-8"
+    )
+    (tmp_path / "wiki/entity/b.md").write_text("---\ntitle: B\n---\n# B\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_vault_load_and_get(small_vault):
+    v = Vault(small_vault)
+    page = v.load("wiki/entity/b.md")
+    assert page.get("title") == "B"
+
+
+def test_vault_set_writes_back(small_vault):
+    v = Vault(small_vault)
+    v.set("wiki/entity/b.md", "summary", "the B page")
+    assert v.load("wiki/entity/b.md").get("summary") == "the B page"
+
+
+def test_vault_merge_writes_back(small_vault):
+    v = Vault(small_vault)
+    v.set("wiki/entity/b.md", "tags", ["db"])
+    v.merge("wiki/entity/b.md", "tags", ["db", "sql"])
+    assert list(v.load("wiki/entity/b.md").get("tags")) == ["db", "sql"]
+
+
+def test_vault_move_page_rewrites_inbound_and_moves_file(small_vault):
+    v = Vault(small_vault)
+    changed = v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
+    assert set(changed) == {"wiki/concept/a.md", "wiki/concept/b.md"}
+    assert not (small_vault / "wiki/entity/b.md").exists()
+    assert (small_vault / "wiki/concept/b.md").exists()
+    assert "see [b](b.md)" in (small_vault / "wiki/concept/a.md").read_text(encoding="utf-8")
+
+
+def test_vault_move_page_missing_source_raises(small_vault):
+    v = Vault(small_vault)
+    with pytest.raises(FileNotFoundError):
+        v.move_page("wiki/entity/missing.md", "wiki/concept/missing.md")
+
+
+def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):
+    # A raw/ file rename: the target itself is never read/written, only the
+    # wiki pages that link to it.
+    (small_vault / "wiki/source").mkdir()
+    (small_vault / "wiki/source/x.md").write_text(
+        '---\ntitle: X\nraw_source: "[x.md](../../raw/notes/x.md)"\n---\n# X\n',
+        encoding="utf-8",
+    )
+    v = Vault(small_vault)
+    changed = v.rewrite_inbound_links("raw/notes/x.md", "raw/notes/2026-01-01-0000-x.md")
+    assert changed == ["wiki/source/x.md"]
+    assert (
+        'raw_source: "[x.md](../../raw/notes/2026-01-01-0000-x.md)"'
+        in (small_vault / "wiki/source/x.md").read_text(encoding="utf-8")
+    )
