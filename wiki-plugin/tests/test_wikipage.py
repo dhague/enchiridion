@@ -838,3 +838,34 @@ def test_vault_reindex_full_returns_stats(small_vault):
     stats = v.reindex(full=True)
     assert stats.pages == 2
     assert stats.inserted == 2
+
+
+# --- CLI: run as a real subprocess (regression for the wikipage<->search_index
+# import cycle) -------------------------------------------------------------
+
+
+def test_cli_get_runs_as_subprocess(small_vault):
+    """``python wikipage.py get ...`` must work when wikipage.py is the
+    *executed* file, not just when it's imported.
+
+    Every test above imports wikipage as a library, so pytest always sees
+    it under the module name ``wikipage`` — never as ``__main__``. That
+    hid a real bug: wikipage.py imports search_index (for the Vault
+    facade's type hints), search_index imports page_record, and
+    page_record imports wikipage back — a cycle that's harmless when
+    wikipage is loaded once under one name, but broke when running
+    ``python wikipage.py ...`` loaded it a *second* time under the name
+    ``wikipage`` (triggered by page_record's ``import wikipage``), which
+    re-entered search_index mid-initialization and raised an ImportError
+    on a name search_index hadn't defined yet. Only a real subprocess
+    invocation reproduces that; an in-process ``import`` never will.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, wikipage.__file__, "get", str(small_vault / "wiki/entity/b.md"), "title"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "B"

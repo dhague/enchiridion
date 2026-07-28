@@ -49,8 +49,17 @@ from markdown_it import MarkdownIt
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-import search_index
-from search_index import IndexStats, IndexStatus, SearchHit
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-only: search_index imports wikipage (for split_frontmatter, via
+    # page_record), so a module-level `import search_index` here would be
+    # circular. `from __future__ import annotations` (above) means every
+    # annotation below is a string, never evaluated, so this is safe — the
+    # only *runtime* need for search_index is the lazy import inside
+    # Vault._get_index.
+    import search_index
+    from search_index import IndexStats, IndexStatus, SearchHit
 
 _MD = MarkdownIt("commonmark")
 
@@ -345,6 +354,19 @@ class Vault:
         self._index: search_index.SearchIndex | None = None
 
     def _get_index(self) -> search_index.SearchIndex:
+        # Imported here, not at module level: search_index -> page_record ->
+        # wikipage is a cycle, and importing wikipage.py directly as a
+        # script (its own CLI, `python wikipage.py get ...`) loads it a
+        # second time under the module name ``wikipage`` when page_record
+        # does ``import wikipage`` — if search_index were imported at
+        # wikipage's *top level*, that second load would re-enter
+        # search_index mid-init and fail on a name search_index hasn't
+        # defined yet. Deferring the import here means wikipage.py's own
+        # module body never touches search_index, so running it as __main__
+        # never triggers the cycle; only actually calling Vault.search/
+        # reindex/index_status does, by which point every module involved
+        # has finished loading normally.
+        import search_index
         if self._index is None:
             self._index = search_index.SearchIndex(self.root)
         return self._index
