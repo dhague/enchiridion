@@ -199,31 +199,24 @@ def iter_links(text: str):
 
 
 def _is_relative_dest(path: str) -> bool:
-    """True when ``path`` (the pre-anchor part) is a vault-relative reference."""
-    if path == "":
-        return False
-    if path.startswith(("/", "#")):
-        return False
-    if "://" in path:
-        return False
-    return True
+    """True when ``path`` (the pre-anchor part) is a vault-relative reference.
+
+    Excludes the empty destination, absolute paths, bare anchors, and any
+    scheme-qualified URL.
+    """
+    return bool(path) and not path.startswith(("/", "#")) and "://" not in path
 
 
-def _rewrite_text(
-    text: str,
-    file_old_rel: str,
-    file_new_rel: str,
-    old_rel: str,
-    new_rel: str,
-) -> str:
+def _rewrite_text(text: str, file_rel: str, old_rel: str, new_rel: str) -> str:
     """Return ``text`` with its links fixed for the move ``old_rel -> new_rel``.
 
-    ``file_old_rel``/``file_new_rel`` are where *this* file sits before and
-    after the move (equal for every file except the one being moved).
+    ``file_rel`` is where *this* file sits before the move; only the moved
+    file itself (``file_rel == old_rel``) also changes its own location, so
+    where it ends up is derived rather than passed in.
     """
-    is_moved_file = file_old_rel == old_rel
-    old_dir = posixpath.dirname(file_old_rel)
-    new_dir = posixpath.dirname(file_new_rel)
+    is_moved_file = file_rel == old_rel
+    old_dir = posixpath.dirname(file_rel)
+    new_dir = posixpath.dirname(new_rel if is_moved_file else file_rel)
 
     edits: list[tuple[int, int, str]] = []
     for lk in iter_links(text):
@@ -262,9 +255,7 @@ def _yaml() -> YAML:
 
 
 def _load_yaml(fm_text: str):
-    if fm_text.strip() == "":
-        return _yaml().load("{}\n")
-    return _yaml().load(fm_text)
+    return _yaml().load(fm_text if fm_text.strip() else "{}\n")
 
 
 def _dump_yaml(data) -> str:
@@ -330,15 +321,12 @@ class WikiPage:
         Mints a frontmatter block if this page has none. Only the block is
         reformatted; the body is preserved exactly.
         """
-        value = _quote_links(value)
+        # When there's no frontmatter yet, `fm` is None (so `_load_yaml` mints
+        # an empty mapping) and `body` is the whole text — i.e. a fresh block
+        # is prepended to the untouched document by the same expression.
         fm, body, _offset = split_frontmatter(self.text)
-        if fm is None:
-            # No frontmatter yet — mint a fresh block ahead of the untouched body.
-            data = _load_yaml("")
-            data[key] = value
-            return WikiPage("---\n" + _dump_yaml(data) + "---\n" + self.text)
-        data = _load_yaml(fm)
-        data[key] = value
+        data = _load_yaml(fm or "")
+        data[key] = _quote_links(value)
         return WikiPage("---\n" + _dump_yaml(data) + "---\n" + body)
 
     def merge(self, key: str, values: list) -> "WikiPage":
@@ -362,13 +350,14 @@ class WikiPage:
         """Every link/image in this page, body and frontmatter alike, in order."""
         return list(iter_links(self.text))
 
-    def retarget(self, file_old_rel: str, file_new_rel: str, old_rel: str, new_rel: str) -> "WikiPage":
+    def retarget(self, file_rel: str, old_rel: str, new_rel: str) -> "WikiPage":
         """Return a new page with links fixed for the vault-wide move ``old_rel -> new_rel``.
 
-        ``file_old_rel``/``file_new_rel`` are where *this* page sits before
-        and after the move — equal unless this page is the one being moved.
+        ``file_rel`` is where *this* page sits before the move; pass
+        ``file_rel == old_rel`` when this page is the one being moved, so its
+        own outbound links are rebased onto ``new_rel``'s folder too.
         """
-        return WikiPage(_rewrite_text(self.text, file_old_rel, file_new_rel, old_rel, new_rel))
+        return WikiPage(_rewrite_text(self.text, file_rel, old_rel, new_rel))
 
 
 def plan_move(pages: dict[str, str], old_rel: str, new_rel: str) -> dict[str, str]:
@@ -381,14 +370,10 @@ def plan_move(pages: dict[str, str], old_rel: str, new_rel: str) -> dict[str, st
     artifact) can pass a ``pages`` map that only contains the markdown pages
     whose *inbound* links should follow the rename.
     """
-    result: dict[str, str] = {}
-    for rel, text in pages.items():
-        page = WikiPage(text)
-        if rel == old_rel:
-            result[new_rel] = page.retarget(old_rel, new_rel, old_rel, new_rel).text
-        else:
-            result[rel] = page.retarget(rel, rel, old_rel, new_rel).text
-    return result
+    return {
+        (new_rel if rel == old_rel else rel): WikiPage(text).retarget(rel, old_rel, new_rel).text
+        for rel, text in pages.items()
+    }
 
 
 class Vault:
@@ -402,29 +387,18 @@ class Vault:
         self._index: search_index.SearchIndex | None = None
 
     def _get_index(self) -> search_index.SearchIndex:
-        # Imported here, not at module level: search_index -> page_record ->
-        # wikipage is a cycle, and importing wikipage.py directly as a
-        # script (its own CLI, `python wikipage.py get ...`) loads it a
-        # second time under the module name ``wikipage`` when page_record
-        # does ``import wikipage`` — if search_index were imported at
-        # wikipage's *top level*, that second load would re-enter
-        # search_index mid-init and fail on a name search_index hasn't
-        # defined yet. Deferring the import here means wikipage.py's own
-        # module body never touches search_index, so running it as __main__
-        # never triggers the cycle; only actually calling Vault.search/
-        # reindex/index_status does, by which point every module involved
-        # has finished loading normally.
-        import search_index
         if self._index is None:
+            # Imported here, not at module level: search_index -> page_record
+            # -> wikipage is a cycle, and running wikipage.py as a script
+            # loads it a *second* time under the name ``wikipage`` when
+            # page_record imports it. A top-level import would make that
+            # second load re-enter search_index mid-init and fail. Deferring
+            # it means wikipage's module body never touches search_index, so
+            # only an actual search/reindex/index_status call pulls it in —
+            # by which point every module has finished loading normally.
+            import search_index
             self._index = search_index.SearchIndex(self.root)
         return self._index
-
-    @staticmethod
-    def _wiki_rel(vault_rel: str) -> str:
-        """Strip the ``wiki/`` prefix from a vault-relative rel."""
-        if vault_rel.startswith("wiki/"):
-            return vault_rel[len("wiki/"):]
-        return vault_rel
 
     def load(self, rel: str) -> WikiPage:
         """Read the page at ``rel`` (vault-relative) into a :class:`WikiPage`."""
@@ -442,7 +416,7 @@ class Vault:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(page.text, encoding="utf-8")
         if self._index is not None:
-            self._index.upsert_page(self._wiki_rel(rel), page.text)
+            self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
 
     def load_wiki_pages(self) -> dict[str, str]:
         """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
@@ -486,13 +460,29 @@ class Vault:
         self.write(rel, page)
         return page
 
+    def _write_changed(self, planned: dict[str, str], before: dict[str, str]) -> list[str]:
+        """Write every page in ``planned`` whose text differs from ``before``.
+
+        Returns the changed vault-relative paths, in ``planned`` order.
+        """
+        changed: list[str] = []
+        for rel, text in planned.items():
+            if text == before.get(rel):
+                continue
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            changed.append(rel)
+        return changed
+
     def move_page(self, old_rel: str, new_rel: str) -> list[str]:
         """Rewrite links across the vault's wiki pages and move the page on disk.
 
         Reads every ``wiki/**`` page (never ``raw/`` — its files aren't
         rewritten by a page move), plans the move, writes back only the pages
-        whose text changed, then renames the moved file. Returns the changed
-        vault-relative paths.
+        whose text changed, then removes the original. Returns the changed
+        vault-relative paths, sorted — which for a move that rewrites nothing
+        at all (``old_rel == new_rel``) is empty.
 
         The search index is **not** inline-updated here — the next
         :meth:`search` call's staleness scan reconciles the move (inserting
@@ -503,25 +493,14 @@ class Vault:
         if old_rel not in files:
             raise FileNotFoundError(f"{old_rel} not found under {self.root}")
 
-        planned = plan_move(files, old_rel, new_rel)
-
-        changed: list[str] = []
-        for rel, new_text in planned.items():
-            if rel == new_rel:
-                continue  # handled by the rename below
-            if new_text != files.get(rel):
-                (self.root / rel).write_text(new_text, encoding="utf-8")
-                changed.append(rel)
-
-        # Move the file itself, writing its rewritten (outbound-fixed) content.
-        dst = self.root / new_rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(planned[new_rel], encoding="utf-8")
+        # `planned` keys the moved page under new_rel, so writing every changed
+        # page also lays down the moved file (with its outbound links fixed) —
+        # all that's left is to drop the original.
+        changed = self._write_changed(plan_move(files, old_rel, new_rel), files)
         old_path = self.root / old_rel
-        if old_path.resolve() != dst.resolve():
+        if old_path.resolve() != (self.root / new_rel).resolve():
             old_path.unlink()
-        changed.append(new_rel)
-        return changed
+        return sorted(changed)
 
     def rewrite_inbound_links(self, old_rel: str, new_rel: str) -> list[str]:
         """Rewrite ``wiki/**`` pages' links pointing at ``old_rel`` to ``new_rel``.
@@ -532,13 +511,7 @@ class Vault:
         changed vault-relative paths, sorted.
         """
         pages = self.load_wiki_pages()
-        planned = plan_move(pages, old_rel, new_rel)
-        changed: list[str] = []
-        for rel, text in planned.items():
-            if text != pages.get(rel):
-                (self.root / rel).write_text(text, encoding="utf-8")
-                changed.append(rel)
-        return sorted(changed)
+        return sorted(self._write_changed(plan_move(pages, old_rel, new_rel), pages))
 
     # --- search / index facade -------------------------------------------
 
