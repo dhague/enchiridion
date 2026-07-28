@@ -86,6 +86,7 @@ def test_dedicated_mode_writes_gitignore(tmp_path):
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8")
     assert "*.rsls" in gitignore
     assert ".claude/wiki-knowledge/sessions/" in gitignore
+    assert ".wiki-knowledge/" in gitignore  # search index per ADR-0006
 
 
 def test_dedicated_mode_writes_no_settings_json(tmp_path):

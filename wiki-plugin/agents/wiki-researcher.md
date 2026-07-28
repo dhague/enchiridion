@@ -1,6 +1,6 @@
 ---
 name: wiki-researcher
-description: Answers a question from the wiki vault — query-expanded, multi-seed searched, frontmatter-first, budget-bounded, and cited with each page's age and volatility. Invoke whenever the vault should be asked something rather than read page by page.
+description: Answers a question from the wiki vault — query-expanded, BM25-ranked, frontmatter-first, budget-bounded, and cited with each page's age and volatility. Invoke whenever the vault should be asked something rather than read page by page.
 model: haiku
 tools: Read, Grep, Glob, Bash, Write
 skills: [wiki-conventions, wiki-retrieval]

@@ -5,3 +5,4 @@
 # SessionStart hook (wiki-plugin/hooks/store_transcript_path.py) — see #23.
 .claude/wiki-knowledge/sessions/
 .mcp.json
+tmp/

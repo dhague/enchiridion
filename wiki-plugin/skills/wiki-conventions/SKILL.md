@@ -11,7 +11,7 @@ Two halves make up the contract. The **fixed half** — folder structure, schema
 
 ## Terminology
 
-The wiki's units are **pages**, not "notes". A page is one markdown file under `wiki/`, carrying frontmatter plus a body. ("Note" appears in older plan prose; it means the same thing — say "page".) This also keeps `raw/notes/` (a raw-capture type) unambiguous.
+The wiki's units are **pages**, not "notes". A page is one markdown file under `wiki/`, carrying frontmatter plus a body. This also keeps `raw/notes/` (a raw-capture type) unambiguous.
 
 ## Vault structure
 

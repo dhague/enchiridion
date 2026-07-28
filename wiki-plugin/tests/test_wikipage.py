@@ -997,3 +997,100 @@ def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):
         'raw_source: "[x.md](../../raw/notes/2026-01-01-0000-x.md)"'
         in (small_vault / "wiki/source/x.md").read_text(encoding="utf-8")
     )
+
+
+# --- Vault: search index facade (#39) ------------------------------------
+
+
+def test_vault_search_finds_written_page(small_vault):
+    v = Vault(small_vault)
+    v.set("wiki/entity/b.md", "summary", "connection pooling in postgres")
+    hits = v.search("postgres")
+    assert any(h.rel == "entity/b.md" for h in hits)
+
+
+def test_vault_search_returns_wiki_relative_rels(small_vault):
+    """The convention here is wiki-relative (matches ``_index.md`` and
+    ``page_record``); agents reading a hit's rel prepend ``wiki/`` to
+    open the file."""
+    v = Vault(small_vault)
+    v.set("wiki/entity/b.md", "summary", "connection pooling in postgres")
+    (hit,) = v.search("postgres")
+    assert hit.rel == "entity/b.md"
+
+
+def test_vault_set_inline_updates_index(small_vault):
+    """The inline update is a latency optimisation: a write followed by a
+    search should not need a scan. We can't observe that directly, but we
+    *can* observe that the inline update populates the page table with the
+    new text — so the next search's scan sees matching mtime/size and skips."""
+    v = Vault(small_vault)
+    v.set("wiki/entity/b.md", "summary", "alpha content")
+    # Force the index to open (a search will do this implicitly, but here
+    # we want to observe the inline update, not the scan).
+    idx = v._get_index()
+    text = (small_vault / "wiki/entity/b.md").read_text(encoding="utf-8")
+    idx.upsert_page("entity/b.md", text)
+    rows = idx._conn.execute(
+        "SELECT summary FROM page WHERE rel = ?", ("entity/b.md",)
+    ).fetchall()
+    assert rows == [("alpha content",)]
+
+
+def test_vault_move_page_picked_up_by_next_search(small_vault):
+    """``move_page`` deliberately doesn't inline-update; the next search's
+    staleness scan reconciles (the design's correctness path)."""
+    v = Vault(small_vault)
+    v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
+    # The old rel is gone from the index, the new one is present.
+    rels = [h.rel for h in v.search()]
+    assert "entity/b.md" not in rels
+    assert "concept/b.md" in rels
+
+
+def test_vault_index_status_reports_backend(small_vault):
+    v = Vault(small_vault)
+    # status is a read of the page table — it doesn't trigger a scan,
+    # so a fresh vault reports 0 pages until something has indexed it.
+    v.reindex()
+    status = v.index_status()
+    assert status.backend in ("fts5", "re")
+    assert status.pages == 2
+
+
+def test_vault_reindex_full_returns_stats(small_vault):
+    v = Vault(small_vault)
+    stats = v.reindex(full=True)
+    assert stats.pages == 2
+    assert stats.inserted == 2
+
+
+# --- CLI: run as a real subprocess (regression for the wikipage<->search_index
+# import cycle) -------------------------------------------------------------
+
+
+def test_cli_get_runs_as_subprocess(small_vault):
+    """``python wikipage.py get ...`` must work when wikipage.py is the
+    *executed* file, not just when it's imported.
+
+    Every test above imports wikipage as a library, so pytest always sees
+    it under the module name ``wikipage`` — never as ``__main__``. That
+    hid a real bug: wikipage.py imports search_index (for the Vault
+    facade's type hints), search_index imports page_record, and
+    page_record imports wikipage back — a cycle that's harmless when
+    wikipage is loaded once under one name, but broke when running
+    ``python wikipage.py ...`` loaded it a *second* time under the name
+    ``wikipage`` (triggered by page_record's ``import wikipage``), which
+    re-entered search_index mid-initialization and raised an ImportError
+    on a name search_index hadn't defined yet. Only a real subprocess
+    invocation reproduces that; an in-process ``import`` never will.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, wikipage.__file__, "get", str(small_vault / "wiki/entity/b.md"), "title"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "B"
