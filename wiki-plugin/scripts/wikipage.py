@@ -53,12 +53,10 @@ from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # Type-only: search_index imports wikipage (for split_frontmatter, via
-    # page_record), so a module-level `import search_index` here would be
-    # circular. `from __future__ import annotations` (above) means every
-    # annotation below is a string, never evaluated, so this is safe — the
-    # only *runtime* need for search_index is the lazy import inside
-    # Vault._get_index.
+    # Type-only: a module-level runtime import here would be circular with
+    # search_index (see the `import search_index` in Vault._get_index below
+    # for why). `from __future__ import annotations` makes every annotation
+    # a string, never evaluated, so this is safe.
     import search_index
     from search_index import IndexStats, IndexStatus, SearchHit
 
