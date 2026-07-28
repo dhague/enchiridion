@@ -30,13 +30,13 @@ Given one document at `<path>`:
      - `wikipage.py set` **overwrites** the key's whole value — it does not append. Use `wikipage.py merge <page> <key> <json-list>` instead of `set` for `tags` or any edge-list key (`refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) on a page that already has one — it unions the existing entries with the new ones internally, so nothing has to get-then-set by hand.
    - **Contradiction.** The candidate's claim conflicts with an existing page's claim. **Never overwrite the existing page.** Create a new page as usual (step 4 onward), and on the *new* page set `contradicts` (and, since this same ingestion pass resolves the conflict by replacement) `supersedes` — both pointing at the superseded page. The superseded page's content is left untouched; only the new page carries these edges.
    - When a candidate touches more than one existing page, judge each pairing independently — a document can update one page while contradicting another.
-4. **Assemble the `IngestPlan`.** Everything downstream of the step 1-3 judgment — placement mechanics, raw normalization, frontmatter writes, body writes, the index, and the commit — is one call: `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>`. Write `<plan.json>` yourself (a scratch file, not a vault page) with this shape:
+4. **Assemble the `IngestPlan`.** Everything downstream of the step 1-3 judgment — placement mechanics, frontmatter writes, body writes, the index, and the commit — is one call: `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>`. Write `<plan.json>` yourself (a scratch file, not a vault page) with this shape:
 
    ```jsonc
    {
      "title": "<source document's title>",
      "source_date": "<the document's own date, not today's>",
-     "raw": "raw/<artifact as it currently sits, pre-normalization>",   // omit if nothing came from raw/
+     "raw": "raw/<artifact's path, exactly as it sits on disk>",   // omit if nothing came from raw/
      "pages": [
        {
          "op": "create",
@@ -48,7 +48,7 @@ Given one document at `<path>`:
            "tags": ["<reuse an existing tag where one fits, mint only when nothing does>"],
            "source_date": "<same as above, or this page's own if it differs>",
            "volatility": "stable | evolving | volatile",
-           "raw_source": "[<filename>](<relative/path/into/raw/>)"   // only on a source/ page — see wiki-conventions; the path is relative to THIS page once placed, and rewritten automatically to the normalized name
+           "raw_source": "[<filename>](<relative/path/into/raw/>)"   // only on a source/ page — see wiki-conventions; the path is relative to THIS page once placed, and points at the artifact's real, unchanged filename
          },
          "edges": {
            "related": ["[<title>](<relative/path.md>)"],
@@ -71,6 +71,6 @@ Given one document at `<path>`:
    - **Kind** (create pages only): `source/` (stand-in for the raw artifact) → `synthesis/` (saved query result) → `entity/` (named, repeatedly-linked thing) → `concept/` (default), first match wins. Not every ingested artifact needs a `source/` stand-in — create one only when the raw artifact itself is the citable reference; when the artifact's value is really the knowledge inside it, distill straight into `concept/`/`entity/` and skip `source/`. `ingest.py` computes the exact kebab-slug path from `kind`+`title` — never hand-slugify.
    - **Typed edges** (`refines`/`contradicts`/`example-of`/`source`/`related`) — judge these for **every new or updated page**, against every existing page surfaced in step 3. Assign the most specific type that's true (`related` only as a fallback); `contradicts`/`supersedes` are already decided by step 3 where applicable, and belong on the *new* page only — never on the superseded page.
    - **Body**, for an `update` page: write the *complete* new body text (not a diff) when the material actually changes something in it; omit the `body` key entirely to leave the existing body untouched. For a `create` page, `body` is always required.
-   - **`raw_source`**'s destination in the plan should point at the raw artifact wherever it currently sits (matching the plan's own `raw` field) — `ingest.py` normalizes the file and retargets this link to the renamed path itself; don't pre-guess the `YYYY-MM-DD-hhmm-` prefix.
-5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates the whole plan up front (every required field, every `update`'s `rel` exists, every `create`'s target doesn't yet, every edge/`raw_source` link resolves to a real page — including a sibling page this same plan is about to create) before writing anything, then executes place → normalize → frontmatter → body → index → commit in one pass and prints the commit SHA. If it raises, nothing was committed but any pages it did get to are left on disk uncommitted (writes are idempotent, so fix the plan and rerun rather than hand-repairing).
+   - **`raw_source`**'s destination points at the raw artifact exactly where it sits (matching the plan's own `raw` field). **Ingestion never renames a raw file** — a file that came from outside the plugin keeps its name verbatim, forever, so don't add a `YYYY-MM-DD-hhmm-` prefix or expect one to appear (that prefix is bound at creation, and only for files the plugin itself creates). Percent-encode the destination — but not the label — where the filename needs it (`%` `space` `(` `)` `#` `<` `>`; leave unicode literal): `"[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"`.
+5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates the whole plan up front (every required field, every `update`'s `rel` exists, every `create`'s target doesn't yet, every edge/`raw_source` link resolves to a real page — including a sibling page this same plan is about to create) before writing anything, then executes place → frontmatter → body → index → commit in one pass and prints the commit SHA. If it raises, nothing was committed but any pages it did get to are left on disk uncommitted (writes are idempotent, so fix the plan and rerun rather than hand-repairing).
 6. **Report.** Reply with only a short manifest — pages created vs. updated, edges added, any `supersedes` pairs recorded — never page-content dumps.
