@@ -4,8 +4,8 @@ Collapses the ~12-call ingestion orchestration behind one seam: a plan
 describing the decided outcome (pages to create/update, their frontmatter and
 edges) in, a commit SHA out. Steps 1-3 of wiki-ingest (read, chunk, overlap
 classification) stay judgment and stay with the agent; this module only
-executes the mechanical remainder: place -> normalize -> frontmatter -> body
--> index -> manifest -> commit.
+executes the mechanical remainder: place -> frontmatter -> body -> index ->
+manifest -> commit.
 """
 from __future__ import annotations
 
@@ -419,10 +419,10 @@ def test_execute_records_supersedes_pair_in_manifest(vault_root):
     assert superseded_page.get("summary") == "an existing page"
 
 
-# --- execution: raw normalization ------------------------------------------------
+# --- execution: raw artifacts are preserved, never renamed -----------------------
 
 
-def test_execute_normalizes_raw_and_retargets_raw_source(vault_root):
+def test_execute_preserves_raw_filename_and_leaves_raw_source_untargeted(vault_root):
     (vault_root / "raw" / "notes.md").write_text("raw notes\n", encoding="utf-8")
     d = {
         "title": "File a source page",
@@ -441,20 +441,42 @@ def test_execute_normalizes_raw_and_retargets_raw_source(vault_root):
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
 
+    # per #28/#38 the raw file keeps its name verbatim and raw_source still
+    # points at it exactly as the plan wrote it
+    assert (vault_root / "raw" / "notes.md").read_text(encoding="utf-8") == "raw notes\n"
     page = Vault(vault_root).load("wiki/source/notes.md")
-    raw_source = page.get("raw_source")
-    assert raw_source != "[notes.md](../../raw/notes.md)"
-    assert raw_source.startswith("[") and "raw/" in raw_source
-    # the normalized raw file exists on disk and the original name is gone
-    assert not (vault_root / "raw" / "notes.md").exists()
+    assert page.get("raw_source") == "[notes.md](../../raw/notes.md)"
 
-    body = _git(vault_root, "log", "-1", "--pretty=%B")
     # the raw artifact landed in the same commit as the page it produced
-    tracked = _git(vault_root, "ls-files")
-    assert "raw/notes.md" not in tracked
-    assert any(
-        line.startswith("raw/") and line.endswith("notes.md")
-        for line in tracked.splitlines()
+    tracked = _git(vault_root, "ls-files").splitlines()
+    assert "raw/notes.md" in tracked
+
+
+def test_execute_preserves_a_raw_filename_needing_percent_encoding(vault_root):
+    (vault_root / "raw" / "My Notes (draft).md").write_text("raw\n", encoding="utf-8")
+    d = {
+        "title": "File a source page",
+        "raw": "raw/My Notes (draft).md",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "source",
+                "title": "My Notes",
+                "body": "# My Notes\n",
+                "frontmatter": {
+                    "raw_source": "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"
+                },
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)  # the encoded destination validates against the real file
+
+    assert (vault_root / "raw" / "My Notes (draft).md").exists()
+    page = Vault(vault_root).load("wiki/source/my-notes.md")
+    assert page.get("raw_source") == (
+        "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"
     )
 
 

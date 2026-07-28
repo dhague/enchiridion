@@ -8,12 +8,18 @@ semantic-chunk, overlap classification) stay judgment and stay with the
 ingesting agent; everything downstream of that decision is mechanics, and
 mechanics belongs in a tested script, not prose an agent re-derives every run.
 
-The pipeline, in order: validate -> normalize raw/ -> per page (place ->
-frontmatter -> body) -> regenerate the index -> derive a commit.Manifest from
-the plan -> commit. Validation is two-phase and runs entirely before any
-write: shape (required fields, valid op) then semantic (an update's `rel`
-exists, a create's target doesn't yet, every edge/raw_source link resolves to
-a real page — either already on disk or another page this same plan creates).
+The pipeline, in order: validate -> per page (place -> frontmatter -> body) ->
+regenerate the index -> derive a commit.Manifest from the plan -> commit.
+Validation is two-phase and runs entirely before any write: shape (required
+fields, valid op) then semantic (an update's `rel` exists, a create's target
+doesn't yet, every edge/raw_source link resolves to a real page — either
+already on disk or another page this same plan creates).
+
+The raw artifact named by `plan.raw` is never renamed or moved: per #28/#38 a
+file with external identity keeps its name verbatim, forever. Ingestion only
+reads it and stages it into the commit; `raw_source` links point at it where it
+already sits, percent-encoded by the link machinery rather than sanitized on
+disk.
 
 There is deliberately no rollback on failure: a page written before a later
 step raises is left on disk, uncommitted. Every write here is idempotent
@@ -32,7 +38,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import commit
-import normalize_raw
 import place
 import wikipage
 from wikipage import Vault, WikiPage
@@ -86,15 +91,21 @@ class IngestPlan:
         )
 
 
-def _link_dest(link: str) -> str | None:
-    """Return a markdown link's destination, or ``None`` if it isn't one."""
+def _link_path(link: str) -> str | None:
+    """Return a markdown link's decoded, anchor-free destination path.
+
+    ``None`` when ``link`` isn't a markdown link at all. Decoded rather than raw
+    (#38): a preserved raw filename with a space or paren in it is
+    percent-encoded in the destination, and only the decoded form compares
+    against a path on disk.
+    """
     match = next(iter(wikipage.iter_links(link)), None)
-    return match.dest if match is not None else None
+    return match.decoded_path if match is not None else None
 
 
-def _resolve(dest: str, page_dir: str) -> str:
-    """Re-express a link destination (relative to ``page_dir``) as vault-relative."""
-    return posixpath.normpath(posixpath.join(page_dir or ".", dest.split("#", 1)[0]))
+def _resolve(path: str, page_dir: str) -> str:
+    """Re-express a decoded link path (relative to ``page_dir``) as vault-relative."""
+    return posixpath.normpath(posixpath.join(page_dir or ".", path))
 
 
 def _page_dir(page: PagePlan) -> str | None:
@@ -176,13 +187,11 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
         if page_dir is None:
             continue
         for link in _page_links(page):
-            dest = _link_dest(link)
+            dest = _link_path(link)
             if dest is None:
                 errors.append(f"{prefix}: {link!r} is not a markdown link")
                 continue
             resolved = _resolve(dest, page_dir)
-            if resolved == plan.raw:
-                continue  # resolved against the plan's own not-yet-normalized raw file
             if resolved in prospective:
                 continue
             if not (root / resolved).exists():
@@ -192,30 +201,10 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
         raise PlanError("; ".join(errors))
 
 
-def _retarget_raw_source(link: str, page_dir: str, old_rel: str, new_rel: str) -> str:
-    """Retarget a fresh ``raw_source`` link from ``old_rel`` to ``new_rel``, if it matches.
-
-    ``link``'s destination is relative to ``page_dir`` (the page it will be
-    written to), same as any other frontmatter link.
-    """
-    dest = _link_dest(link)
-    if dest is None or _resolve(dest, page_dir) != old_rel:
-        return link
-    new_dest = posixpath.relpath(new_rel, page_dir or ".")
-    return f"[{posixpath.basename(new_rel)}]({new_dest})"
-
-
-def _apply_frontmatter(
-    page: WikiPage,
-    plan_page: PagePlan,
-    page_dir: str,
-    raw_retarget: tuple[str, str] | None,
-) -> WikiPage:
+def _apply_frontmatter(page: WikiPage, plan_page: PagePlan) -> WikiPage:
     page = page.set("title", plan_page.title)
     merging = plan_page.op == "update"
     for key, value in plan_page.frontmatter.items():
-        if key == "raw_source" and raw_retarget is not None:
-            value = _retarget_raw_source(value, page_dir, *raw_retarget)
         if merging and isinstance(value, list):
             page = page.merge(key, value)
         else:
@@ -242,12 +231,6 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
     validate(plan, root)
     v = Vault(root)
 
-    raw_retarget: tuple[str, str] | None = None
-    if plan.raw:
-        result = normalize_raw.apply_normalize(root, plan.raw)
-        if result.renamed:
-            raw_retarget = (result.old_rel, result.new_rel)
-
     created: list[str] = []
     updated: list[str] = []
     superseded: list[tuple[str, str]] = []
@@ -256,20 +239,19 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
         if plan_page.op == "create":
             rel = place.path(plan_page.kind, plan_page.title)
             page_dir = posixpath.dirname(rel)
-            page = _apply_frontmatter(WikiPage(""), plan_page, page_dir, raw_retarget)
+            page = _apply_frontmatter(WikiPage(""), plan_page)
             page = WikiPage(page.text + plan_page.body)
             v.write(rel, page)
             created.append(rel)
 
             for link in plan_page.edges.get("supersedes", []):
-                dest = _link_dest(link)
+                dest = _link_path(link)
                 if dest is not None:
                     superseded.append((_resolve(dest, page_dir), rel))
         else:
             rel = plan_page.rel
-            page_dir = posixpath.dirname(rel)
             page = v.load(rel)
-            page = _apply_frontmatter(page, plan_page, page_dir, raw_retarget)
+            page = _apply_frontmatter(page, plan_page)
             page = _apply_body(page, plan_page.body)
             v.write(rel, page)
             updated.append(rel)
@@ -285,7 +267,7 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
         updated=updated,
         superseded=superseded,
         source_date=plan.source_date,
-        raw_source=raw_retarget[1] if raw_retarget else plan.raw,
+        raw_source=plan.raw,
         extra_paths=["wiki/_index.md"],
     )
     return commit.commit(root, manifest)
