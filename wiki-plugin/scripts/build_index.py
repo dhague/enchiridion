@@ -22,6 +22,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import wikipage
 from page_record import PageRecord, load_records
 
 _HEADER = (
@@ -68,14 +69,19 @@ def build_index(pages: dict[str, str]) -> str:
 
 
 def write_index(vault_root: Path | str) -> Path:
-    """Walk the on-disk vault's ``wiki/**`` and (re)write ``wiki/_index.md``."""
+    """(Re)write ``wiki/_index.md`` from the on-disk vault's pages.
+
+    Enumeration is Vault's job (#41): pages come from
+    ``Vault.load_wiki_pages()`` (vault-relative ``rel``, never ``raw/``).
+    This function only rebases each ``rel`` back to wiki/-relative — since
+    ``_index.md`` itself lives in ``wiki/`` — before handing off to
+    :func:`build_index`, which excludes ``_index.md`` from the render.
+    """
     wiki_root = Path(vault_root) / "wiki"
-    pages: dict[str, str] = {}
-    for path in wiki_root.rglob("*.md"):
-        rel = path.relative_to(wiki_root).as_posix()
-        if rel == "_index.md":
-            continue
-        pages[rel] = path.read_text(encoding="utf-8")
+    pages = {
+        rel.removeprefix("wiki/"): text
+        for rel, text in wikipage.Vault(vault_root).load_wiki_pages().items()
+    }
 
     index_path = wiki_root / "_index.md"
     index_path.write_text(build_index(pages), encoding="utf-8")

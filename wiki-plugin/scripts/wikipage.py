@@ -33,7 +33,7 @@ from __future__ import annotations
 import posixpath
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import StringIO
 from pathlib import Path
 from urllib.parse import unquote
@@ -398,6 +398,27 @@ class Vault:
             pages[rel] = path.read_text(encoding="utf-8")
         return pages
 
+    def pages(self) -> dict[str, "page_record.PageRecord"]:
+        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map (#40, #41).
+
+        ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
+        one convention every :class:`Vault` enumeration method uses.
+        ``_index.md`` is never a page; ``raw/`` is never walked. Records are
+        decoded via :mod:`page_record`, whose edge-rebasing is wiki/-relative
+        by contract; only the outward-facing ``rel`` is relabelled here.
+        """
+        import page_record
+
+        wiki_relative = {
+            rel.removeprefix("wiki/"): text
+            for rel, text in self.load_wiki_pages().items()
+        }
+        records = page_record.load_records(wiki_relative)
+        return {
+            f"wiki/{rel}": replace(rec, rel=f"wiki/{rel}")
+            for rel, rec in records.items()
+        }
+
     def set(self, rel: str, key: str, value) -> WikiPage:
         """Load, :meth:`WikiPage.set`, and write back the page at ``rel``."""
         page = self.load(rel).set(key, value)
@@ -411,16 +432,14 @@ class Vault:
         return page
 
     def move_page(self, old_rel: str, new_rel: str) -> list[str]:
-        """Rewrite links across the whole vault and move the page on disk.
+        """Rewrite links across the vault's wiki pages and move the page on disk.
 
-        Reads every ``*.md`` page under the vault root, plans the move, writes
-        back only the pages whose text changed, then renames the moved file.
-        Returns the changed vault-relative paths.
+        Reads every ``wiki/**`` page (never ``raw/`` — its files aren't
+        rewritten by a page move), plans the move, writes back only the pages
+        whose text changed, then renames the moved file. Returns the changed
+        vault-relative paths.
         """
-        files: dict[str, str] = {}
-        for path in self.root.rglob("*.md"):
-            rel = path.relative_to(self.root).as_posix()
-            files[rel] = path.read_text(encoding="utf-8")
+        files = self.load_wiki_pages()
         if old_rel not in files:
             raise FileNotFoundError(f"{old_rel} not found under {self.root}")
 
