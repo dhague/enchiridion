@@ -25,7 +25,6 @@ import sys
 from typing import Sequence
 
 import vault as vault_mod
-import wikipage
 
 
 def _render_hit(rel_width: int, hit) -> str:
@@ -115,7 +114,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = vault_mod.resolve_vault_root()
-    v = wikipage.Vault(root)
+    v = vault_mod.Vault(root)
 
     if args.status:
         status = v.index_status()

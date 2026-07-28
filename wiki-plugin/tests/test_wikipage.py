@@ -1,5 +1,7 @@
-"""TDD for wikipage.py — WikiPage (pure) + Vault (I/O) + the shared markdown
-primitives they're built on (frontmatter split, AST-positioned link discovery).
+"""TDD for wikipage.py — WikiPage and the shared markdown primitives it's
+built on (frontmatter split, AST-positioned link discovery, percent-encoding,
+plan_move). Everything here is pure: no test in this file touches a vault.
+``Vault``'s own coverage lives in test_vault.py.
 
 Consolidates the coverage that previously lived in test_frontmatter.py,
 test_links.py, test_links_frontmatter.py and test_md.py (#32 replaces
@@ -21,7 +23,7 @@ from hypothesis import strategies as st
 from ruamel.yaml import YAML
 
 import wikipage
-from wikipage import LinkMatch, Vault, WikiPage
+from wikipage import WikiPage
 
 # --- split_frontmatter ---------------------------------------------------
 
@@ -842,254 +844,39 @@ def test_prop_move_only_touches_link_lines_and_resolves(data):
                 assert "](" in b, f"non-link line changed in {rel}: {b!r} -> {a!r}"
 
 
-# --- Vault: I/O + cross-page move -----------------------------------------------
+# --- CLI: run as a real subprocess (regression for import cycles that only
+# bite when wikipage.py is the executed file) --------------------------------
 
 
-@pytest.fixture
-def small_vault(tmp_path):
-    (tmp_path / "wiki/concept").mkdir(parents=True)
-    (tmp_path / "wiki/entity").mkdir(parents=True)
-    (tmp_path / "wiki/concept/a.md").write_text(
-        "---\ntitle: A\n---\nsee [b](../entity/b.md)\n", encoding="utf-8"
-    )
-    (tmp_path / "wiki/entity/b.md").write_text("---\ntitle: B\n---\n# B\n", encoding="utf-8")
-    return tmp_path
-
-
-def test_vault_load_and_get(small_vault):
-    v = Vault(small_vault)
-    page = v.load("wiki/entity/b.md")
-    assert page.get("title") == "B"
-
-
-def test_vault_set_writes_back(small_vault):
-    v = Vault(small_vault)
-    v.set("wiki/entity/b.md", "summary", "the B page")
-    assert v.load("wiki/entity/b.md").get("summary") == "the B page"
-
-
-def test_vault_merge_writes_back(small_vault):
-    v = Vault(small_vault)
-    v.set("wiki/entity/b.md", "tags", ["db"])
-    v.merge("wiki/entity/b.md", "tags", ["db", "sql"])
-    assert list(v.load("wiki/entity/b.md").get("tags")) == ["db", "sql"]
-
-
-def test_vault_move_page_rewrites_inbound_and_moves_file(small_vault):
-    v = Vault(small_vault)
-    changed = v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
-    assert set(changed) == {"wiki/concept/a.md", "wiki/concept/b.md"}
-    assert not (small_vault / "wiki/entity/b.md").exists()
-    assert (small_vault / "wiki/concept/b.md").exists()
-    assert "see [b](b.md)" in (small_vault / "wiki/concept/a.md").read_text(encoding="utf-8")
-
-
-def test_vault_move_page_missing_source_raises(small_vault):
-    v = Vault(small_vault)
-    with pytest.raises(FileNotFoundError):
-        v.move_page("wiki/entity/missing.md", "wiki/concept/missing.md")
-
-
-def test_vault_round_trip_encoded_raw_filename_survives_write_read_move_read(small_vault):
-    # A raw filename combining every char the encode charset covers: space,
-    # `#`, `%`, and parens. Write -> read -> move -> read, link stays resolved.
-    raw_name = "my file#1 (50%).txt"
-    (small_vault / "raw/notes").mkdir(parents=True)
-    (small_vault / "raw/notes" / raw_name).write_bytes(b"raw bytes")
-    (small_vault / "wiki/source").mkdir()
-
-    v = Vault(small_vault)
-    encoded = wikipage.percent_encode(raw_name)
-    v.write(
-        "wiki/source/x.md",
-        WikiPage(
-            "---\n"
-            "title: X\n"
-            f'raw_source: "[{raw_name}](../../raw/notes/{encoded})"\n'
-            "---\n"
-            "# X\n"
-        ),
-    )
-
-    page = v.load("wiki/source/x.md")
-    assert page.get("raw_source") == f"[{raw_name}](../../raw/notes/{encoded})"
-
-    changed = v.move_page("wiki/source/x.md", "wiki/x.md")
-    assert changed == ["wiki/x.md"]
-
-    moved = v.load("wiki/x.md")
-    lk = moved.links()[0]
-    resolved = posixpath.normpath(posixpath.join("wiki", lk.decoded_path))
-    assert resolved == f"raw/notes/{raw_name}"
-    assert (small_vault / resolved).read_bytes() == b"raw bytes"
-
-
-def test_vault_move_page_never_reads_or_rewrites_raw(small_vault):
-    # A markdown file under raw/ linking at the move target must be left
-    # untouched -- move_page only rewrites inbound links from wiki/ pages.
-    (small_vault / "raw/notes").mkdir(parents=True)
-    raw_md = small_vault / "raw/notes/note.md"
-    raw_md.write_text("see [b](../../wiki/entity/b.md)\n", encoding="utf-8")
-
-    v = Vault(small_vault)
-    changed = v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
-
-    assert "raw/notes/note.md" not in changed
-    assert raw_md.read_text(encoding="utf-8") == "see [b](../../wiki/entity/b.md)\n"
-
-
-# --- Vault.pages(): PageRecord enumeration (#41) ----------------------------
-
-
-def test_vault_pages_rel_is_vault_relative(small_vault):
-    v = Vault(small_vault)
-    records = v.pages()
-    assert set(records) == {"wiki/concept/a.md", "wiki/entity/b.md"}
-    assert records["wiki/concept/a.md"].rel == "wiki/concept/a.md"
-
-
-def test_vault_pages_kind_derived_from_folder(small_vault):
-    v = Vault(small_vault)
-    records = v.pages()
-    assert records["wiki/concept/a.md"].kind == "concept"
-    assert records["wiki/entity/b.md"].kind == "entity"
-
-
-def test_vault_pages_edges_stay_wiki_relative(small_vault):
-    # a.md's link to b.md is page-relative ("../entity/b.md"); the resulting
-    # edge target is wiki/-relative like build_index's rendering expects --
-    # only rec.rel itself is vault-relative.
-    (small_vault / "wiki/concept/a.md").write_text(
-        '---\ntitle: A\nrelated:\n  - "[B](../entity/b.md)"\n---\nsee b\n',
-        encoding="utf-8",
-    )
-    v = Vault(small_vault)
-    records = v.pages()
-    assert records["wiki/concept/a.md"].edges == [("related", ["entity/b.md"])]
-
-
-def test_vault_pages_excludes_index_md(small_vault):
-    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert "wiki/_index.md" not in v.pages()
-
-
-def test_vault_pages_never_walks_raw(small_vault):
-    (small_vault / "raw/notes").mkdir(parents=True)
-    (small_vault / "raw/notes/x.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert all(rel.startswith("wiki/") for rel in v.pages())
-    assert "raw/notes/x.md" not in v.pages()
-
-
-def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):
-    # A raw/ file rename: the target itself is never read/written, only the
-    # wiki pages that link to it.
-    (small_vault / "wiki/source").mkdir()
-    (small_vault / "wiki/source/x.md").write_text(
-        '---\ntitle: X\nraw_source: "[x.md](../../raw/notes/x.md)"\n---\n# X\n',
-        encoding="utf-8",
-    )
-    v = Vault(small_vault)
-    changed = v.rewrite_inbound_links("raw/notes/x.md", "raw/notes/2026-01-01-0000-x.md")
-    assert changed == ["wiki/source/x.md"]
-    assert (
-        'raw_source: "[x.md](../../raw/notes/2026-01-01-0000-x.md)"'
-        in (small_vault / "wiki/source/x.md").read_text(encoding="utf-8")
-    )
-
-
-# --- Vault: search index facade (#39) ------------------------------------
-
-
-def test_vault_search_finds_written_page(small_vault):
-    v = Vault(small_vault)
-    v.set("wiki/entity/b.md", "summary", "connection pooling in postgres")
-    hits = v.search("postgres")
-    assert any(h.rel == "entity/b.md" for h in hits)
-
-
-def test_vault_search_returns_wiki_relative_rels(small_vault):
-    """The convention here is wiki-relative (matches ``_index.md`` and
-    ``page_record``); agents reading a hit's rel prepend ``wiki/`` to
-    open the file."""
-    v = Vault(small_vault)
-    v.set("wiki/entity/b.md", "summary", "connection pooling in postgres")
-    (hit,) = v.search("postgres")
-    assert hit.rel == "entity/b.md"
-
-
-def test_vault_set_inline_updates_index(small_vault):
-    """The inline update is a latency optimisation: a write followed by a
-    search should not need a scan. We can't observe that directly, but we
-    *can* observe that the inline update populates the page table with the
-    new text — so the next search's scan sees matching mtime/size and skips."""
-    v = Vault(small_vault)
-    v.set("wiki/entity/b.md", "summary", "alpha content")
-    # Force the index to open (a search will do this implicitly, but here
-    # we want to observe the inline update, not the scan).
-    idx = v._get_index()
-    text = (small_vault / "wiki/entity/b.md").read_text(encoding="utf-8")
-    idx.upsert_page("entity/b.md", text)
-    rows = idx._conn.execute(
-        "SELECT summary FROM page WHERE rel = ?", ("entity/b.md",)
-    ).fetchall()
-    assert rows == [("alpha content",)]
-
-
-def test_vault_move_page_picked_up_by_next_search(small_vault):
-    """``move_page`` deliberately doesn't inline-update; the next search's
-    staleness scan reconciles (the design's correctness path)."""
-    v = Vault(small_vault)
-    v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
-    # The old rel is gone from the index, the new one is present.
-    rels = [h.rel for h in v.search()]
-    assert "entity/b.md" not in rels
-    assert "concept/b.md" in rels
-
-
-def test_vault_index_status_reports_backend(small_vault):
-    v = Vault(small_vault)
-    # status is a read of the page table — it doesn't trigger a scan,
-    # so a fresh vault reports 0 pages until something has indexed it.
-    v.reindex()
-    status = v.index_status()
-    assert status.backend in ("fts5", "re")
-    assert status.pages == 2
-
-
-def test_vault_reindex_full_returns_stats(small_vault):
-    v = Vault(small_vault)
-    stats = v.reindex(full=True)
-    assert stats.pages == 2
-    assert stats.inserted == 2
-
-
-# --- CLI: run as a real subprocess (regression for the wikipage<->search_index
-# import cycle) -------------------------------------------------------------
-
-
-def test_cli_get_runs_as_subprocess(small_vault):
+def test_cli_get_runs_as_subprocess(tmp_path):
     """``python wikipage.py get ...`` must work when wikipage.py is the
     *executed* file, not just when it's imported.
 
     Every test above imports wikipage as a library, so pytest always sees
     it under the module name ``wikipage`` — never as ``__main__``. That
-    hid a real bug: wikipage.py imports search_index (for the Vault
+    hid a real bug: wikipage.py used to import search_index (for the Vault
     facade's type hints), search_index imports page_record, and
     page_record imports wikipage back — a cycle that's harmless when
     wikipage is loaded once under one name, but broke when running
     ``python wikipage.py ...`` loaded it a *second* time under the name
     ``wikipage`` (triggered by page_record's ``import wikipage``), which
     re-entered search_index mid-initialization and raised an ImportError
-    on a name search_index hadn't defined yet. Only a real subprocess
-    invocation reproduces that; an in-process ``import`` never will.
+    on a name search_index hadn't defined yet. Moving ``Vault`` out to
+    vault.py dissolved that cycle — the dependency now runs one way,
+    ``vault -> wikipage`` — but the double-load is structural, so this
+    stays as the guard. Only a real subprocess invocation reproduces it;
+    an in-process ``import`` never will.
     """
     import subprocess
     import sys
 
+    # A bare file, not a vault: every wikipage.py subcommand takes a path and
+    # does pure text work, so this CLI never resolves a vault root.
+    page = tmp_path / "b.md"
+    page.write_text("---\ntitle: B\n---\n# B\n", encoding="utf-8")
+
     result = subprocess.run(
-        [sys.executable, wikipage.__file__, "get", str(small_vault / "wiki/entity/b.md"), "title"],
+        [sys.executable, wikipage.__file__, "get", str(page), "title"],
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr

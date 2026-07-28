@@ -31,12 +31,10 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence, TYPE_CHECKING
+from typing import Sequence
 
 import page_record
-
-if TYPE_CHECKING:
-    import wikipage
+import wikipage
 
 
 #: Bump when the on-disk schema changes. A mismatch on open triggers a
@@ -677,12 +675,7 @@ def _body_text(text: str) -> str:
 
     The FTS5 body column wants the prose, not the YAML. ``wikipage.split_frontmatter``
     already gives us (frontmatter, body, offset); we just take the body.
-
-    Imported lazily to break the ``wikipage ↔ search_index`` cycle at module
-    load — :mod:`wikipage` imports the types from here, so this module must
-    finish loading before :func:`wikipage.split_frontmatter` is referenced.
     """
-    import wikipage
     _fm, body, _offset = wikipage.split_frontmatter(text)
     return body
 

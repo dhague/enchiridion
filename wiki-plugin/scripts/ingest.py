@@ -40,7 +40,8 @@ from pathlib import Path
 import commit
 import place
 import wikipage
-from wikipage import Vault, WikiPage
+from vault import Vault
+from wikipage import WikiPage
 
 
 class PlanError(ValueError):
