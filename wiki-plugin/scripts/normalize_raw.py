@@ -81,14 +81,6 @@ def _fix_raw_source_label(text: str, page_rel: str, new_raw_rel: str, new_name: 
     return _RAW_SOURCE_RE.sub(_repl, text)
 
 
-def _load_wiki_pages(root: Path) -> dict[str, str]:
-    pages: dict[str, str] = {}
-    for path in (root / "wiki").rglob("*.md"):
-        rel = path.relative_to(root).as_posix()
-        pages[rel] = path.read_text(encoding="utf-8")
-    return pages
-
-
 def apply_normalize(
     vault_root: Path | str, raw_rel: str, when: datetime | None = None
 ) -> NormalizeResult:
@@ -110,7 +102,7 @@ def apply_normalize(
 
     new_raw_rel = posixpath.join(posixpath.dirname(raw_rel), new_name)
 
-    pages = _load_wiki_pages(root)
+    pages = wikipage.Vault(root).load_wiki_pages()
     planned = wikipage.plan_move(pages, raw_rel, new_raw_rel)
 
     old_bytes = raw_path.read_bytes()

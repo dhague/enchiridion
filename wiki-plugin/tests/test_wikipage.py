@@ -757,6 +757,64 @@ def test_vault_move_page_missing_source_raises(small_vault):
         v.move_page("wiki/entity/missing.md", "wiki/concept/missing.md")
 
 
+def test_vault_move_page_never_reads_or_rewrites_raw(small_vault):
+    # A markdown file under raw/ linking at the move target must be left
+    # untouched -- move_page only rewrites inbound links from wiki/ pages.
+    (small_vault / "raw/notes").mkdir(parents=True)
+    raw_md = small_vault / "raw/notes/note.md"
+    raw_md.write_text("see [b](../../wiki/entity/b.md)\n", encoding="utf-8")
+
+    v = Vault(small_vault)
+    changed = v.move_page("wiki/entity/b.md", "wiki/concept/b.md")
+
+    assert "raw/notes/note.md" not in changed
+    assert raw_md.read_text(encoding="utf-8") == "see [b](../../wiki/entity/b.md)\n"
+
+
+# --- Vault.pages(): PageRecord enumeration (#41) ----------------------------
+
+
+def test_vault_pages_rel_is_vault_relative(small_vault):
+    v = Vault(small_vault)
+    records = v.pages()
+    assert set(records) == {"wiki/concept/a.md", "wiki/entity/b.md"}
+    assert records["wiki/concept/a.md"].rel == "wiki/concept/a.md"
+
+
+def test_vault_pages_kind_derived_from_folder(small_vault):
+    v = Vault(small_vault)
+    records = v.pages()
+    assert records["wiki/concept/a.md"].kind == "concept"
+    assert records["wiki/entity/b.md"].kind == "entity"
+
+
+def test_vault_pages_edges_stay_wiki_relative(small_vault):
+    # a.md's link to b.md is page-relative ("../entity/b.md"); the resulting
+    # edge target is wiki/-relative like build_index's rendering expects --
+    # only rec.rel itself is vault-relative.
+    (small_vault / "wiki/concept/a.md").write_text(
+        '---\ntitle: A\nrelated:\n  - "[B](../entity/b.md)"\n---\nsee b\n',
+        encoding="utf-8",
+    )
+    v = Vault(small_vault)
+    records = v.pages()
+    assert records["wiki/concept/a.md"].edges == [("related", ["entity/b.md"])]
+
+
+def test_vault_pages_excludes_index_md(small_vault):
+    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
+    v = Vault(small_vault)
+    assert "wiki/_index.md" not in v.pages()
+
+
+def test_vault_pages_never_walks_raw(small_vault):
+    (small_vault / "raw/notes").mkdir(parents=True)
+    (small_vault / "raw/notes/x.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
+    v = Vault(small_vault)
+    assert all(rel.startswith("wiki/") for rel in v.pages())
+    assert "raw/notes/x.md" not in v.pages()
+
+
 def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):
     # A raw/ file rename: the target itself is never read/written, only the
     # wiki pages that link to it.
