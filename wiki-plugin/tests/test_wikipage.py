@@ -534,13 +534,10 @@ def test_unrelated_file_untouched_bytewise():
 def _resolves(files: dict[str, str]) -> None:
     for rel, text in files.items():
         for lk in wikipage.iter_links(text):
-            # Use decoded_dest to check if relative
-            path = lk.decoded_dest.split("#", 1)[0]
+            path = lk.decoded_path
             if "://" in path or path.startswith(("/", "#")) or path == "":
                 continue
-            # Decode the destination to resolve to actual file keys
-            decoded_dest = wikipage.percent_decode(lk.dest)
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel) or ".", decoded_dest.split("#", 1)[0]))
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel) or ".", path))
             assert target in files, f"dangling {lk.dest!r} in {rel} -> {target}"
 
 
@@ -633,7 +630,7 @@ def test_iter_links_encoded_destination():
     assert len(links) == 1
     lk = links[0]
     assert lk.dest == "raw/my%20file.txt"  # encoded form (invariant)
-    assert lk.decoded_dest == "raw/my file.txt"  # decoded for logic
+    assert lk.decoded_path == "raw/my file.txt"  # decoded for logic
     assert body[lk.start:lk.end] == "raw/my%20file.txt"
 
 
@@ -643,7 +640,7 @@ def test_iter_links_hash_in_filename():
     assert len(links) == 1
     lk = links[0]
     assert lk.dest == "raw/file%231.txt"
-    assert lk.decoded_dest == "raw/file#1.txt"
+    assert lk.decoded_path == "raw/file#1.txt"
     # Offsets still point to the encoded form
     assert body[lk.start:lk.end] == "raw/file%231.txt"
 
@@ -664,7 +661,19 @@ def test_encoded_link_with_anchor():
     assert len(links) == 1
     lk = links[0]
     assert lk.dest == "raw/my%20file.md#section"
-    assert lk.decoded_dest == "raw/my file.md#section"
+    assert lk.decoded_path == "raw/my file.md"
+    assert lk.decoded_anchor == "section"
+
+
+def test_encoded_hash_in_filename_not_confused_with_anchor():
+    # An encoded `#` (from a filename) must not be treated as the anchor
+    # separator once a *literal* `#` anchor follows it.
+    body = 'see [file](raw/file%231.md#section) now\n'
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    lk = links[0]
+    assert lk.decoded_path == "raw/file#1.md"
+    assert lk.decoded_anchor == "section"
 
 
 def test_inbound_encoded_link_with_anchor_rewritten():
@@ -746,17 +755,15 @@ def test_tags_flow_list_not_mistaken_for_a_link():
 # --- plan_move: property test ---------------------------------------------------
 
 _DIRS = ["wiki/concept", "wiki/entity", "wiki/source", "raw/notes"]
-# Include filenames with special chars that need encoding. Exclude # since it
-# conflicts with markdown anchor syntax (though we support encoding it).
-_NAMES = ["a", "b", "c", "d", "e", "my file", "50%", "draft (v2)"]
+# Filenames with each char the percent-encoding charset covers, so the
+# property test actually generates the hazard it's meant to guard: a name
+# with `#` exercises the encoded-# vs. anchor-separator distinction.
+_NAMES = ["a", "b", "c", "d", "e", "my file", "50%", "draft (v2)", "file#1"]
 _MOVE_EDGE_KEYS = ["refines", "contradicts", "example-of", "source", "related"]
 
 
-def _resolve(file_rel: str, dest: str) -> str:
-    # Decode the destination first to handle percent-encoded filenames
-    decoded_dest = wikipage.percent_decode(dest)
-    path = decoded_dest.split("#", 1)[0]
-    return posixpath.normpath(posixpath.join(posixpath.dirname(file_rel) or ".", path))
+def _resolve(file_rel: str, decoded_path: str) -> str:
+    return posixpath.normpath(posixpath.join(posixpath.dirname(file_rel) or ".", decoded_path))
 
 
 @st.composite
@@ -819,11 +826,10 @@ def test_prop_move_only_touches_link_lines_and_resolves(data):
 
     for rel, text in out.items():
         for lk in wikipage.iter_links(text):
-            # Use decoded_dest to check if relative (splitting on # in decoded form)
-            path = lk.decoded_dest.split("#", 1)[0]
+            path = lk.decoded_path
             if "://" in path or path.startswith(("/", "#")) or path == "":
                 continue
-            target = _resolve(rel, lk.dest)
+            target = _resolve(rel, path)
             assert target in out, f"dangling link {lk.dest!r} in {rel} -> {target}"
 
     for rel, text in files.items():
@@ -882,6 +888,40 @@ def test_vault_move_page_missing_source_raises(small_vault):
     v = Vault(small_vault)
     with pytest.raises(FileNotFoundError):
         v.move_page("wiki/entity/missing.md", "wiki/concept/missing.md")
+
+
+def test_vault_round_trip_encoded_raw_filename_survives_write_read_move_read(small_vault):
+    # A raw filename combining every char the encode charset covers: space,
+    # `#`, `%`, and parens. Write -> read -> move -> read, link stays resolved.
+    raw_name = "my file#1 (50%).txt"
+    (small_vault / "raw/notes").mkdir(parents=True)
+    (small_vault / "raw/notes" / raw_name).write_bytes(b"raw bytes")
+    (small_vault / "wiki/source").mkdir()
+
+    v = Vault(small_vault)
+    encoded = wikipage.percent_encode(raw_name)
+    v.write(
+        "wiki/source/x.md",
+        WikiPage(
+            "---\n"
+            "title: X\n"
+            f'raw_source: "[{raw_name}](../../raw/notes/{encoded})"\n'
+            "---\n"
+            "# X\n"
+        ),
+    )
+
+    page = v.load("wiki/source/x.md")
+    assert page.get("raw_source") == f"[{raw_name}](../../raw/notes/{encoded})"
+
+    changed = v.move_page("wiki/source/x.md", "wiki/x.md")
+    assert changed == ["wiki/x.md"]
+
+    moved = v.load("wiki/x.md")
+    lk = moved.links()[0]
+    resolved = posixpath.normpath(posixpath.join("wiki", lk.decoded_path))
+    assert resolved == f"raw/notes/{raw_name}"
+    assert (small_vault / resolved).read_bytes() == b"raw bytes"
 
 
 def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):

@@ -66,6 +66,21 @@ def percent_decode(path: str) -> str:
     """Percent-decode a path encoded by percent_encode()."""
     return unquote(path)
 
+
+def split_dest(dest: str) -> tuple[str, str]:
+    """Split an encoded link destination into ``(decoded_path, decoded_anchor)``.
+
+    Splits on the **literal** ``#`` first, then decodes each half — an
+    encoded ``#`` in a filename (``%23``) must never be mistaken for an
+    anchor separator, which decoding the whole string up front would cause.
+    This is the single decode boundary: callers get fully decoded strings
+    back and never re-derive this split themselves.
+    """
+    encoded_path, sep, encoded_anchor = dest.partition("#")
+    path = percent_decode(encoded_path)
+    anchor = percent_decode(encoded_anchor) if sep else ""
+    return path, anchor
+
 # A markdown inline link or image: `[label](dest ...)` / `![label](dest ...)`.
 # `label` tolerates one level of nested brackets (e.g. an image inside a link).
 # `dest` is either `<...>` or a run without whitespace/`)`; an optional title
@@ -91,15 +106,16 @@ class LinkMatch:
 
     ``start``/``end`` bracket the *encoded* destination path only (angle
     brackets and any title excluded), so ``text[start:end] == dest``. ``dest``
-    is the raw (possibly percent-encoded) bytes from disk; ``decoded_dest`` is
-    the decoded path for logic. ``line`` is the 0-based line the destination
-    sits on.
+    is the raw (possibly percent-encoded) bytes from disk; ``decoded_path``/
+    ``decoded_anchor`` are :func:`split_dest`'s decoded halves, for logic.
+    ``line`` is the 0-based line the destination sits on.
     """
 
     start: int
     end: int
     dest: str  # the encoded destination (text[start:end] == dest, invariant)
-    decoded_dest: str  # the decoded destination for logic
+    decoded_path: str  # split_dest(dest)[0] — decoded, anchor-free, for logic
+    decoded_anchor: str  # split_dest(dest)[1] — decoded, "" if no anchor
     is_image: bool
     line: int
 
@@ -142,8 +158,8 @@ def iter_links(text: str):
     frontmatter links (typed edges, ``supersedes``, ``raw_source``) are found
     by the same rule as body links.
 
-    LinkMatch.dest is the encoded (raw) destination; LinkMatch.decoded_dest is
-    decoded for use in logic.
+    LinkMatch.dest is the encoded (raw) destination; LinkMatch.decoded_path /
+    LinkMatch.decoded_anchor are :func:`split_dest`'s decoded halves.
     """
     code_lines = _code_line_ranges(text)
     for m in _LINK_RE.finditer(text):
@@ -156,9 +172,10 @@ def iter_links(text: str):
         line = _line_of(text, start)
         if line in code_lines:
             continue
-        decoded_dest = percent_decode(dest)
+        decoded_path, decoded_anchor = split_dest(dest)
         yield LinkMatch(
-            start=start, end=end, dest=dest, decoded_dest=decoded_dest,
+            start=start, end=end, dest=dest,
+            decoded_path=decoded_path, decoded_anchor=decoded_anchor,
             is_image=bool(m.group("img")), line=line
         )
 
@@ -192,10 +209,7 @@ def _rewrite_text(
 
     edits: list[tuple[int, int, str]] = []
     for lk in iter_links(text):
-        # Split on literal # first (which may be encoded), then decode each part.
-        encoded_path, sep, encoded_anchor = lk.dest.partition("#")
-        path = percent_decode(encoded_path)
-        anchor = percent_decode(encoded_anchor) if encoded_anchor else ""
+        path, anchor = lk.decoded_path, lk.decoded_anchor
 
         if not _is_relative_dest(path):
             continue
@@ -345,9 +359,9 @@ def plan_move(pages: dict[str, str], old_rel: str, new_rel: str) -> dict[str, st
     Pure — no disk I/O. The moved page appears under ``new_rel`` in the
     result; every other page keeps its key. Both inbound and outbound links
     are fixed. ``old_rel`` need not be a key of ``pages`` — a caller
-    retargeting links at a non-page file (e.g. a ``raw/`` artifact renamed by
-    ``normalize_raw.py``) can pass a ``pages`` map that only contains the
-    markdown pages whose *inbound* links should follow the rename.
+    retargeting links at a non-page file (e.g. a plugin-authored ``raw/``
+    artifact) can pass a ``pages`` map that only contains the markdown pages
+    whose *inbound* links should follow the rename.
     """
     result: dict[str, str] = {}
     for rel, text in pages.items():
@@ -434,9 +448,9 @@ class Vault:
         """Rewrite ``wiki/**`` pages' links pointing at ``old_rel`` to ``new_rel``.
 
         For a target that is not itself a wiki page — e.g. a ``raw/`` artifact
-        being renamed by ``normalize_raw.py`` — ``old_rel``/``new_rel`` are
-        never read, parsed, or written; only *other* pages' inbound links are
-        fixed. Returns the changed vault-relative paths, sorted.
+        renamed externally — ``old_rel``/``new_rel`` are never read, parsed,
+        or written; only *other* pages' inbound links are fixed. Returns the
+        changed vault-relative paths, sorted.
         """
         pages = self.load_wiki_pages()
         planned = plan_move(pages, old_rel, new_rel)
