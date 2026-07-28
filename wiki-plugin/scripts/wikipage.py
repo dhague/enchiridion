@@ -1,4 +1,4 @@
-"""WikiPage/Vault — the page model and all vault I/O (#29, #32).
+"""WikiPage/Vault — the page model and all vault I/O (#29, #32, #39).
 
 Replaces frontmatter.py + lib/md.py + links.py's single-page logic. Two
 responsibilities, split the same way the design in #29 asked for:
@@ -9,6 +9,14 @@ responsibilities, split the same way the design in #29 asked for:
 * :class:`Vault` — owns all I/O (load/write) and cross-page operations,
   notably :meth:`Vault.move_page`, which needs every other page's text to
   rewrite the links that point at the moved page.
+
+The vault is also the entry point for the lexical search index (#39): the
+:class:`SearchIndex` lives at ``.wiki-knowledge/index.db`` inside the vault,
+and :meth:`Vault.search`/``reindex``/``index_status`` proxy through. Inline
+updates fire from :meth:`Vault.write` (and the methods built on it: ``set``,
+``merge``) — the staleness scan inside ``search()`` is the correctness path,
+the inline update is a latency optimisation (so a write→search round-trip
+doesn't re-read the file).
 
 ``vault.py`` (root resolution) and ``commit.py`` (git orchestration) stay
 separate — this module doesn't resolve a root or talk to git itself.
@@ -40,6 +48,9 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
+import search_index
+from search_index import IndexStats, IndexStatus, SearchHit
 
 _MD = MarkdownIt("commonmark")
 
@@ -328,16 +339,40 @@ class Vault:
 
     def __init__(self, root: Path | str):
         self.root = Path(root)
+        # Lazy: the search index is opened on first use. Code paths that
+        # never search (``load``, ``move_page``) don't pay the FTS5 probe
+        # or schema-check cost. ``Vault.__init__`` stays cheap.
+        self._index: search_index.SearchIndex | None = None
+
+    def _get_index(self) -> search_index.SearchIndex:
+        if self._index is None:
+            self._index = search_index.SearchIndex(self.root)
+        return self._index
+
+    @staticmethod
+    def _wiki_rel(vault_rel: str) -> str:
+        """Strip the ``wiki/`` prefix from a vault-relative rel."""
+        if vault_rel.startswith("wiki/"):
+            return vault_rel[len("wiki/"):]
+        return vault_rel
 
     def load(self, rel: str) -> WikiPage:
         """Read the page at ``rel`` (vault-relative) into a :class:`WikiPage`."""
         return WikiPage((self.root / rel).read_text(encoding="utf-8"))
 
     def write(self, rel: str, page: WikiPage) -> None:
-        """Write ``page`` to ``rel`` (vault-relative), creating parents as needed."""
+        """Write ``page`` to ``rel`` (vault-relative), creating parents as needed.
+
+        Inline-updates the search index if it's been opened (latency
+        optimisation — the next search won't have to re-stat this file).
+        The staleness scan inside :meth:`search` is the correctness path,
+        so the inline update is safe to skip.
+        """
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(page.text, encoding="utf-8")
+        if self._index is not None:
+            self._index.upsert_page(self._wiki_rel(rel), page.text)
 
     def load_wiki_pages(self) -> dict[str, str]:
         """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
@@ -366,6 +401,11 @@ class Vault:
         Reads every ``*.md`` page under the vault root, plans the move, writes
         back only the pages whose text changed, then renames the moved file.
         Returns the changed vault-relative paths.
+
+        The search index is **not** inline-updated here — the next
+        :meth:`search` call's staleness scan reconciles the move (inserting
+        the new rel, removing the old, re-upserting the changed files),
+        which is correct and cheaper than a per-file upsert.
         """
         files: dict[str, str] = {}
         for path in self.root.rglob("*.md"):
@@ -410,6 +450,24 @@ class Vault:
                 (self.root / rel).write_text(text, encoding="utf-8")
                 changed.append(rel)
         return sorted(changed)
+
+    # --- search / index facade -------------------------------------------
+
+    def search(self, *args, **kwargs) -> list[SearchHit]:
+        """Proxy to the search index. Rels in the returned hits are
+        wiki-relative (``concept/foo.md``) so they match the convention in
+        ``wiki/_index.md`` and :mod:`page_record` — read them as relative
+        to ``wiki/``."""
+        return self._get_index().search(*args, **kwargs)
+
+    def reindex(self, *, full: bool = False) -> IndexStats:
+        """Force a re-index. ``full=True`` wipes the db first; ``full=False``
+        runs the staleness scan (the same scan a normal ``search`` runs)."""
+        return self._get_index().reindex(full=full)
+
+    def index_status(self) -> IndexStatus:
+        """Page count, db size, backend (``fts5`` or ``re``), schema version."""
+        return self._get_index().status()
 
 
 # --- CLI ---------------------------------------------------------------------
