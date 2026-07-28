@@ -394,6 +394,55 @@ def test_prop_changing_one_key_leaves_other_lines_identical(mapping, new_value):
         assert b == a
 
 
+# --- percent-encoding for raw/ filenames -------------------------------------------
+
+
+def test_percent_encode_space():
+    assert wikipage.percent_encode("my file.txt") == "my%20file.txt"
+
+
+def test_percent_encode_hash():
+    assert wikipage.percent_encode("file#1.txt") == "file%231.txt"
+
+
+def test_percent_encode_percent():
+    assert wikipage.percent_encode("50%.txt") == "50%25.txt"
+
+
+def test_percent_encode_parens():
+    assert wikipage.percent_encode("note (draft).txt") == "note%20%28draft%29.txt"
+
+
+def test_percent_encode_combined():
+    assert wikipage.percent_encode("my file#1 (draft).txt") == "my%20file%231%20%28draft%29.txt"
+
+
+def test_percent_encode_unchanged_chars():
+    # These chars should NOT be encoded
+    assert wikipage.percent_encode("file&name.txt") == "file&name.txt"
+    assert wikipage.percent_encode("file+name.txt") == "file+name.txt"
+    assert wikipage.percent_encode("file'name.txt") == "file'name.txt"
+
+
+def test_percent_decode_space():
+    assert wikipage.percent_decode("my%20file.txt") == "my file.txt"
+
+
+def test_percent_decode_hash():
+    assert wikipage.percent_decode("file%231.txt") == "file#1.txt"
+
+
+def test_percent_decode_combined():
+    assert wikipage.percent_decode("my%20file%231%20%28draft%29.txt") == "my file#1 (draft).txt"
+
+
+def test_percent_roundtrip():
+    original = "my file#1 (50%) - draft.txt"
+    encoded = wikipage.percent_encode(original)
+    decoded = wikipage.percent_decode(encoded)
+    assert decoded == original
+
+
 # --- plan_move: example cases --------------------------------------------------
 
 
@@ -485,10 +534,13 @@ def test_unrelated_file_untouched_bytewise():
 def _resolves(files: dict[str, str]) -> None:
     for rel, text in files.items():
         for lk in wikipage.iter_links(text):
-            path = lk.dest.split("#", 1)[0]
+            # Use decoded_dest to check if relative
+            path = lk.decoded_dest.split("#", 1)[0]
             if "://" in path or path.startswith(("/", "#")) or path == "":
                 continue
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel) or ".", path))
+            # Decode the destination to resolve to actual file keys
+            decoded_dest = wikipage.percent_decode(lk.dest)
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel) or ".", decoded_dest.split("#", 1)[0]))
             assert target in files, f"dangling {lk.dest!r} in {rel} -> {target}"
 
 
@@ -572,6 +624,74 @@ def test_same_dir_rename_leaves_raw_source_untouched():
     )
 
 
+# --- encoded links for raw/ files with special characters ---
+
+
+def test_iter_links_encoded_destination():
+    body = 'see [my file](raw/my%20file.txt) now\n'
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    lk = links[0]
+    assert lk.dest == "raw/my%20file.txt"  # encoded form (invariant)
+    assert lk.decoded_dest == "raw/my file.txt"  # decoded for logic
+    assert body[lk.start:lk.end] == "raw/my%20file.txt"
+
+
+def test_iter_links_hash_in_filename():
+    body = 'see [file](raw/file%231.txt) now\n'
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    lk = links[0]
+    assert lk.dest == "raw/file%231.txt"
+    assert lk.decoded_dest == "raw/file#1.txt"
+    # Offsets still point to the encoded form
+    assert body[lk.start:lk.end] == "raw/file%231.txt"
+
+
+def test_inbound_link_rewritten_with_encoded_raw_filename():
+    files = {
+        "wiki/source/a.md": 'see [file](../../raw/my%20file.txt) now\n',
+        "raw/my file.txt": "content",
+    }
+    # Rename the raw file in the vault model (encoded in the link)
+    out = wikipage.plan_move(files, "raw/my file.txt", "raw/2026-01-01-0000-my file.txt")
+    assert "raw/2026-01-01-0000-my%20file.txt" in out["wiki/source/a.md"]
+
+
+def test_encoded_link_with_anchor():
+    body = 'see [file](raw/my%20file.md#section) now\n'
+    links = list(wikipage.iter_links(body))
+    assert len(links) == 1
+    lk = links[0]
+    assert lk.dest == "raw/my%20file.md#section"
+    assert lk.decoded_dest == "raw/my file.md#section"
+
+
+def test_inbound_encoded_link_with_anchor_rewritten():
+    files = {
+        "wiki/source/a.md": 'see [file](../../raw/my%20file.md#sec) now\n',
+        "raw/my file.md": "content",
+    }
+    out = wikipage.plan_move(files, "raw/my file.md", "raw/other/my file.md")
+    # The link should be rewritten with encoding preserved
+    assert "raw/other/my%20file.md#sec" in out["wiki/source/a.md"]
+
+
+def test_raw_source_with_encoded_filename():
+    files = {
+        "wiki/source/x.md": (
+            "---\n"
+            "title: X\n"
+            'raw_source: "[my file.txt](../../raw/my%20file.txt)"\n'
+            "---\n"
+            "# X\n"
+        ),
+        "raw/my file.txt": "content",
+    }
+    out = wikipage.plan_move(files, "raw/my file.txt", "raw/2026-01-01-0000-my file.txt")
+    assert 'raw_source: "[my file.txt](../../raw/2026-01-01-0000-my%20file.txt)"\n' in out["wiki/source/x.md"]
+
+
 def test_synthesis_source_edge_rewritten_others_byte_identical():
     files = {
         "wiki/synthesis/s.md": (
@@ -626,12 +746,16 @@ def test_tags_flow_list_not_mistaken_for_a_link():
 # --- plan_move: property test ---------------------------------------------------
 
 _DIRS = ["wiki/concept", "wiki/entity", "wiki/source", "raw/notes"]
-_NAMES = ["a", "b", "c", "d", "e"]
+# Include filenames with special chars that need encoding. Exclude # since it
+# conflicts with markdown anchor syntax (though we support encoding it).
+_NAMES = ["a", "b", "c", "d", "e", "my file", "50%", "draft (v2)"]
 _MOVE_EDGE_KEYS = ["refines", "contradicts", "example-of", "source", "related"]
 
 
 def _resolve(file_rel: str, dest: str) -> str:
-    path = dest.split("#", 1)[0]
+    # Decode the destination first to handle percent-encoded filenames
+    decoded_dest = wikipage.percent_decode(dest)
+    path = decoded_dest.split("#", 1)[0]
     return posixpath.normpath(posixpath.join(posixpath.dirname(file_rel) or ".", path))
 
 
@@ -654,6 +778,8 @@ def _vaults(draw):
 
         def _md_link(target, with_anchor=False):
             dest = posixpath.relpath(target, rel_dir)
+            # Encode the destination to handle special chars in filenames
+            dest = wikipage.percent_encode(dest)
             if with_anchor:
                 dest += "#sec"
             return f"[{posixpath.basename(target)}]({dest})"
@@ -693,7 +819,8 @@ def test_prop_move_only_touches_link_lines_and_resolves(data):
 
     for rel, text in out.items():
         for lk in wikipage.iter_links(text):
-            path = lk.dest.split("#", 1)[0]
+            # Use decoded_dest to check if relative (splitting on # in decoded form)
+            path = lk.decoded_dest.split("#", 1)[0]
             if "://" in path or path.startswith(("/", "#")) or path == "":
                 continue
             target = _resolve(rel, lk.dest)

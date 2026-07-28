@@ -47,6 +47,38 @@ _MD = MarkdownIt("commonmark")
 # line. Anything else (a `---` mid-document) is a thematic break, not metadata.
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.DOTALL)
 
+# Percent-encoding charset: these chars must be encoded so raw/ filenames with
+# special chars are linkable. Encode: %, space, (, ), #, <, >. Everything else
+# (unicode, &, ', ,, +) stays literal.
+_ENCODE_CHARS = {" ", "#", "%", "(", ")", "<", ">"}
+
+
+def percent_encode(path: str) -> str:
+    """Percent-encode special characters in a path.
+
+    Encodes: space, #, %, (, ), <, >. Everything else stays literal.
+    """
+    return "".join(f"%{ord(c):02X}" if c in _ENCODE_CHARS else c for c in path)
+
+
+def percent_decode(path: str) -> str:
+    """Percent-decode a path encoded by percent_encode()."""
+    result = []
+    i = 0
+    while i < len(path):
+        if path[i] == "%" and i + 2 < len(path):
+            try:
+                code = int(path[i + 1 : i + 3], 16)
+                result.append(chr(code))
+                i += 3
+            except ValueError:
+                result.append(path[i])
+                i += 1
+        else:
+            result.append(path[i])
+            i += 1
+    return "".join(result)
+
 # A markdown inline link or image: `[label](dest ...)` / `![label](dest ...)`.
 # `label` tolerates one level of nested brackets (e.g. an image inside a link).
 # `dest` is either `<...>` or a run without whitespace/`)`; an optional title
@@ -70,14 +102,17 @@ _LINK_RE = re.compile(
 class LinkMatch:
     """One link/image occurrence, positioned in the source body.
 
-    ``start``/``end`` bracket the *destination path only* (angle brackets and
-    any title excluded), so ``text[start:end] == dest``. ``line`` is the
-    0-based line the destination sits on.
+    ``start``/``end`` bracket the *encoded* destination path only (angle
+    brackets and any title excluded), so ``text[start:end] == dest``. ``dest``
+    is the raw (possibly percent-encoded) bytes from disk; ``decoded_dest`` is
+    the decoded path for logic. ``line`` is the 0-based line the destination
+    sits on.
     """
 
     start: int
     end: int
-    dest: str
+    dest: str  # the encoded destination (text[start:end] == dest, invariant)
+    decoded_dest: str  # the decoded destination for logic
     is_image: bool
     line: int
 
@@ -119,6 +154,9 @@ def iter_links(text: str):
     *whole* document — including any YAML frontmatter block — so per-key
     frontmatter links (typed edges, ``supersedes``, ``raw_source``) are found
     by the same rule as body links.
+
+    LinkMatch.dest is the encoded (raw) destination; LinkMatch.decoded_dest is
+    decoded for use in logic.
     """
     code_lines = _code_line_ranges(text)
     for m in _LINK_RE.finditer(text):
@@ -131,7 +169,11 @@ def iter_links(text: str):
         line = _line_of(text, start)
         if line in code_lines:
             continue
-        yield LinkMatch(start=start, end=end, dest=dest, is_image=bool(m.group("img")), line=line)
+        decoded_dest = percent_decode(dest)
+        yield LinkMatch(
+            start=start, end=end, dest=dest, decoded_dest=decoded_dest,
+            is_image=bool(m.group("img")), line=line
+        )
 
 
 def _is_relative_dest(path: str) -> bool:
@@ -163,7 +205,11 @@ def _rewrite_text(
 
     edits: list[tuple[int, int, str]] = []
     for lk in iter_links(text):
-        path, sep, anchor = lk.dest.partition("#")
+        # Split on literal # first (which may be encoded), then decode each part.
+        encoded_path, sep, encoded_anchor = lk.dest.partition("#")
+        path = percent_decode(encoded_path)
+        anchor = percent_decode(encoded_anchor) if encoded_anchor else ""
+
         if not _is_relative_dest(path):
             continue
         # Where this link pointed, resolved from the file's original location.
@@ -174,7 +220,10 @@ def _rewrite_text(
         # The moved page itself relocates the target of a self-link.
         moved_target = new_rel if target == old_rel else target
         new_path = posixpath.relpath(moved_target, new_dir or ".")
-        new_dest = new_path + (sep + anchor if sep else "")
+        # Re-encode before splicing.
+        new_encoded_path = percent_encode(new_path)
+        new_encoded_anchor = percent_encode(anchor) if anchor else ""
+        new_dest = new_encoded_path + ("#" + new_encoded_anchor if new_encoded_anchor else "")
         if new_dest != lk.dest:
             edits.append((lk.start, lk.end, new_dest))
 

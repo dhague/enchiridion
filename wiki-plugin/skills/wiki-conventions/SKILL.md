@@ -49,13 +49,13 @@ Ingestion runs this **top-to-bottom, first match wins**, so placement is determi
 
 ### The `raw/` layer
 
-`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. It may **rename** one to normalize the filename (see [Naming](#naming)) via `normalize_raw.py`, which drives `wikipage.py` so any `source:` pointer follows the rename. (Repairing `source:` links after an *external* rename is deferred linter work — out of scope for the core build.)
+`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. Raw filenames are preserved as-is, preserving their external identity. Plugin-authored raw files carry a `YYYY-MM-DD-hhmm-` prefix at creation. Links into `raw/` are percent-encoded (see [Links](#links)) so any filename is linkable. (Repairing links after *external* renames is deferred linter work — out of scope for the core build.)
 
 ### Naming
 
 - **Kind-folders are singular** (`concept/`, not `concepts/`); **raw sub-folders are plural** (`emails/`, `meetings/`) and user-extensible.
 - **Page filenames** are the lowercase **kebab-slug of the title, with no date prefix** — `concept/prepared-statements.md`. Git carries the ingestion date and `source_date` carries the valid-time; a filename date would be a third, drifting clock.
-- **Raw filenames** are normalized to a `YYYY-MM-DD-hhmm-…` prefix with spaces→underscores. Raw files keep a datetime prefix precisely because they are artifact-anchored, not subject-anchored.
+- **Raw filenames** preserve their external identity unchanged. Plugin-authored raw files (created by ingestion, not sourced from outside) carry a `YYYY-MM-DD-hhmm-` prefix at creation, so their date is known at source. External raw files renamed outside the tool are repaired by the deferred linter; the core build never renames an existing raw file.
 
 ## Frontmatter schema
 
@@ -67,7 +67,7 @@ title: <human title>
 summary: <one line, ≤ ~20 words>        # THE field retrieval reads first; write it well at ingestion
 tags: [<emergent — reuse existing tags where sensible, mint new where needed; NOT a controlled vocabulary>]
 source_date: <YYYY-MM-DD>               # when the knowledge is FROM (valid time) — judgment, not recoverable from git
-raw_source: "[<filename>](<relative/path into raw/>)"   # REQUIRED on source/ pages; a single link (title = filename) to the ingested artifact. Omit on other kinds.
+raw_source: "[<filename>](<encoded relative/path into raw/>)"   # REQUIRED on source/ pages; a single link (title = literal filename, dest = percent-encoded path) to the ingested artifact. Omit on other kinds.
 volatility: stable | evolving | volatile
 # Relationships — each an optional list of relative-markdown links (quoted, so YAML doesn't read the [ as a flow sequence).
 # Include only the keys that have links; omit the rest.
@@ -92,7 +92,7 @@ Field notes:
 - **`summary`** — the single most important field. Retrieval judges a candidate page by its `summary` before ever reading the body, and `build_index.py` lifts it verbatim into `_index.md`. One line, ≤ ~20 words, written well at ingestion.
 - **`tags`** — emergent, not controlled. See [Tags](#tags).
 - **`source_date`** — the **valid time**: when the knowledge is *from* (the document's own date, the meeting's date). This is a judgment git cannot reconstruct, and it is what temporal queries key off. Distinct from when the page was committed.
-- **`raw_source`** — a **single markdown link into `raw/`** (use the artifact's filename as the link title), **required on `source/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for — one link, not a list, since a `source/` page stands in for exactly one artifact. Distinct from the `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; the edge points at another `wiki/` page. The two were split onto different keys (`raw_source:` vs `source:`) precisely so nothing has to guess which is meant.
+- **`raw_source`** — a **single markdown link into `raw/`** (title = the artifact's literal filename, destination = the percent-encoded path), **required on `source/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for — one link, not a list, since a `source/` page stands in for exactly one artifact. Distinct from the `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; the edge points at another `wiki/` page. The two were split onto different keys (`raw_source:` vs `source:`) precisely so nothing has to guess which is meant. Example: `"[my file.txt](../../raw/notes/my%20file.txt)"`.
 - **`volatility`** — `stable` | `evolving` | `volatile`. Drives conditional decay at retrieval: `stable` facts do not age out, `volatile` ones are flagged as possibly current-only. A blanket recency prior is wrong on exactly the facts that were `stable`, which is why this is authored, not inferred.
 - **`supersedes`** — optional list of markdown links to the pages this page replaces. A **recorded fact**, stronger than any "newer wins" guess: retrieval prefers a `supersedes` relationship over recency. On a contradiction, ingestion **appends a new page and records `supersedes`; it does not overwrite** the old one.
 - **typed-edge keys** (`refines`, `contradicts`, `example-of`, `source`, `related`) — each an optional list of markdown links to the target pages; see [Typed edges](#typed-edges).
@@ -115,7 +115,7 @@ Links between pages are **relative markdown links — not wikilinks.**
 - **Anchors:** append a heading fragment — `[the budget rule](../wiki-retrieval/SKILL.md#termination-budget)` / `[…](../concept/caching.md#ttl)`. The fragment is the GitHub-style slug of the target heading.
 - **Image embeds:** the leading-bang form — `![cache diagram](../raw/diagrams/2026-03-01-cache.png)`. Embeds may point into `raw/` (e.g. an extracted figure); ordinary links between pages stay within `wiki/`.
 
-All links are **position-spliced** on move/rename by `wikipage.py` (both inbound links across the vault and outbound links inside a moved page), so a page can be re-filed without hand-editing references. Keep links as plain relative paths; do not URL-encode or absolutize them.
+All links are **position-spliced** on move/rename by `wikipage.py` (both inbound links across the vault and outbound links inside a moved page), so a page can be re-filed without hand-editing references. Links into `raw/` are **percent-encoded** to handle special characters in filenames: encode space, `#`, `%`, `(`, `)`, `<`, `>`; everything else (unicode, `&`, `'`, `,`, `+`) stays literal. This keeps any filename linkable without restricting the set of permitted characters. Obsidian cannot follow a destination containing a literal space, so encoding is essential for interoperability.
 
 **Frontmatter relationships use the same link form.** The `raw_source` field, the `supersedes` key, and every typed-edge key hold this identical `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse the leading `[` as a flow sequence. `raw_source` holds a **single** such link; `supersedes` and the typed-edge keys hold a **list** (one link per item, `- "[…](…)"`). Writing them as real markdown links keeps every relationship clickable in plain markdown viewers and in Obsidian's Properties panel with no loss of semantics, and lets `wikipage.py` rewrite frontmatter and body links by the same rule.
 
