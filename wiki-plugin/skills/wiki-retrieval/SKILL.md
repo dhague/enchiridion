@@ -7,12 +7,14 @@ description: Turn a question into a grounded, cited answer over the wiki vault �
 
 Reads `wiki-conventions` for anything this procedure doesn't spell out — folder structure, frontmatter schema, link format, typed-edge vocabulary. That skill is the contract: ingestion writes to it, this procedure reads assuming it. This file is preloaded into the `wiki-researcher` agent's context at startup, and is also what `/wiki-retrieval <question>` loads when invoked directly.
 
-Retrieval is **read-only** apart from one exception (a `synthesis/` page saved on the user's explicit confirmation). Never edit, move, or delete an existing page while answering a question.
+Retrieval **never modifies an existing page** — no edit, no move, no delete, ever. Its one write is a *new* `synthesis/` page, and only on the user's explicit confirmation ([Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page)).
 
 ## Invocation
 
 - **If you are not already running as the `wiki-researcher` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-retrieval <question>` in an ordinary session), your only action is to delegate: call `Task` with `subagent_type: "wiki-researcher"` and a prompt containing the question, then relay the answer it returns back to the user. This keeps the reading and link-following inside the subagent's context — and on its Haiku model — regardless of what model the invoking session happens to be running.
-- **If you are the `wiki-researcher` agent**, continue directly with the procedure below using your own tools.
+
+  If the returned answer carries a `save-candidate` block, you are also the one who **puts the offer to the user and performs the save on their yes** — see [Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page). You hold the conversation, so the confirmation can only happen here.
+- **If you are the `wiki-researcher` agent**, continue directly with the procedure below using your own tools. You **recommend** a save (step 8); you never perform one — a subagent cannot ask the user anything, and an unconfirmed save is the exact failure this design exists to prevent.
 
 ## Vault root and script location
 
@@ -89,6 +91,30 @@ Given a question:
 
 7. **Report.** Reply with the answer and its citations, plus one short line on what was searched (expansions used, pages read, hops taken) so the asker can see whether the search missed their framing. Never dump page bodies into the answer — that is the reading noise this subagent exists to keep out of the main thread.
 
+8. **Offer to save, when the answer is worth keeping.** Judge the answer you just wrote against both bars — and *both* must hold, or say nothing:
+
+   - **Durable** — it isn't a one-off lookup whose value expires with this session, and it isn't already a single page's content restated (if one page answered the question, cite that page; a synthesis page that duplicates it is vault noise).
+   - **Reusable** — it drew several pages together into something the next asker would otherwise have to re-derive, and it will still be true next month.
+
+   When both hold, append a `save-candidate` block to your report — a **proposal, not a write**. You have no `Write` tool and no way to ask the user; the session that invoked you puts the offer and, on an explicit yes, performs the save.
+
+   ````markdown
+   ```save-candidate
+   title: How connection pooling is configured
+   summary: Pool size is set per-service in the deploy config, not globally
+   tags: [db, deployment]
+   source_date: 2026-07-28
+   volatility: evolving
+   source:
+     - wiki/concept/db-connection-pooling.md
+     - wiki/source/deploy-github-actions.md
+   ```
+   ````
+
+   Judgment notes for the fields: `summary` is one line, ≤ ~20 words, and is what the *next* retrieval will judge this page by — write it as well as you'd want to find it. `source_date` is **today**, because the synthesis was made today even though its inputs are older. `volatility` is the **most volatile** of the pages you drew on: a synthesis is only as durable as its shakiest input. `source:` lists every page the answer actually cited, as vault-relative paths (the confirming session converts them to relative markdown links) — nothing you merely skimmed.
+
+   If neither bar holds, do not mention saving at all. Offering on every answer trains the user to say no, which is how a confirmation gate stops working.
+
 ## Edge-following rules
 
 When a question's shape implies a specific typed edge, follow *that* edge in the implied direction. The agent's job is to identify the implied edge from the question's pattern; the table covers the unambiguous cases. Anything not on it defaults to "follow all typed edges in both directions" — the broader `related` graph is the fallback.
@@ -108,8 +134,57 @@ When a question's shape implies a specific typed edge, follow *that* edge in the
 
 The two directions are NOT symmetric: outbound follows links that *leave* a page; inbound finds pages that *point at* a page. Inverting one for the other is a silent miss in either direction.
 
-## Not yet built
+## Saving an answer as a synthesis page
 
-The remaining part of the retrieval design is specced and ticketed but deliberately not documented here yet — don't improvise it:
+This section is for **the session that holds the conversation** — the one that invoked `wiki-researcher` and got a `save-candidate` block back (or that ran the procedure and reached step 8 itself). The researcher subagent never gets here.
 
-- **Saving a result as a `synthesis/` page** ([#18](https://github.com/dhague/enchiridion/issues/18)) — only ever on the user's explicit yes, never auto-saved. Until it is built, do not write pages.
+**The gate:** the vault is not written unless the user says yes to a question you actually asked. Silence isn't yes; "sounds useful" isn't yes; a fresh session is not still holding an earlier yes. If you are unsure whether you were told to save, you were not.
+
+1. **Put the offer** in one line after relaying the answer, naming what would be written and where:
+
+   > *Worth saving as `wiki/synthesis/how-connection-pooling-is-configured.md`, sourced from the 3 pages it cites? (y/n)*
+
+2. **On anything but an explicit yes, stop.** No page, no plan file, no commit, no "I'll prepare it just in case" — declining leaves the vault byte-identical. Acknowledge in a few words and move on; don't re-offer later in the same session.
+
+3. **On an explicit yes, write the plan.** The save is an `IngestPlan` run through the same executor ingestion uses — placement, frontmatter, index regeneration and the commit are all mechanics, and mechanics belongs in the tested script, not re-derived here. Write a scratch `plan.json` (not a vault file) from the `save-candidate` block:
+
+   ```jsonc
+   {
+     "title": "<the candidate's title>",
+     "action": "synthesize",              // NOT "ingest" — this is a researcher-saved page; the commit subject says so
+     "source_date": "<today>",
+     "pages": [
+       {
+         "op": "create",
+         "kind": "synthesis",             // always — a saved query result is synthesis/ by the placement algorithm's step 2
+         "title": "<the candidate's title>",
+         "body": "<the answer, in full markdown, written as a page rather than a chat reply>",
+         "frontmatter": {
+           "summary": "<the candidate's summary line>",
+           "tags": ["<the candidate's tags>"],
+           "source_date": "<today>",
+           "volatility": "<the candidate's volatility>"
+         },
+         "edges": {
+           "source": ["[<page title>](../concept/db-connection-pooling.md)"]   // one per cited page
+         }
+       }
+     ]
+   }
+   ```
+
+   Two conversions the block leaves to you:
+   - **`source` edges** — turn each vault-relative path from the block into a **relative markdown link from the new page's own location**, i.e. `wiki/synthesis/…` → `../concept/…`, `../source/…`. `ingest.py`'s validation rejects a link that doesn't resolve to a real page, so a wrong `../` is caught before anything is written.
+   - **`body`** — rewrite the answer as a page, not a transcript: no "you asked", no search-trajectory line, no "per the vault". Keep the citations as inline relative links, keep the temporal framing (a synthesis inherits its inputs' uncertainty and must not launder it into confidence).
+
+   No `raw` field and no `raw_source` — a synthesis page has no raw artifact; it stands on `source` edges to other pages. That is exactly the `raw_source:`/`source:` split the schema draws.
+
+4. **Run it and report.**
+
+   ```bash
+   python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>
+   ```
+
+   It validates the whole plan before touching disk, then writes the page, regenerates `_index.md`, and makes one structured commit — printing the SHA. Report the path and the SHA in one line. If it raises, nothing was committed; fix the plan and rerun (writes are idempotent).
+
+   If the title collides with an existing `synthesis/` page, validation fails with *create target … already exists*. Don't work around it by renaming to a near-duplicate — that existing page is either the answer already (cite it instead) or genuinely superseded, which is an ingestion decision, not a retrieval one.

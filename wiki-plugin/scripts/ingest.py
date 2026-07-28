@@ -15,6 +15,12 @@ fields, valid op) then semantic (an update's `rel` exists, a create's target
 doesn't yet, every edge/raw_source link resolves to a real page — either
 already on disk or another page this same plan creates).
 
+Ingestion is not the only caller: `wiki-retrieval`'s confirmed synthesis-page
+save (#18) is the same shape — one `create` page of kind `synthesis`, `source`
+edges to what it drew on, no raw artifact — and runs through this same
+executor with `action: "synthesize"` so the commit history distinguishes the
+two without reading the diff.
+
 The raw artifact named by `plan.raw` is never renamed or moved: per #28/#38 a
 file with external identity keeps its name verbatim, forever. Ingestion only
 reads it and stages it into the commit; `raw_source` links point at it where it
@@ -78,6 +84,11 @@ class IngestPlan:
     """The deterministic description of one ingestion's decided outcome."""
 
     title: str
+    #: The structured commit's verb (`commit.Manifest.action`). Defaults to
+    #: `ingest`; `wiki-retrieval`'s confirmed synthesis-page save (#18) passes
+    #: `synthesize`, so the history can tell a researcher-saved page from an
+    #: ingested one without reading the diff.
+    action: str = "ingest"
     source_date: str | None = None
     raw: str | None = None
     pages: list[PagePlan] = field(default_factory=list)
@@ -86,6 +97,7 @@ class IngestPlan:
     def from_dict(cls, d: dict) -> "IngestPlan":
         return cls(
             title=d.get("title", ""),
+            action=d.get("action", "ingest"),
             source_date=d.get("source_date"),
             raw=d.get("raw"),
             pages=[PagePlan.from_dict(p) for p in d.get("pages", [])],
@@ -263,7 +275,7 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
 
     manifest = commit.Manifest(
         title=plan.title,
-        action="ingest",
+        action=plan.action,
         created=created,
         updated=updated,
         superseded=superseded,

@@ -502,6 +502,64 @@ def test_execute_leaves_written_files_uncommitted_on_commit_failure(vault_root, 
     assert "prepared-statements.md" in status
 
 
+# --- action (#18: a researcher-saved synthesis is not an ingestion) ----------------
+
+
+def test_execute_defaults_the_commit_action_to_ingest(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    assert plan.action == "ingest"
+    ingest.execute(vault_root, plan)
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    assert body.startswith("ingest: Postgres tuning notes\n")
+
+
+def test_execute_carries_the_plans_action_into_the_commit_subject(vault_root):
+    plan = ingest.IngestPlan.from_dict(
+        _plan_dict(title="What we decided about pooling", action="synthesize")
+    )
+    ingest.execute(vault_root, plan)
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    assert body.startswith("synthesize: What we decided about pooling\n")
+    assert "created: wiki/concept/prepared-statements.md" in body
+
+
+def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
+    """#18's shape: one synthesis/ page, source edges back to what it drew on."""
+    plan = ingest.IngestPlan.from_dict(
+        {
+            "title": "How connection pooling is configured",
+            "action": "synthesize",
+            "source_date": "2026-07-28",
+            "pages": [
+                {
+                    "op": "create",
+                    "kind": "synthesis",
+                    "title": "How connection pooling is configured",
+                    "body": "# How connection pooling is configured\n\nThe answer.\n",
+                    "frontmatter": {
+                        "summary": "Pool sizing comes from the existing page",
+                        "tags": ["db"],
+                        "source_date": "2026-07-28",
+                        "volatility": "evolving",
+                    },
+                    "edges": {"source": ["[Existing](../concept/existing.md)"]},
+                }
+            ],
+        }
+    )
+    ingest.execute(vault_root, plan)
+
+    page = Vault(vault_root).load(
+        "wiki/synthesis/how-connection-pooling-is-configured.md"
+    )
+    assert page.get("source") == ["[Existing](../concept/existing.md)"]
+    assert page.get("volatility") == "evolving"
+
+    index = (vault_root / "wiki" / "_index.md").read_text(encoding="utf-8")
+    assert "how-connection-pooling-is-configured.md" in index
+    assert _git(vault_root, "status", "--porcelain") == ""
+
+
 # --- CLI --------------------------------------------------------------------------
 
 
