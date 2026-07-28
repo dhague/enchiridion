@@ -13,12 +13,38 @@ parallel sessions sharing a project don't clobber each other.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-def sessions_dir(root: Path | str | None = None) -> Path:
-    """The sessions directory under ``root`` (default: cwd)."""
-    base = Path(root) if root is not None else Path.cwd()
+def sessions_dir(root: Path | str | None = None, env: dict | None = None) -> Path:
+    """The sessions directory for this project.
+
+    Resolution order, highest priority first:
+
+    1. ``root`` if given — caller-injected (tests, the hook).
+    2. ``$CLAUDE_PROJECT_DIR`` if set — Claude Code exports this to every
+       process it launches, so it's the most reliable statement of which
+       project the current session belongs to.
+    3. The nearest ancestor of cwd containing a ``.claude/`` directory —
+       the writer (the hook) and the reader (this module's callers) need
+       to agree on a root even when cwd is a subdirectory (#45).
+    4. cwd — the original behaviour, preserved as a last resort so the
+       function always returns a path (the directory may not exist yet).
+    """
+    if root is not None:
+        base = Path(root)
+    else:
+        env = env if env is not None else os.environ
+        project_dir = env.get("CLAUDE_PROJECT_DIR")
+        if project_dir:
+            base = Path(project_dir)
+        else:
+            base = Path.cwd()
+            for ancestor in (base, *base.parents):
+                if (ancestor / ".claude").is_dir():
+                    base = ancestor
+                    break
     return base / ".claude" / "wiki-knowledge" / "sessions"
 
 
