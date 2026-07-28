@@ -36,6 +36,7 @@ import sys
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
+from urllib.parse import unquote
 
 from markdown_it import MarkdownIt
 from ruamel.yaml import YAML
@@ -63,21 +64,7 @@ def percent_encode(path: str) -> str:
 
 def percent_decode(path: str) -> str:
     """Percent-decode a path encoded by percent_encode()."""
-    result = []
-    i = 0
-    while i < len(path):
-        if path[i] == "%" and i + 2 < len(path):
-            try:
-                code = int(path[i + 1 : i + 3], 16)
-                result.append(chr(code))
-                i += 3
-            except ValueError:
-                result.append(path[i])
-                i += 1
-        else:
-            result.append(path[i])
-            i += 1
-    return "".join(result)
+    return unquote(path)
 
 # A markdown inline link or image: `[label](dest ...)` / `![label](dest ...)`.
 # `label` tolerates one level of nested brackets (e.g. an image inside a link).
