@@ -30,18 +30,47 @@ Given one document at `<path>`:
      - `wikipage.py set` **overwrites** the key's whole value — it does not append. Use `wikipage.py merge <page> <key> <json-list>` instead of `set` for `tags` or any edge-list key (`refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) on a page that already has one — it unions the existing entries with the new ones internally, so nothing has to get-then-set by hand.
    - **Contradiction.** The candidate's claim conflicts with an existing page's claim. **Never overwrite the existing page.** Create a new page as usual (step 4 onward), and on the *new* page set `contradicts` (and, since this same ingestion pass resolves the conflict by replacement) `supersedes` — both pointing at the superseded page. The superseded page's content is left untouched; only the new page carries these edges.
    - When a candidate touches more than one existing page, judge each pairing independently — a document can update one page while contradicting another.
-4. **Place each new page.** Judge the kind using the fixed placement algorithm from `wiki-conventions`, first match wins: `source/` (stand-in for the raw artifact) → `synthesis/` (saved query result) → `entity/` (named, repeatedly-linked thing) → `concept/` (default). Once the kind is decided, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/place.py" <kind> "<title>"` to get the exact target path — it computes the kebab-slug and folder deterministically, so don't hand-slugify the title. (A page updated in place in step 3 keeps its existing location — this step only applies to genuinely new pages; the next bullet applies to new *and* updated pages alike.)
-   - Not every ingested artifact needs a `source/` stand-in. Create one when the raw artifact itself is the citable reference — a runbook, a spec, a document worth linking to directly. When the artifact's value is really the knowledge inside it (a meeting note, an email), distill straight into `concept/`/`entity/` pages and skip `source/` — the raw file still lives on, preserved as-is, under `raw/`, just without its own wiki page.
-   - **Typed edges** (`refines`/`contradicts`/`example-of`/`source`/`related`) connect a page to *other* pages it relates to — judge these for **every new or updated page**, against every existing page surfaced in step 3 (overlapping or merely related). Per `wiki-conventions`, assign the most specific type that's true (`related` only as a fallback); `contradicts`/`supersedes` are already decided by step 3 where applicable.
-5. **Write frontmatter** for each new or updated page via `python "${CLAUDE_PLUGIN_ROOT}/scripts/wikipage.py" set <page> <key> <value>` (never hand-edit the YAML block; on an *updated* page, use `wikipage.py merge` instead of `set` for `tags` and edge-list keys per step 3):
-   - `title` — human-readable name.
-   - `summary` — one line, ≤~20 words; write it well, retrieval reads this first.
-   - `tags` — reuse an existing tag where one fits (check the index/existing pages first), mint a new one only when nothing does.
-   - `source_date` — the document's own date (valid time), not today's date.
-   - `volatility` — `stable` | `evolving` | `volatile`, your judgment of how likely this fact is to age.
-   - `raw_source` — **only on a `source/` page**: a single quoted link `"[<filename>](<encoded relative path into raw/>)"` (title = the literal filename, destination = percent-encoded path) to the raw artifact.
-   - `supersedes` / typed-edge keys (`refines`/`contradicts`/`example-of`/`source`/`related`) — from step 4's judgment, each a list of quoted markdown links (`["[<title>](<relative/path.md>)"]`) via `wikipage.py set <page> <key> <value> --json` on a new page, or `wikipage.py merge <page> <key> <value>` on an updated page that may already carry entries for that key. Set these on the new/updated page only — never touch a superseded page's own frontmatter.
-6. **Write each page's body.** For a page updated in step 3, edit only the parts the new material actually changes — leave the rest of the existing body as-is.
-7. **Regenerate the index.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/build_index.py"`.
-8. **Commit.** Build a manifest (`title`, `action: "ingest"`, `created`/`updated` vault-relative paths, `superseded` as `[old, new]` pairs for every contradiction resolved this pass, `source_date`, `extra_paths: ["wiki/_index.md"]`) as a JSON file. If the ingested artifact is a raw file under `raw/`, also set the manifest's `raw_source` field to its relative path — `commit.py` stages it automatically alongside the pages, so the source document always lands in the same commit as the pages it produced. Then run `python "${CLAUDE_PLUGIN_ROOT}/scripts/commit.py" --manifest <manifest.json>`.
-9. **Report.** Reply with only a short manifest — pages created vs. updated, edges added, any `supersedes` pairs recorded — never page-content dumps.
+4. **Assemble the `IngestPlan`.** Everything downstream of the step 1-3 judgment — placement mechanics, raw normalization, frontmatter writes, body writes, the index, and the commit — is one call: `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>`. Write `<plan.json>` yourself (a scratch file, not a vault page) with this shape:
+
+   ```jsonc
+   {
+     "title": "<source document's title>",
+     "source_date": "<the document's own date, not today's>",
+     "raw": "raw/<artifact as it currently sits, pre-normalization>",   // omit if nothing came from raw/
+     "pages": [
+       {
+         "op": "create",
+         "kind": "concept",            // source | synthesis | entity | concept — your step-4-equivalent judgment, first match wins per wiki-conventions
+         "title": "<page title>",
+         "body": "<full markdown body>",
+         "frontmatter": {
+           "summary": "<one line, ≤~20 words>",
+           "tags": ["<reuse an existing tag where one fits, mint only when nothing does>"],
+           "source_date": "<same as above, or this page's own if it differs>",
+           "volatility": "stable | evolving | volatile",
+           "raw_source": "[<filename>](<relative/path/into/raw/>)"   // only on a source/ page — see wiki-conventions; the path is relative to THIS page once placed, and rewritten automatically to the normalized name
+         },
+         "edges": {
+           "related": ["[<title>](<relative/path.md>)"],
+           "supersedes": ["[<title>](<relative/path.md>)"]           // include on the new page when step 3 found a contradiction to resolve
+         }
+       },
+       {
+         "op": "update",
+         "rel": "wiki/concept/existing-page.md",   // the page step 3 classified as substantive-overlap
+         "title": "<unchanged or corrected title>",
+         "frontmatter": { "volatility": "evolving", "tags": ["new-tag"] },   // scalar keys overwrite; a list-valued key like tags is unioned with what the page already has, never overwritten
+         "edges": { "related": ["[<title>](<relative/path.md>)"] }          // edge-list keys union the same way
+         // omit "body" entirely when nothing in the body changes
+       }
+     ]
+   }
+   ```
+
+   A few judgment calls stay yours when filling this in, mirroring the old steps 4-7:
+   - **Kind** (create pages only): `source/` (stand-in for the raw artifact) → `synthesis/` (saved query result) → `entity/` (named, repeatedly-linked thing) → `concept/` (default), first match wins. Not every ingested artifact needs a `source/` stand-in — create one only when the raw artifact itself is the citable reference; when the artifact's value is really the knowledge inside it, distill straight into `concept/`/`entity/` and skip `source/`. `ingest.py` computes the exact kebab-slug path from `kind`+`title` — never hand-slugify.
+   - **Typed edges** (`refines`/`contradicts`/`example-of`/`source`/`related`) — judge these for **every new or updated page**, against every existing page surfaced in step 3. Assign the most specific type that's true (`related` only as a fallback); `contradicts`/`supersedes` are already decided by step 3 where applicable, and belong on the *new* page only — never on the superseded page.
+   - **Body**, for an `update` page: write the *complete* new body text (not a diff) when the material actually changes something in it; omit the `body` key entirely to leave the existing body untouched. For a `create` page, `body` is always required.
+   - **`raw_source`**'s destination in the plan should point at the raw artifact wherever it currently sits (matching the plan's own `raw` field) — `ingest.py` normalizes the file and retargets this link to the renamed path itself; don't pre-guess the `YYYY-MM-DD-hhmm-` prefix.
+5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates the whole plan up front (every required field, every `update`'s `rel` exists, every `create`'s target doesn't yet, every edge/`raw_source` link resolves to a real page — including a sibling page this same plan is about to create) before writing anything, then executes place → normalize → frontmatter → body → index → commit in one pass and prints the commit SHA. If it raises, nothing was committed but any pages it did get to are left on disk uncommitted (writes are idempotent, so fix the plan and rerun rather than hand-repairing).
+6. **Report.** Reply with only a short manifest — pages created vs. updated, edges added, any `supersedes` pairs recorded — never page-content dumps.

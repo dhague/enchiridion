@@ -1,0 +1,496 @@
+"""TDD for ingest.py — the IngestPlan schema + single-call executor (#49, per #42).
+
+Collapses the ~12-call ingestion orchestration behind one seam: a plan
+describing the decided outcome (pages to create/update, their frontmatter and
+edges) in, a commit SHA out. Steps 1-3 of wiki-ingest (read, chunk, overlap
+classification) stay judgment and stay with the agent; this module only
+executes the mechanical remainder: place -> normalize -> frontmatter -> body
+-> index -> manifest -> commit.
+"""
+from __future__ import annotations
+
+import subprocess
+
+import pytest
+
+import ingest
+from wikipage import Vault, WikiPage
+
+
+def _git(root, *args):
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+@pytest.fixture
+def vault_root(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "config", "commit.gpgsign", "false")
+    (tmp_path / "wiki" / "concept").mkdir(parents=True)
+    (tmp_path / "wiki" / "entity").mkdir(parents=True)
+    (tmp_path / "wiki" / "source").mkdir(parents=True)
+    (tmp_path / "raw").mkdir()
+    existing = tmp_path / "wiki" / "concept" / "existing.md"
+    existing.write_text(
+        '---\ntitle: Existing\nsummary: an existing page\ntags:\n    - db\nsource_date: "2026-01-01"\nvolatility: stable\n---\n# Existing\n\nSome body.\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "_index.md").write_text("stub\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "seed"], check=True
+    )
+    return tmp_path
+
+
+def _plan_dict(**overrides):
+    base = {
+        "title": "Postgres tuning notes",
+        "source_date": "2026-03-01",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "Prepared Statements",
+                "body": "# Prepared Statements\n\nReduce parse overhead.\n",
+                "frontmatter": {
+                    "summary": "Reusing a parsed query plan",
+                    "tags": ["db"],
+                    "source_date": "2026-03-01",
+                    "volatility": "stable",
+                },
+                "edges": {"related": ["[Existing](../concept/existing.md)"]},
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+# --- IngestPlan / PagePlan schema --------------------------------------------
+
+
+def test_plan_from_dict_roundtrip():
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    assert plan.title == "Postgres tuning notes"
+    assert plan.source_date == "2026-03-01"
+    assert plan.raw is None
+    assert len(plan.pages) == 1
+    page = plan.pages[0]
+    assert page.op == "create"
+    assert page.kind == "concept"
+    assert page.title == "Prepared Statements"
+    assert page.frontmatter["tags"] == ["db"]
+    assert page.edges["related"] == ["[Existing](../concept/existing.md)"]
+    assert page.rel is None
+
+
+def test_plan_from_dict_defaults():
+    plan = ingest.IngestPlan.from_dict({"title": "T", "pages": []})
+    assert plan.source_date is None
+    assert plan.raw is None
+    assert plan.pages == []
+
+
+def test_page_from_dict_update_shape():
+    d = {
+        "op": "update",
+        "title": "Existing",
+        "rel": "wiki/concept/existing.md",
+        "frontmatter": {"tags": ["db", "sql"]},
+        "edges": {},
+    }
+    page = ingest.PagePlan.from_dict(d)
+    assert page.op == "update"
+    assert page.rel == "wiki/concept/existing.md"
+    assert page.kind is None
+    assert page.body is None
+
+
+# --- validation ---------------------------------------------------------------
+
+
+def test_validate_passes_for_good_plan(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    ingest.validate(plan, vault_root)  # no raise
+
+
+def test_validate_rejects_missing_title():
+    plan = ingest.IngestPlan.from_dict({"title": "", "pages": []})
+    with pytest.raises(ingest.PlanError):
+        ingest.validate(plan, None)
+
+
+def test_validate_rejects_bad_op(vault_root):
+    d = _plan_dict()
+    d["pages"][0]["op"] = "delete"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="op"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_rejects_create_missing_kind(vault_root):
+    d = _plan_dict()
+    del d["pages"][0]["kind"]
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="kind"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_rejects_create_target_already_exists(vault_root):
+    d = _plan_dict()
+    d["pages"][0]["title"] = "Existing"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="already exists"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_rejects_update_missing_rel(vault_root):
+    plan = ingest.IngestPlan.from_dict(
+        {"title": "T", "pages": [{"op": "update", "title": "X"}]}
+    )
+    with pytest.raises(ingest.PlanError, match="rel"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_rejects_update_rel_not_found(vault_root):
+    plan = ingest.IngestPlan.from_dict(
+        {
+            "title": "T",
+            "pages": [
+                {"op": "update", "title": "X", "rel": "wiki/concept/missing.md"}
+            ],
+        }
+    )
+    with pytest.raises(ingest.PlanError, match="does not exist"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_rejects_dangling_edge_link(vault_root):
+    d = _plan_dict()
+    d["pages"][0]["edges"] = {"related": ["[Nope](../concept/nope.md)"]}
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="does not resolve"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_accepts_edge_link_to_sibling_page_created_in_same_plan(vault_root):
+    d = {
+        "title": "Two new pages",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "Alpha",
+                "body": "# Alpha\n",
+                "frontmatter": {},
+                "edges": {"related": ["[Beta](../concept/beta.md)"]},
+            },
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "Beta",
+                "body": "# Beta\n",
+                "frontmatter": {},
+                "edges": {"related": ["[Alpha](../concept/alpha.md)"]},
+            },
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, vault_root)  # no raise
+
+
+def test_validate_rejects_raw_source_not_matching_plan_raw(vault_root):
+    (vault_root / "raw" / "notes.md").write_text("raw\n", encoding="utf-8")
+    d = _plan_dict(raw="raw/notes.md")
+    d["pages"][0]["kind"] = "source"
+    d["pages"][0]["frontmatter"]["raw_source"] = "[other.md](../../raw/other.md)"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="does not resolve"):
+        ingest.validate(plan, vault_root)
+
+
+# --- execution: create ---------------------------------------------------------
+
+
+def test_execute_creates_page_writes_frontmatter_and_body(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    sha = ingest.execute(vault_root, plan)
+
+    assert sha
+    v = Vault(vault_root)
+    page = v.load("wiki/concept/prepared-statements.md")
+    assert page.get("title") == "Prepared Statements"
+    assert page.get("summary") == "Reusing a parsed query plan"
+    assert page.get("tags") == ["db"]
+    assert page.get("related") == ["[Existing](../concept/existing.md)"]
+    assert "Reduce parse overhead." in page.body
+
+
+def test_execute_regenerates_index(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    ingest.execute(vault_root, plan)
+    index = (vault_root / "wiki" / "_index.md").read_text(encoding="utf-8")
+    assert "prepared-statements.md" in index
+
+
+def test_execute_commits_with_structured_message(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    sha = ingest.execute(vault_root, plan)
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    assert body.startswith("ingest: Postgres tuning notes\n")
+    assert "created: wiki/concept/prepared-statements.md" in body
+    assert "source-date: 2026-03-01" in body
+    assert _git(vault_root, "rev-parse", "HEAD").strip() == sha
+
+
+def test_execute_leaves_no_dirty_state_on_success(vault_root):
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    ingest.execute(vault_root, plan)
+    assert _git(vault_root, "status", "--porcelain") == ""
+
+
+# --- execution: update ----------------------------------------------------------
+
+
+def test_execute_update_merges_tags(vault_root):
+    d = {
+        "title": "Add sql tag",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {"tags": ["sql"]},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert page.get("tags") == ["db", "sql"]
+
+
+def test_execute_update_overwrites_scalar_frontmatter(vault_root):
+    d = {
+        "title": "Bump volatility",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {"volatility": "volatile"},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert page.get("volatility") == "volatile"
+
+
+def test_execute_update_merges_edge_lists(vault_root):
+    Vault(vault_root).set(
+        "wiki/concept/existing.md", "related", ["[Other](../entity/other.md)"]
+    )
+    (vault_root / "wiki" / "entity" / "other.md").write_text(
+        "---\ntitle: Other\n---\n# Other\n", encoding="utf-8"
+    )
+    d = {
+        "title": "Add a related edge",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {},
+                "edges": {"related": ["[Existing](../concept/existing.md)"]},
+            }
+        ],
+    }
+    # point the new edge at a real page instead of itself to keep this realistic
+    d["pages"][0]["edges"]["related"] = ["[Other2](../entity/other.md)"]
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert page.get("related") == [
+        "[Other](../entity/other.md)",
+        "[Other2](../entity/other.md)",
+    ]
+
+
+def test_execute_update_replaces_body_when_given(vault_root):
+    d = {
+        "title": "Rewrite body",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "body": "# Existing\n\nNew body text.\n",
+                "frontmatter": {},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert "New body text." in page.body
+    assert "Some body." not in page.body
+    assert page.get("title") == "Existing"  # frontmatter untouched by the body swap
+
+
+def test_execute_update_leaves_body_untouched_when_omitted(vault_root):
+    d = {
+        "title": "Frontmatter-only update",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {"volatility": "evolving"},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert "Some body." in page.body
+
+
+def test_execute_records_updated_not_created_in_manifest(vault_root):
+    d = {
+        "title": "Tweak",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {"volatility": "evolving"},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    assert "updated: wiki/concept/existing.md" in body
+    assert "created:" not in body
+
+
+# --- execution: supersedes ------------------------------------------------------
+
+
+def test_execute_records_supersedes_pair_in_manifest(vault_root):
+    d = {
+        "title": "Replace deploy doc",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "New Way",
+                "body": "# New Way\n",
+                "frontmatter": {},
+                "edges": {
+                    "supersedes": ["[Existing](../concept/existing.md)"],
+                    "contradicts": ["[Existing](../concept/existing.md)"],
+                },
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    assert (
+        "superseded: wiki/concept/existing.md -> wiki/concept/new-way.md" in body
+    )
+    # the superseded page's own content is left untouched
+    superseded_page = Vault(vault_root).load("wiki/concept/existing.md")
+    assert superseded_page.get("summary") == "an existing page"
+
+
+# --- execution: raw normalization ------------------------------------------------
+
+
+def test_execute_normalizes_raw_and_retargets_raw_source(vault_root):
+    (vault_root / "raw" / "notes.md").write_text("raw notes\n", encoding="utf-8")
+    d = {
+        "title": "File a source page",
+        "raw": "raw/notes.md",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "source",
+                "title": "Notes",
+                "body": "# Notes\n",
+                "frontmatter": {"raw_source": "[notes.md](../../raw/notes.md)"},
+                "edges": {},
+            }
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.execute(vault_root, plan)
+
+    page = Vault(vault_root).load("wiki/source/notes.md")
+    raw_source = page.get("raw_source")
+    assert raw_source != "[notes.md](../../raw/notes.md)"
+    assert raw_source.startswith("[") and "raw/" in raw_source
+    # the normalized raw file exists on disk and the original name is gone
+    assert not (vault_root / "raw" / "notes.md").exists()
+
+    body = _git(vault_root, "log", "-1", "--pretty=%B")
+    # the raw artifact landed in the same commit as the page it produced
+    tracked = _git(vault_root, "ls-files")
+    assert "raw/notes.md" not in tracked
+    assert any(
+        line.startswith("raw/") and line.endswith("notes.md")
+        for line in tracked.splitlines()
+    )
+
+
+# --- execution: no rollback on failure -------------------------------------------
+
+
+def test_execute_leaves_written_files_uncommitted_on_commit_failure(vault_root, monkeypatch):
+    import commit as commit_mod
+
+    def _boom(root, manifest):
+        raise commit_mod.GitError("simulated failure")
+
+    monkeypatch.setattr(ingest.commit, "commit", _boom)
+
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    with pytest.raises(commit_mod.GitError):
+        ingest.execute(vault_root, plan)
+
+    # the page was written to disk despite the commit failing
+    assert (vault_root / "wiki" / "concept" / "prepared-statements.md").exists()
+    status = _git(vault_root, "status", "--porcelain")
+    assert "prepared-statements.md" in status
+
+
+# --- CLI --------------------------------------------------------------------------
+
+
+def test_cli_prints_commit_sha(vault_root, monkeypatch, capsys, tmp_path):
+    import json
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(_plan_dict()), encoding="utf-8")
+
+    monkeypatch.chdir(vault_root)
+    monkeypatch.delenv("WIKI_ROOT", raising=False)
+    rc = ingest._main(["--plan", str(plan_path)])
+    assert rc == 0
+    out = capsys.readouterr().out.strip()
+    assert out == _git(vault_root, "rev-parse", "HEAD").strip()
