@@ -32,7 +32,7 @@ Given a question:
 
 1. **Expand the query.** Before searching, write down **5–8 alternative phrasings** of the question's key terms: synonyms, the jargon form, the plain-English form, the singular/plural, the acronym and its expansion, the verb and noun forms. A single word choice must not decide whether a page is found — the vault's tags are emergent, so the page you want may name the thing differently than the asker did. These expansions become the term list you pass to `search.py` below.
 
-2. **Single search call.** One call to `scripts/search.py` does the work the older three-strategy grep/tag/title hand-run used to — composes BM25 text matching with metadata filters in one SQL statement, ranks the results, and defaults to excluding superseded pages. Pass **only the term list** from step 1 as a single space-separated string (`search.py` tokenizes and phrase-quotes each one to defuse the FTS5 syntax footgun — see the `tokenize_query` helper in `scripts/search_index.py` if you need the mechanics). Use `--json` and read the records:
+2. **Single search call.** One call to `scripts/search.py` does the work — it composes BM25 text matching with metadata filters, ranks the results, and defaults to excluding superseded pages. Pass **only the term list** from step 1 as a single space-separated string (`search.py` tokenizes and phrase-quotes each term). Use `--json` and read the records:
 
    ```bash
    python "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" \
@@ -46,10 +46,10 @@ Given a question:
    - `--tag <t>` (repeat for AND) and `--tag-any <t>` (OR). Tags are emergent — leave them off unless the question is clearly tag-shaped ("all pages tagged `db`").
    - `--kind concept|entity|source|synthesis` (comma-separated for multiple). Use this when the kind is obvious from the question ("who is X" → `--kind entity`).
    - `--since` / `--until` against `--date-field source_date` (valid time, the default) or `git_date` (transaction time). Use `git_date` for "updated this week" / "since the last ingestion"; use `source_date` for "knowledge from before X" / "the 2023 view of Y".
-   - `--include-superseded` only when discussing history, not when answering "what is current". The default excludes superseded pages — that's the mechanised version of the old "never cite a superseded page" hand-run rule.
+   - `--include-superseded` only when discussing history, not when answering "what is current". The default excludes superseded pages.
    - `--raw` is the escape hatch for callers who really want FTS5 operators (`NEAR`, `OR`, prefix `*`). Don't reach for it unless you have a specific reason.
 
-   The first call to `search.py` triggers an `(mtime_ns, size)` staleness scan over `wiki/**` (~50 ms at 2000 pages, measured) so `git pull`, Obsidian edits, and manual changes are caught — no `refresh` step in the caller's face.
+   The first call to `search.py` triggers an `(mtime_ns, size)` staleness scan over `wiki/**` (~50 ms at 2000 pages, measured) so `git pull`, Obsidian edits, and manual changes are caught.
 
 3. **Expand the frontier, frontmatter-first.** The hits are candidates, not answers. Judge each by its **`summary`** field — that is what `summary` exists for — and discard the ones that don't bear on the question. **Only a candidate that survives the summary judgment earns a full `Read` of its body.** Most of the frontier should die at the summary; a body read is the expensive step and is never the first move.
 
