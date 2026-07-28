@@ -218,6 +218,44 @@ class Vault:
         return self._get_index().status()
 
 
-if __name__ == "__main__":  # pragma: no cover - thin CLI for Bash callers
-    print(resolve_vault_root())
-    sys.exit(0)
+# --- CLI ---------------------------------------------------------------------
+
+def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
+    """``vault.py`` with no arguments prints the resolved root; that bare form
+    is a documented surface (wiki-retrieval's SKILL.md calls it to resolve its
+    own Read paths), so it is dispatched before argparse ever sees ``argv``
+    rather than being made a subcommand with a default.
+    """
+    import argparse
+
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        print(resolve_vault_root())
+        return 0
+
+    parser = argparse.ArgumentParser(description="Vault root resolution and vault-wide operations.")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("root", help="print the resolved vault root (the no-argument default)")
+
+    mv = sub.add_parser(
+        "move",
+        help="move a page within the vault and fix every link, inbound and outbound",
+    )
+    mv.add_argument("old_rel", help="vault-relative path of the page to move")
+    mv.add_argument("new_rel", help="vault-relative path to move it to")
+
+    args = parser.parse_args(argv)
+    root = resolve_vault_root()
+
+    if args.cmd == "root":
+        print(root)
+        return 0
+
+    for rel in Vault(root).move_page(args.old_rel, args.new_rel):
+        print(rel)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(_main())

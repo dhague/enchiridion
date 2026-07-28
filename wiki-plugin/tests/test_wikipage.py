@@ -1098,25 +1098,3 @@ def test_cli_get_runs_as_subprocess(small_vault):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "B"
-
-
-def test_cli_move_runs_as_subprocess(small_vault):
-    """``python wikipage.py move ...`` is the subcommand that pulls in
-    ``vault`` — and ``vault`` imports wikipage straight back, loading it a
-    second time under a different name than ``__main__``. Same structural
-    hazard as above, opposite direction, so it needs its own subprocess run.
-    """
-    import os
-    import subprocess
-    import sys
-
-    env = {**os.environ, "WIKI_ROOT": str(small_vault)}
-    result = subprocess.run(
-        [sys.executable, wikipage.__file__, "move",
-         "wiki/entity/b.md", "wiki/concept/b.md"],
-        capture_output=True, text=True, env=env,
-    )
-    assert result.returncode == 0, result.stderr
-    assert not (small_vault / "wiki/entity/b.md").exists()
-    assert (small_vault / "wiki/concept/b.md").exists()
-    assert "[b](b.md)" in (small_vault / "wiki/concept/a.md").read_text(encoding="utf-8")

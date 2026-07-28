@@ -8,7 +8,11 @@ same thing over a whole ``{rel: text}`` vault.
 
 Its counterpart :class:`vault.Vault` owns every read and write, including the
 cross-page operations (``move_page``) that need other pages' text. This module
-imports nothing from it — the dependency runs one way, ``vault -> wikipage``.
+imports nothing from it — the dependency runs one way, ``vault -> wikipage``,
+with no deferred import on either side. That holds for the CLI below too:
+every subcommand here takes a *file path* and does pure text work, so none of
+them resolves a vault root. Moving a page is ``vault.py move`` for that
+reason — it's the one operation that needs the whole vault.
 
 Only the frontmatter block is ever re-serialised (ruamel round-trip, pinned
 ``indent(mapping=2, sequence=4, offset=2)`` so the spec's edge-list
@@ -23,7 +27,6 @@ CLI::
     python wikipage.py get <file> <key>
     python wikipage.py set <file> <key> <value> [--json]
     python wikipage.py merge <file> <key> <json-list>
-    python wikipage.py move <old_rel> <new_rel>   # resolves the vault, rewrites + renames on disk
 """
 from __future__ import annotations
 
@@ -361,10 +364,6 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     import argparse
     import json
 
-    # Imported here, not at module level: `vault` imports *this* module, so a
-    # top-level import would be circular. Only the `move` subcommand needs it.
-    import vault as vault_mod
-
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -386,18 +385,7 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     m.add_argument("key")
     m.add_argument("value", help="JSON list of values to union in")
 
-    mv = sub.add_parser("move", help="move a page and fix all links")
-    mv.add_argument("old_rel")
-    mv.add_argument("new_rel")
-
     args = parser.parse_args(argv)
-
-    if args.cmd == "move":
-        root = vault_mod.resolve_vault_root()
-        v = vault_mod.Vault(root)
-        for rel in v.move_page(args.old_rel, args.new_rel):
-            print(rel)
-        return 0
 
     path = Path(args.file)
     page = WikiPage(path.read_text(encoding="utf-8"))
