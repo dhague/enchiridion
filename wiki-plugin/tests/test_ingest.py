@@ -14,7 +14,8 @@ import subprocess
 import pytest
 
 import ingest
-from wikipage import Vault, WikiPage
+from vault import Vault
+from wikipage import WikiPage
 
 
 def _git(root, *args):

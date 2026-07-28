@@ -21,7 +21,8 @@ from hypothesis import strategies as st
 from ruamel.yaml import YAML
 
 import wikipage
-from wikipage import LinkMatch, Vault, WikiPage
+from vault import Vault
+from wikipage import LinkMatch, WikiPage
 
 # --- split_frontmatter ---------------------------------------------------
 
@@ -1065,8 +1066,8 @@ def test_vault_reindex_full_returns_stats(small_vault):
     assert stats.inserted == 2
 
 
-# --- CLI: run as a real subprocess (regression for the wikipage<->search_index
-# import cycle) -------------------------------------------------------------
+# --- CLI: run as a real subprocess (regression for import cycles that only
+# bite when wikipage.py is the executed file) --------------------------------
 
 
 def test_cli_get_runs_as_subprocess(small_vault):
@@ -1075,15 +1076,18 @@ def test_cli_get_runs_as_subprocess(small_vault):
 
     Every test above imports wikipage as a library, so pytest always sees
     it under the module name ``wikipage`` — never as ``__main__``. That
-    hid a real bug: wikipage.py imports search_index (for the Vault
+    hid a real bug: wikipage.py used to import search_index (for the Vault
     facade's type hints), search_index imports page_record, and
     page_record imports wikipage back — a cycle that's harmless when
     wikipage is loaded once under one name, but broke when running
     ``python wikipage.py ...`` loaded it a *second* time under the name
     ``wikipage`` (triggered by page_record's ``import wikipage``), which
     re-entered search_index mid-initialization and raised an ImportError
-    on a name search_index hadn't defined yet. Only a real subprocess
-    invocation reproduces that; an in-process ``import`` never will.
+    on a name search_index hadn't defined yet. Moving ``Vault`` out to
+    vault.py dissolved that cycle — the dependency now runs one way,
+    ``vault -> wikipage`` — but the double-load is structural, so this
+    stays as the guard. Only a real subprocess invocation reproduces it;
+    an in-process ``import`` never will.
     """
     import subprocess
     import sys
@@ -1094,3 +1098,25 @@ def test_cli_get_runs_as_subprocess(small_vault):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "B"
+
+
+def test_cli_move_runs_as_subprocess(small_vault):
+    """``python wikipage.py move ...`` is the subcommand that pulls in
+    ``vault`` — and ``vault`` imports wikipage straight back, loading it a
+    second time under a different name than ``__main__``. Same structural
+    hazard as above, opposite direction, so it needs its own subprocess run.
+    """
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "WIKI_ROOT": str(small_vault)}
+    result = subprocess.run(
+        [sys.executable, wikipage.__file__, "move",
+         "wiki/entity/b.md", "wiki/concept/b.md"],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (small_vault / "wiki/entity/b.md").exists()
+    assert (small_vault / "wiki/concept/b.md").exists()
+    assert "[b](b.md)" in (small_vault / "wiki/concept/a.md").read_text(encoding="utf-8")

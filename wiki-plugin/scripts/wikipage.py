@@ -1,25 +1,14 @@
-"""WikiPage/Vault — the page model and all vault I/O (#29, #32, #39).
+"""WikiPage — the page model, pure-functional (#29, #32).
 
-Replaces frontmatter.py + lib/md.py + links.py's single-page logic. Two
-responsibilities, split the same way the design in #29 asked for:
+Replaces frontmatter.py + lib/md.py + links.py's single-page logic. This half
+of the design in #29 does no I/O at all: :class:`WikiPage` is frontmatter
+get/set/merge, body access, and outbound-link move-planning — text in, a new
+:class:`WikiPage` out, never a mutation in place. :func:`plan_move` is the
+same thing over a whole ``{rel: text}`` vault.
 
-* :class:`WikiPage` — pure-functional: frontmatter get/set/merge, body access,
-  outbound-link move-planning. Text in, a new :class:`WikiPage` out — no I/O,
-  no mutation-in-place.
-* :class:`Vault` — owns all I/O (load/write) and cross-page operations,
-  notably :meth:`Vault.move_page`, which needs every other page's text to
-  rewrite the links that point at the moved page.
-
-The vault is also the entry point for the lexical search index (#39): the
-:class:`SearchIndex` lives at ``.wiki-knowledge/index.db`` inside the vault,
-and :meth:`Vault.search`/``reindex``/``index_status`` proxy through. Inline
-updates fire from :meth:`Vault.write` (and the methods built on it: ``set``,
-``merge``) — the staleness scan inside ``search()`` is the correctness path,
-the inline update is a latency optimisation (so a write→search round-trip
-doesn't re-read the file).
-
-``vault.py`` (root resolution) and ``commit.py`` (git orchestration) stay
-separate — this module doesn't resolve a root or talk to git itself.
+Its counterpart :class:`vault.Vault` owns every read and write, including the
+cross-page operations (``move_page``) that need other pages' text. This module
+imports nothing from it — the dependency runs one way, ``vault -> wikipage``.
 
 Only the frontmatter block is ever re-serialised (ruamel round-trip, pinned
 ``indent(mapping=2, sequence=4, offset=2)`` so the spec's edge-list
@@ -41,7 +30,7 @@ from __future__ import annotations
 import posixpath
 import re
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from urllib.parse import unquote
@@ -49,16 +38,6 @@ from urllib.parse import unquote
 from markdown_it import MarkdownIt
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    # Type-only: a module-level runtime import here would be circular with
-    # search_index (see the `import search_index` in Vault._get_index below
-    # for why). `from __future__ import annotations` makes every annotation
-    # a string, never evaluated, so this is safe.
-    import search_index
-    from search_index import IndexStats, IndexStatus, SearchHit
 
 _MD = MarkdownIt("commonmark")
 
@@ -376,168 +355,14 @@ def plan_move(pages: dict[str, str], old_rel: str, new_rel: str) -> dict[str, st
     }
 
 
-class Vault:
-    """Owns all vault I/O and cross-page operations over the pages at ``root``."""
-
-    def __init__(self, root: Path | str):
-        self.root = Path(root)
-        # Lazy: the search index is opened on first use. Code paths that
-        # never search (``load``, ``move_page``) don't pay the FTS5 probe
-        # or schema-check cost. ``Vault.__init__`` stays cheap.
-        self._index: search_index.SearchIndex | None = None
-
-    def _get_index(self) -> search_index.SearchIndex:
-        if self._index is None:
-            # Imported here, not at module level: search_index -> page_record
-            # -> wikipage is a cycle, and running wikipage.py as a script
-            # loads it a *second* time under the name ``wikipage`` when
-            # page_record imports it. A top-level import would make that
-            # second load re-enter search_index mid-init and fail. Deferring
-            # it means wikipage's module body never touches search_index, so
-            # only an actual search/reindex/index_status call pulls it in —
-            # by which point every module has finished loading normally.
-            import search_index
-            self._index = search_index.SearchIndex(self.root)
-        return self._index
-
-    def load(self, rel: str) -> WikiPage:
-        """Read the page at ``rel`` (vault-relative) into a :class:`WikiPage`."""
-        return WikiPage((self.root / rel).read_text(encoding="utf-8"))
-
-    def write(self, rel: str, page: WikiPage) -> None:
-        """Write ``page`` to ``rel`` (vault-relative), creating parents as needed.
-
-        Inline-updates the search index if it's been opened (latency
-        optimisation — the next search won't have to re-stat this file).
-        The staleness scan inside :meth:`search` is the correctness path,
-        so the inline update is safe to skip.
-        """
-        path = self.root / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(page.text, encoding="utf-8")
-        if self._index is not None:
-            self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
-
-    def load_wiki_pages(self) -> dict[str, str]:
-        """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
-        wiki_root = self.root / "wiki"
-        pages: dict[str, str] = {}
-        for path in wiki_root.rglob("*.md"):
-            rel = path.relative_to(self.root).as_posix()
-            pages[rel] = path.read_text(encoding="utf-8")
-        return pages
-
-    def pages(self) -> dict[str, "page_record.PageRecord"]:
-        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map (#40, #41).
-
-        ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
-        one convention every :class:`Vault` enumeration method uses.
-        ``_index.md`` is never a page; ``raw/`` is never walked. Records are
-        decoded via :mod:`page_record`, whose edge-rebasing is wiki/-relative
-        by contract; only the outward-facing ``rel`` is relabelled here.
-        """
-        import page_record
-
-        wiki_relative = {
-            rel.removeprefix("wiki/"): text
-            for rel, text in self.load_wiki_pages().items()
-        }
-        records = page_record.load_records(wiki_relative)
-        return {
-            f"wiki/{rel}": replace(rec, rel=f"wiki/{rel}")
-            for rel, rec in records.items()
-        }
-
-    def set(self, rel: str, key: str, value) -> WikiPage:
-        """Load, :meth:`WikiPage.set`, and write back the page at ``rel``."""
-        page = self.load(rel).set(key, value)
-        self.write(rel, page)
-        return page
-
-    def merge(self, rel: str, key: str, values: list) -> WikiPage:
-        """Load, :meth:`WikiPage.merge`, and write back the page at ``rel``."""
-        page = self.load(rel).merge(key, values)
-        self.write(rel, page)
-        return page
-
-    def _write_changed(self, planned: dict[str, str], before: dict[str, str]) -> list[str]:
-        """Write every page in ``planned`` whose text differs from ``before``.
-
-        Returns the changed vault-relative paths, in ``planned`` order.
-        """
-        changed: list[str] = []
-        for rel, text in planned.items():
-            if text == before.get(rel):
-                continue
-            path = self.root / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-            changed.append(rel)
-        return changed
-
-    def move_page(self, old_rel: str, new_rel: str) -> list[str]:
-        """Rewrite links across the vault's wiki pages and move the page on disk.
-
-        Reads every ``wiki/**`` page (never ``raw/`` — its files aren't
-        rewritten by a page move), plans the move, writes back only the pages
-        whose text changed, then removes the original. Returns the changed
-        vault-relative paths, sorted — which for a move that rewrites nothing
-        at all (``old_rel == new_rel``) is empty.
-
-        The search index is **not** inline-updated here — the next
-        :meth:`search` call's staleness scan reconciles the move (inserting
-        the new rel, removing the old, re-upserting the changed files),
-        which is correct and cheaper than a per-file upsert.
-        """
-        files = self.load_wiki_pages()
-        if old_rel not in files:
-            raise FileNotFoundError(f"{old_rel} not found under {self.root}")
-
-        # `planned` keys the moved page under new_rel, so writing every changed
-        # page also lays down the moved file (with its outbound links fixed) —
-        # all that's left is to drop the original.
-        changed = self._write_changed(plan_move(files, old_rel, new_rel), files)
-        old_path = self.root / old_rel
-        if old_path.resolve() != (self.root / new_rel).resolve():
-            old_path.unlink()
-        return sorted(changed)
-
-    def rewrite_inbound_links(self, old_rel: str, new_rel: str) -> list[str]:
-        """Rewrite ``wiki/**`` pages' links pointing at ``old_rel`` to ``new_rel``.
-
-        For a target that is not itself a wiki page — e.g. a ``raw/`` artifact
-        renamed externally — ``old_rel``/``new_rel`` are never read, parsed,
-        or written; only *other* pages' inbound links are fixed. Returns the
-        changed vault-relative paths, sorted.
-        """
-        pages = self.load_wiki_pages()
-        return sorted(self._write_changed(plan_move(pages, old_rel, new_rel), pages))
-
-    # --- search / index facade -------------------------------------------
-
-    def search(self, *args, **kwargs) -> list[SearchHit]:
-        """Proxy to the search index. Rels in the returned hits are
-        wiki-relative (``concept/foo.md``) so they match the convention in
-        ``wiki/_index.md`` and :mod:`page_record` — read them as relative
-        to ``wiki/``."""
-        return self._get_index().search(*args, **kwargs)
-
-    def reindex(self, *, full: bool = False) -> IndexStats:
-        """Force a re-index. ``full=True`` wipes the db first; ``full=False``
-        runs the staleness scan (the same scan a normal ``search`` runs)."""
-        return self._get_index().reindex(full=full)
-
-    def index_status(self) -> IndexStatus:
-        """Page count, db size, backend (``fts5`` or ``re``), schema version."""
-        return self._get_index().status()
-
-
 # --- CLI ---------------------------------------------------------------------
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     import argparse
     import json
 
+    # Imported here, not at module level: `vault` imports *this* module, so a
+    # top-level import would be circular. Only the `move` subcommand needs it.
     import vault as vault_mod
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -569,7 +394,7 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
 
     if args.cmd == "move":
         root = vault_mod.resolve_vault_root()
-        v = Vault(root)
+        v = vault_mod.Vault(root)
         for rel in v.move_page(args.old_rel, args.new_rel):
             print(rel)
         return 0
