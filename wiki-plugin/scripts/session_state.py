@@ -3,7 +3,7 @@
 The `SessionStart` hook (``hooks/store_transcript_path.py``) writes here;
 ``skills/save-conversation`` reads by ``$CLAUDE_CODE_SESSION_ID`` so it never
 has to guess which of several concurrently running sessions' transcripts is
-"current" — see #23.
+"current".
 
 State lives under the current project's ``.claude/wiki-knowledge/sessions/``
 (gitignored), not the vault — the vault may live somewhere else entirely
@@ -28,9 +28,9 @@ def sessions_dir(root: Path | str | None = None, env: dict | None = None) -> Pat
        project the current session belongs to.
     3. The nearest ancestor of cwd containing a ``.claude/`` directory —
        the writer (the hook) and the reader (this module's callers) need
-       to agree on a root even when cwd is a subdirectory (#45).
-    4. cwd — the original behaviour, preserved as a last resort so the
-       function always returns a path (the directory may not exist yet).
+       to agree on a root even when cwd is a subdirectory.
+    4. cwd — a last resort so the function always returns a path (the
+       directory may not exist yet).
     """
     if root is not None:
         base = Path(root)

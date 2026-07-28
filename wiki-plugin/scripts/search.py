@@ -1,4 +1,4 @@
-"""Search the wiki vault via the lexical index (#39).
+"""Search the wiki vault via the lexical index.
 
 The default mode is a query: positional ``text`` plus any of the metadata
 filters. With ``--reindex`` or ``--status`` the CLI switches to index

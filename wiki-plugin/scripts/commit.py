@@ -43,7 +43,7 @@ class Manifest:
     updated: list[str] = field(default_factory=list)
     superseded: list[tuple[str, str]] = field(default_factory=list)
     source_date: str | None = None
-    #: The normalized raw/ artifact this ingestion is sourced from, if any —
+    #: The raw/ artifact this ingestion is sourced from, if any —
     #: staged automatically so the source document always lands in the same
     #: commit as the pages it produced, without the caller having to remember
     #: to fold it into extra_paths by hand.

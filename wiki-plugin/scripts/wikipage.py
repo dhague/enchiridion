@@ -1,7 +1,6 @@
-"""WikiPage — the page model, pure-functional (#29, #32).
+"""WikiPage — the page model, pure-functional.
 
-Replaces frontmatter.py + lib/md.py + links.py's single-page logic. This half
-of the design in #29 does no I/O at all: :class:`WikiPage` is frontmatter
+This module does no I/O at all: :class:`WikiPage` is frontmatter
 get/set/merge, body access, and outbound-link move-planning — text in, a new
 :class:`WikiPage` out, never a mutation in place. :func:`plan_move` is the
 same thing over a whole ``{rel: text}`` vault.

@@ -1,10 +1,8 @@
-"""IngestPlan schema + single-call executor (#49, per #42's resolution).
+"""IngestPlan schema + single-call executor.
 
-Collapses the wiki-ingest procedure's mechanical remainder — the ~12 shell
-calls SKILL.md steps 4-9 used to spell out by hand — behind one seam: an
-:class:`IngestPlan` describing the decided outcome (pages to create/update,
-their frontmatter and typed edges) in, a commit SHA out. Steps 1-3 (read,
-semantic-chunk, overlap classification) stay judgment and stay with the
+An :class:`IngestPlan` describes the decided outcome of an ingestion (pages
+to create/update, their frontmatter and typed edges) in, a commit SHA out.
+Semantic chunking and overlap classification stay judgment and stay with the
 ingesting agent; everything downstream of that decision is mechanics, and
 mechanics belongs in a tested script, not prose an agent re-derives every run.
 
@@ -16,14 +14,14 @@ doesn't yet, every edge/raw_source link resolves to a real page — either
 already on disk or another page this same plan creates).
 
 Ingestion is not the only caller: `wiki-retrieval`'s confirmed synthesis-page
-save (#18) is the same shape — one `create` page of kind `synthesis`, `source`
+save is the same shape — one `create` page of kind `synthesis`, `source`
 edges to what it drew on, no raw artifact — and runs through this same
 executor with `action: "synthesize"` so the commit history distinguishes the
 two without reading the diff.
 
-The raw artifact named by `plan.raw` is never renamed or moved: per #28/#38 a
-file with external identity keeps its name verbatim, forever. Ingestion only
-reads it and stages it into the commit; `raw_source` links point at it where it
+The raw artifact named by `plan.raw` is never renamed or moved: a file with
+external identity keeps its name verbatim, forever. Ingestion only reads it
+and stages it into the commit; `raw_source` links point at it where it
 already sits, percent-encoded by the link machinery rather than sanitized on
 disk.
 
@@ -85,7 +83,7 @@ class IngestPlan:
 
     title: str
     #: The structured commit's verb (`commit.Manifest.action`). Defaults to
-    #: `ingest`; `wiki-retrieval`'s confirmed synthesis-page save (#18) passes
+    #: `ingest`; `wiki-retrieval`'s confirmed synthesis-page save passes
     #: `synthesize`, so the history can tell a researcher-saved page from an
     #: ingested one without reading the diff.
     action: str = "ingest"
@@ -107,10 +105,10 @@ class IngestPlan:
 def _link_path(link: str) -> str | None:
     """Return a markdown link's decoded, anchor-free destination path.
 
-    ``None`` when ``link`` isn't a markdown link at all. Decoded rather than raw
-    (#38): a preserved raw filename with a space or paren in it is
-    percent-encoded in the destination, and only the decoded form compares
-    against a path on disk.
+    ``None`` when ``link`` isn't a markdown link at all. Decoded rather than raw:
+    a preserved raw filename with a space or paren in it is percent-encoded
+    in the destination, and only the decoded form compares against a path
+    on disk.
     """
     match = next(iter(wikipage.iter_links(link)), None)
     return match.decoded_path if match is not None else None

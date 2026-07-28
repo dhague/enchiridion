@@ -5,13 +5,13 @@ Indexes ``wiki/**`` only; ``raw/`` is never walked or listed.
 
 Each page becomes one row of a GFM table: path, title, summary, tags,
 source_date, volatility, and its outgoing edges (``raw_source``,
-``supersedes``, and the five typed-edge keys). Per the amended frontmatter
-contract (19be866), each of those holds quoted markdown links rather than a
-flat ``links:`` list, so recovering a target means stripping the markdown —
-reusing ``wikipage.iter_links``, which already parses this shape — and then
-re-basing the path from the *page's* directory to be relative to ``wiki/``
-(the directory ``_index.md`` itself lives in), since a flat index can't
-otherwise say what a page-relative link resolves to.
+``supersedes``, and the five typed-edge keys). Each of those holds quoted
+markdown links rather than a flat ``links:`` list, so recovering a target
+means stripping the markdown — reusing ``wikipage.iter_links``, which
+already parses this shape — and then re-basing the path from the *page's*
+directory to be relative to ``wiki/`` (the directory ``_index.md`` itself
+lives in), since a flat index can't otherwise say what a page-relative
+link resolves to.
 
 CLI::
 
@@ -71,7 +71,7 @@ def build_index(pages: dict[str, str]) -> str:
 def write_index(vault_root: Path | str) -> Path:
     """(Re)write ``wiki/_index.md`` from the on-disk vault's pages.
 
-    Enumeration is Vault's job (#41): pages come from
+    Enumeration is Vault's job: pages come from
     ``Vault.load_wiki_pages()`` (vault-relative ``rel``, never ``raw/``).
     This function only rebases each ``rel`` back to wiki/-relative — since
     ``_index.md`` itself lives in ``wiki/`` — before handing off to

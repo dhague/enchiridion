@@ -1,21 +1,18 @@
-"""PageRecord — the one module that reads the frontmatter schema (#40).
+"""PageRecord — the one module that reads the frontmatter schema.
 
-Every caller that needs a page's frontmatter (``build_index.py`` today;
-``Vault.pages()`` in #41; ``Vault.search()`` in #39) reads a
-:class:`PageRecord` instead of re-parsing frontmatter keys itself, so the
-schema changes in exactly one place. Frontmatter text in, one typed record
-out — this module owns decoding it; nothing downstream re-derives a field
-from raw YAML.
+Every caller that needs a page's frontmatter (``build_index.py``,
+``Vault.pages()``, ``Vault.search()``) reads a :class:`PageRecord` instead
+of re-parsing frontmatter keys itself, so the schema changes in exactly one
+place. Frontmatter text in, one typed record out — this module owns
+decoding it; nothing downstream re-derives a field from raw YAML.
 
-``kind`` is derived from the page's folder (``wiki/<kind>/...``, only ever
-named in prose before this). ``edges`` recovers each of the seven
-link-valued keys' targets, rebased from the page's own directory to be
-relative to ``wiki/`` (matching ``build_index.py``'s existing convention,
-since ``rel`` here is wiki/-relative — the vault-relative convention is
-#41's job). ``superseded_by`` is derived, not read from frontmatter: it is
-the inverse of every other page's ``supersedes`` edge, so callers stop
-re-deriving it themselves (see wiki-retrieval/SKILL.md step 5's manual
-"note every supersedes target you see" procedure).
+``kind`` is derived from the page's folder (``wiki/<kind>/...``). ``edges``
+recovers each of the seven link-valued keys' targets, rebased from the
+page's own directory to be relative to ``wiki/`` (matching
+``build_index.py``'s convention, since ``rel`` here is wiki/-relative).
+``superseded_by`` is derived, not read from frontmatter: it is the inverse
+of every other page's ``supersedes`` edge, so callers stop re-deriving it
+themselves.
 """
 from __future__ import annotations
 

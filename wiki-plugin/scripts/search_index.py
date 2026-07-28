@@ -1,7 +1,6 @@
-"""``SearchIndex`` — a SQLite FTS5 lexical index for the ``Vault`` (#39).
+"""``SearchIndex`` — a SQLite FTS5 lexical index for the ``Vault``.
 
-Per [ADR-0006](../docs/adr/0006-stdlib-fts5-not-embeddings.md) and the design
-settled in [#36](https://github.com/dhague/enchiridion/issues/36): a single
+Per [ADR-0006](../docs/adr/0006-stdlib-fts5-not-embeddings.md): a single
 gitignored ``.wiki-knowledge/index.db`` at the vault root holds a ``page``
 metadata table (kind, tags, source_date, git_date, volatility, supersedes,
 superseded_by, mtime_ns, size) plus an FTS5 virtual table over
@@ -10,10 +9,10 @@ week, tagged `foo`, containing `bar`"* — is one SQL statement with text as
 ``MATCH`` and metadata as ``WHERE`` predicates.
 
 Correctness lives in an unconditional ``(mtime_ns, size)`` staleness scan on
-every search call (#36 §"How does the index stay correct..."), not in
-``Vault.write``'s inline update — the inline update is a latency optimisation
-only. A capability probe at open time falls back to a Python ``re`` backend
-when FTS5 isn't compiled into the platform's SQLite.
+every search call, not in ``Vault.write``'s inline update — the inline
+update is a latency optimisation only. A capability probe at open time
+falls back to a Python ``re`` backend when FTS5 isn't compiled into the
+platform's SQLite.
 
 This module knows about ``page_record`` (decoding frontmatter) and ``vault``
 (``load_wiki_pages`` for the re-fallback's body read). It does not know about
@@ -38,13 +37,12 @@ import wikipage
 
 
 #: Bump when the on-disk schema changes. A mismatch on open triggers a
-#: full rebuild (#36: "delete-and-rebuild is the migration strategy").
+#: full rebuild — delete-and-rebuild is the migration strategy.
 SCHEMA_VERSION = "1"
 
 #: ``bm25()`` column weights for ``rel`` (UNINDEXED), title, summary, body —
 #: encodes the retrieval skill's "frontmatter-first" instruction into the
-#: ranking rather than leaving it as prose the agent must remember
-#: (#36 §"Schema shape for the ticket's query").
+#: ranking rather than leaving it as prose the agent must remember.
 _FTS5_WEIGHTS = (0.0, 10.0, 5.0, 1.0)
 
 
@@ -96,8 +94,8 @@ def tokenize_query(text: str) -> str:
     """Split ``text`` on whitespace and phrase-quote each term.
 
     FTS5's ``MATCH`` is a query language, not a string, and ordinary vault
-    vocabulary is a syntax error in it (#36 §"The FTS5 query-syntax footgun"):
-    a hyphenated tag like ``wiki-knowledge`` raises ``no such column:
+    vocabulary is a syntax error in it: a hyphenated tag like
+    ``wiki-knowledge`` raises ``no such column:
     knowledge``. The default path of :meth:`SearchIndex.search` must
     split-and-quote, with ``raw=True`` as the escape hatch for callers who
     really want ``NEAR()``, ``OR``, and prefix operators.
@@ -239,7 +237,7 @@ class SearchIndex:
 
     def _full_rebuild(self) -> IndexStats:
         """Wipe and re-index. Delete-and-rebuild *is* the migration strategy
-        (#36) — no incremental migrations, ever."""
+        — no incremental migrations, ever."""
         c = self._conn
         for table in ("page_tag", "page"):
             c.execute(f"DELETE FROM {table}")

@@ -36,9 +36,9 @@ _MARKERS = ("wiki", ".wiki-root")
 _GITIGNORE = (
     "*.rsls\n"
     ".claude/wiki-knowledge/sessions/\n"
-    # Search index (#39) — gitignored per ADR-0006. The .wiki-knowledge/
-    # directory must also be added to Resilio Sync's ignore list (the
-    # gitignore does not propagate to the syncer).
+    # Search index, gitignored per ADR-0006. The .wiki-knowledge/ directory
+    # must also be added to Resilio Sync's ignore list (the gitignore does
+    # not propagate to the syncer).
     ".wiki-knowledge/\n"
 )
 

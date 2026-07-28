@@ -1,7 +1,7 @@
 """SessionStart hook: records this session's transcript_path so
-/save-conversation can retrieve it later by session_id, instead of guessing
-"most recently modified transcript" - which breaks when multiple sessions
-run in parallel (#23).
+/save-conversation can retrieve it later by session_id, rather than guessing
+"most recently modified transcript" — which breaks when multiple sessions
+run in parallel.
 
 Reads the SessionStart hook JSON payload on stdin. Never raises or blocks -
 any failure is swallowed so a broken hook can't interrupt session start.

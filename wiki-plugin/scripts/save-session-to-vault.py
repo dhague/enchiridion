@@ -8,19 +8,15 @@ transcript_path per session_id, under this project's
 `.claude/wiki-knowledge/sessions/` (gitignored), as each session starts;
 this script looks itself up by the $CLAUDE_CODE_SESSION_ID env var (which
 Claude Code exports to every process it launches, including this one) and
-its own cwd, which must match the project the hook recorded it under. This
-replaced a "most-recently-modified transcript in this project's directory"
-heuristic that broke when more than one session was running against the
-same project in parallel - see #23.
+its own cwd, which must match the project the hook recorded it under.
 
 Prints the vault-relative path of the raw file it wrote, so the calling
 skill can pass it straight to wiki-ingest.
 
-#45 split the JSONL filter + markdown render + filename scheme into
-``transcript_to_page`` (pure) so the rules can be tested without
-filesystem or env, and moved the vault-root resolution from import time
-to ``main()`` so it can be injected. The resolution bug from the
-2026-07-28 report is fixed in ``session_state.sessions_dir``.
+The JSONL filter + markdown render + filename scheme live in
+``transcript_to_page`` (pure), so the rules can be tested without
+filesystem or env; vault-root resolution happens in ``main()`` so it can
+be injected.
 """
 import glob
 import json
@@ -150,11 +146,6 @@ def find_transcript_path(env=None, cwd=None):
     - state directory located, but no entry for this session - the
       *SessionStart hook* didn't record this one
     - entry points to a transcript file that no longer exists
-
-    The first two were collapsed into one misleading "hook may not have
-    run yet" message before #45; a not-found now distinguishes
-    *location* from *identity* the same way #23 distinguished
-    *identity* from *recency*.
     """
     env = env if env is not None else os.environ
     # `cwd` is only used for the error message; the actual resolution

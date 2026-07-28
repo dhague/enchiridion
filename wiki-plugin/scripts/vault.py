@@ -16,9 +16,9 @@ Two things live here:
 * :class:`Vault` — all vault I/O and every cross-page operation, notably
   :meth:`Vault.move_page`, which needs every other page's text to rewrite the
   links pointing at the moved page. Its counterpart :class:`wikipage.WikiPage`
-  is pure-functional and does no I/O at all; that split is the design in #29.
+  is pure-functional and does no I/O at all.
 
-The vault is also the entry point for the lexical search index (#39): the
+The vault is also the entry point for the lexical search index: the
 :class:`SearchIndex` lives at ``.wiki-knowledge/index.db`` inside the vault,
 and :meth:`Vault.search`/``reindex``/``index_status`` proxy through. Inline
 updates fire from :meth:`Vault.write` (and the methods built on it: ``set``,
@@ -116,7 +116,7 @@ class Vault:
         return pages
 
     def pages(self) -> dict[str, PageRecord]:
-        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map (#40, #41).
+        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
 
         ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
         one convention every :class:`Vault` enumeration method uses.
