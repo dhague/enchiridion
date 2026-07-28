@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — enchiridion / wiki-knowledge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .hatch {
+        background-image: repeating-linear-gradient(45deg, #e7e5e4 0 6px, #f5f5f4 6px 12px);
+      }
+      .lbl { font-size: 0.625rem; letter-spacing: .08em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+      <header class="space-y-5">
+        <p class="lbl text-slate-500">Architecture review</p>
+        <h1 class="font-serif text-4xl">enchiridion — <span class="text-slate-500">wiki-knowledge plugin</span></h1>
+        <p class="text-sm text-slate-600">2026-07-28 · scoped to the hot spots of the last ~15 commits: <span class="font-mono text-xs">scripts/wikipage.py</span>, <span class="font-mono text-xs">scripts/build_index.py</span>, <span class="font-mono text-xs">skills/wiki-ingest</span>, <span class="font-mono text-xs">skills/wiki-retrieval</span>.</p>
+        <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600 border-t border-b border-stone-200 py-3">
+          <span><span class="inline-block w-4 h-3 border border-slate-700 align-middle"></span> module</span>
+          <span><svg width="26" height="8" class="align-middle"><line x1="0" y1="4" x2="26" y2="4" stroke="#475569" class="seam"/></svg> seam</span>
+          <span><svg width="26" height="8" class="align-middle"><line x1="0" y1="4" x2="20" y2="4" stroke="#dc2626" stroke-width="2"/><path d="M20 1 L26 4 L20 7Z" fill="#dc2626"/></svg> leakage</span>
+          <span><span class="inline-block w-4 h-3 deep align-middle"></span> deep module</span>
+          <span><span class="inline-block w-4 h-3 hatch align-middle border border-stone-300"></span> prose the agent executes by hand</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-14">
+
+        <!-- ============ A ============ -->
+        <article id="a" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">A. One module reads the frontmatter schema</h2>
+            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">in-process</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">scripts/build_index.py · scripts/place.py · scripts/wikipage.py · skills/wiki-conventions/SKILL.md · skills/wiki-retrieval/SKILL.md · (future) scripts/search_index.py</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — schema knowledge scattered</p>
+              <pre class="mermaid">
+flowchart TD
+  FM[("page frontmatter<br/>title · summary · tags<br/>source_date · volatility<br/>7 edge keys")]
+  BI["build_index._page_record<br/><i>_EDGE_KEYS tuple</i>"]
+  PL["place.KINDS<br/><i>4 kind folders</i>"]
+  RET["wiki-retrieval SKILL<br/><i>'never grep a schema word'<br/>lists all 11 keys in prose</i>"]
+  ING["wiki-ingest SKILL<br/><i>re-lists every key</i>"]
+  SRCH["search_index.py<br/><i>#39 — will list them again</i>"]
+  FM --> BI
+  FM --> PL
+  FM --> RET
+  FM --> ING
+  FM -.-> SRCH
+  classDef dup fill:#fef2f2,stroke:#dc2626;
+  classDef ghost fill:#fafaf9,stroke:#a8a29e,stroke-dasharray:4 4;
+  class BI,PL,RET,ING dup
+  class SRCH ghost
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — one interface, five callers</p>
+              <pre class="mermaid">
+flowchart TD
+  FM[("page frontmatter")]
+  PR["PageRecord<br/><b>the only reader of the schema</b><br/>kind · title · summary · tags<br/>source_date · volatility · edges<br/>superseded_by"]
+  BI["build_index"]
+  SRCH["search_index (#39)"]
+  RET["wiki-retrieval"]
+  ING["wiki-ingest"]
+  FM --> PR
+  PR --> BI
+  PR --> SRCH
+  PR --> RET
+  PR --> ING
+  classDef deep fill:#0f172a,color:#f8fafc,stroke:#0f172a,stroke-width:2px;
+  class PR deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p>The frontmatter schema has no module — it is re-encoded in <span class="font-mono text-xs">_EDGE_KEYS</span>, in <span class="font-mono text-xs">KINDS</span>, and twice in skill prose, so <span class="font-mono text-xs">_index.md</span> and a future search index can disagree about a page's tags.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>Lift <span class="font-mono text-xs">build_index._page_record</span> into a <span class="font-mono text-xs">PageRecord</span> module — frontmatter text in, one typed record out, including derived <span class="font-mono text-xs">kind</span> and <span class="font-mono text-xs">superseded_by</span>. <span class="font-mono text-xs">build_index</span> becomes a renderer of records.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-emerald-600">
+            <li>Locality: one place the schema changes</li>
+            <li>Leverage: one record, five callers</li>
+            <li>Interface is the test surface, not the table</li>
+            <li>Unblocks <span class="font-mono text-xs">Vault.search()</span> (#39)</li>
+            <li>Schema drift becomes impossible, not unlikely</li>
+            <li>Adds <span class="font-mono text-xs">kind</span> to code — today only prose has it</li>
+          </ul>
+
+          <div class="rounded border border-emerald-200 bg-emerald-50 text-emerald-900 text-sm p-3">
+            The research doc for #36 already names this: <em>"Do share the extraction… This is the one code change that makes the whole thing coherent rather than parallel."</em> This card is that change, standing on its own.
+          </div>
+        </article>
+
+        <!-- ============ B ============ -->
+        <article id="b" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">B. Vault owns enumeration — one rel-path convention</h2>
+            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">in-process</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">scripts/wikipage.py:342,371 · scripts/build_index.py:144 · scripts/normalize_raw.py:86,139</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — four walks, two conventions</p>
+              <div class="space-y-2 text-xs font-mono">
+                <div class="border-l-4 border-red-400 pl-3 py-2 bg-red-50">
+                  <div class="font-sans lbl text-red-700">Vault.load_wiki_pages</div>
+                  root/wiki/**.md → <b>rel to root</b>
+                </div>
+                <div class="border-l-4 border-red-400 pl-3 py-2 bg-red-50">
+                  <div class="font-sans lbl text-red-700">Vault.move_page</div>
+                  root/**.md <span class="text-red-600">(incl. raw/)</span> → rel to root
+                </div>
+                <div class="border-l-4 border-red-400 pl-3 py-2 bg-red-50">
+                  <div class="font-sans lbl text-red-700">build_index.write_index</div>
+                  root/wiki/**.md → <b>rel to wiki/</b>
+                </div>
+                <div class="border-l-4 border-red-400 pl-3 py-2 bg-red-50">
+                  <div class="font-sans lbl text-red-700">normalize_raw._load_wiki_pages</div>
+                  root/wiki/**.md → rel to root
+                  <div class="font-sans text-[11px] text-red-700 mt-1">a private copy of load_wiki_pages</div>
+                </div>
+                <p class="font-sans text-[11px] text-slate-500 pt-1">Every caller re-decides: does <span class="font-mono">rel</span> start with <span class="font-mono">wiki/</span>? Is <span class="font-mono">_index.md</span> a page? Does <span class="font-mono">raw/</span> count?</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — one enumeration behind the seam</p>
+              <div class="space-y-3">
+                <div class="deep text-stone-100 rounded p-4">
+                  <div class="lbl text-stone-400">deep module</div>
+                  <div class="font-mono text-sm mt-1">Vault.pages() → Iterable[PageRecord]</div>
+                  <div class="mt-3 pt-3 border-t border-slate-700 text-[11px] font-mono text-stone-400 space-y-0.5">
+                    <div>· rel is always vault-relative</div>
+                    <div>· _index.md excluded, always</div>
+                    <div>· raw/ never walked</div>
+                    <div>· skips nothing silently</div>
+                  </div>
+                </div>
+                <svg width="100%" height="26"><line x1="10%" y1="13" x2="90%" y2="13" stroke="#475569" class="seam"/></svg>
+                <div class="grid grid-cols-3 gap-2 text-[11px] font-mono text-center">
+                  <div class="border border-slate-300 rounded py-2">build_index</div>
+                  <div class="border border-slate-300 rounded py-2">normalize_raw</div>
+                  <div class="border border-slate-300 rounded py-2">search (#39)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p>"Which files are the vault's pages, and what is <span class="font-mono text-xs">rel</span> relative to?" is answered four times, differently. <span class="font-mono text-xs">normalize_raw</span> hand-rolls a copy of <span class="font-mono text-xs">Vault.rewrite_inbound_links</span> because it needs one extra step interleaved.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>Enumeration becomes <span class="font-mono text-xs">Vault</span>'s job alone. One <span class="font-mono text-xs">pages()</span> interface returning card A's records; <span class="font-mono text-xs">move_page</span> stops walking <span class="font-mono text-xs">raw/</span> for markdown it will never rewrite.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-emerald-600">
+            <li>One convention, zero rebasing bugs</li>
+            <li>Delete <span class="font-mono text-xs">normalize_raw._load_wiki_pages</span></li>
+            <li>Locality: exclusions live in one module</li>
+            <li>Tests stub one interface, not four walks</li>
+          </ul>
+        </article>
+
+        <!-- ============ C ============ -->
+        <article id="c" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">C. Collapse ingestion's 12-call orchestration behind one seam</h2>
+            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">in-process</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">skills/wiki-ingest/SKILL.md (steps 4–9) · scripts/place.py · scripts/wikipage.py · scripts/normalize_raw.py · scripts/build_index.py · scripts/commit.py</p>
+
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <p class="lbl text-slate-500 mb-3">Before — the agent is the orchestrator</p>
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as wiki-ingest (Sonnet)
+  participant S as scripts/
+  A->>S: place.py concept "Title"
+  A->>S: normalize_raw.py raw/x.md --when …
+  Note over A,S: ordering constraint — nothing enforces it
+  A->>S: wikipage.py set p title …
+  A->>S: wikipage.py set p summary …
+  A->>S: wikipage.py set p tags --json …
+  A->>S: wikipage.py set p source_date …
+  A->>S: wikipage.py set p volatility …
+  A->>S: wikipage.py set p raw_source …
+  A->>S: wikipage.py merge p related […]
+  Note over A,S: set overwrites, merge unions —<br/>picking wrong silently drops edges
+  A->>A: hand-write manifest.json
+  A->>S: build_index.py
+  A->>S: commit.py --manifest manifest.json
+            </pre>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — mass diagram</p>
+              <div class="flex items-end gap-3 h-[220px]">
+                <div class="flex-1 flex flex-col justify-end">
+                  <div class="hatch border border-stone-400 rounded-t h-[150px] flex items-center justify-center text-[11px] font-sans text-center px-1">interface<br/>6 CLIs · 12 calls<br/>ordering rules<br/>set-vs-merge<br/>manifest shape</div>
+                  <div class="deep text-stone-300 rounded-b h-[55px] flex items-center justify-center text-[11px]">implementation</div>
+                </div>
+                <p class="text-[11px] text-slate-500 w-40 leading-snug">Shallow: the interface the agent must learn is nearly as large as the work the scripts do.</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — mass diagram</p>
+              <div class="flex items-end gap-3 h-[220px]">
+                <div class="flex-1 flex flex-col justify-end">
+                  <div class="hatch border border-stone-400 rounded-t h-[40px] flex items-center justify-center text-[11px] font-sans text-center px-1">interface<br/><span class="font-mono">ingest.py --plan plan.json</span></div>
+                  <div class="deep text-stone-300 rounded-b h-[165px] flex items-center justify-center text-[11px] text-center px-2 leading-relaxed">implementation<br/><span class="text-stone-500">place · normalize · frontmatter<br/>merge-vs-set · body · index · commit</span></div>
+                </div>
+                <p class="text-[11px] text-slate-500 w-40 leading-snug">Deep: the agent supplies judgment (kind, title, tags, edges, body); mechanics are absorbed and unit-tested.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p>The largest module in the plugin is 25 lines of prose, and it has no test surface. Its ordering constraints and the <span class="font-mono text-xs">set</span>-vs-<span class="font-mono text-xs">merge</span> footgun (a real bug caught by review in #15) are enforced only by an agent remembering.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>Put the seam at a declared <span class="font-mono text-xs">IngestPlan</span>: pages with kind, title, frontmatter, body, edges. One <span class="font-mono text-xs">ingest.py</span> executes it and returns the commit SHA. Steps 1–3 (read, chunk, overlap) stay judgment; steps 4–9 stop being prose.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-emerald-600">
+            <li>12 shell calls become 1</li>
+            <li><span class="font-mono text-xs">set</span>/<span class="font-mono text-xs">merge</span> choice moves into code</li>
+            <li>Ordering enforced, not remembered</li>
+            <li>Locality: partial-ingest failures in one module</li>
+            <li>Evals grade the plan, not the transcript</li>
+            <li>#21's per-chunk gap becomes a plan field</li>
+          </ul>
+
+          <div class="rounded border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3">
+            <b>Touches ADR-0005.</b> That ADR splits testing by layer — scripts get TDD, agents get evals. This moves the layer line, not the rule: mechanics cross into the TDD'd script layer and the eval'd agent layer shrinks to judgment. Worth confirming the intent, not reopening the ADR.
+          </div>
+        </article>
+
+        <!-- ============ D ============ -->
+        <article id="d" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">D. A link is a label and a destination</h2>
+            <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">in-process</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">scripts/normalize_raw.py:38-81 · scripts/wikipage.py:54-66,148-183</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — label knowledge leaks out</p>
+              <div class="relative space-y-3">
+                <div class="border border-slate-700 rounded p-3">
+                  <div class="lbl text-slate-500">module</div>
+                  <div class="font-mono text-sm">wikipage — link seam</div>
+                  <div class="text-[11px] text-slate-600 mt-1"><span class="font-mono">LinkMatch</span> models <b>dest only</b>; label is parsed then discarded</div>
+                </div>
+                <div class="flex items-center gap-2 justify-center">
+                  <svg width="30" height="34"><line x1="15" y1="0" x2="15" y2="26" stroke="#dc2626" stroke-width="2"/><path d="M11 26 L15 33 L19 26Z" fill="#dc2626"/></svg>
+                  <span class="text-[11px] text-red-700">a second markdown parser, in a regex</span>
+                </div>
+                <div class="border-2 border-red-400 rounded p-3 bg-red-50">
+                  <div class="lbl text-red-700">module</div>
+                  <div class="font-mono text-sm">normalize_raw._RAW_SOURCE_RE</div>
+                  <div class="font-mono text-[10px] text-red-800 mt-1 break-all">(raw_source:\s*"\[)([^\]]*)(\]\()([^)]*)(\)")</div>
+                  <div class="text-[11px] text-red-700 mt-1">re-finds the link <span class="font-mono">wikipage</span> just rewrote, to patch the half it wasn't told about</div>
+                </div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — one splice carries both halves</p>
+              <div class="space-y-3">
+                <div class="deep text-stone-100 rounded p-4">
+                  <div class="lbl text-stone-400">deep module</div>
+                  <div class="font-mono text-sm mt-1">LinkMatch(label, dest, spans)</div>
+                  <div class="font-mono text-sm">plan_move(…, relabel=fn)</div>
+                  <div class="mt-3 pt-3 border-t border-slate-700 text-[11px] text-stone-400">One back-to-front splice rewrites label and destination together. Byte-for-byte guarantee unchanged.</div>
+                </div>
+                <div class="border border-slate-300 rounded p-3 text-[11px] text-slate-600">
+                  <span class="font-mono">normalize_raw</span> passes <span class="font-mono">relabel=basename</span> and loses its regex entirely.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p><span class="font-mono text-xs">raw_source</span>'s label must track a rename, but <span class="font-mono text-xs">LinkMatch</span> exposes only the destination — so a regex outside the link seam re-parses the document and patches the label after the fact.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>Widen <span class="font-mono text-xs">LinkMatch</span> to carry the label span, and let a move optionally relabel. The link module stays the only markdown-link parser in the codebase.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-amber-600">
+            <li>One markdown-link parser, not two</li>
+            <li>Property tests already cover the splice</li>
+            <li>Leverage: relabelling any link, not just <span class="font-mono text-xs">raw_source</span></li>
+          </ul>
+
+          <div class="rounded border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3">
+            <b>Check #38 first.</b> That open ticket proposes deleting <span class="font-mono text-xs">normalize_raw.py</span> outright (preserve raw filenames, percent-encode destinations). If #38 lands, this candidate mostly evaporates — the label span is still the right shape, but the leak it fixes is gone.
+          </div>
+        </article>
+
+        <!-- ============ E ============ -->
+        <article id="e" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">E. One CLI adapter, one path convention</h2>
+            <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">local-substitutable</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">scripts/*.py <span class="text-slate-400">(7 argparse blocks)</span> · skills/wiki-ingest/SKILL.md · skills/wiki-retrieval/SKILL.md</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — seven adapters, inconsistent</p>
+              <div class="space-y-1.5 text-[11px] font-mono">
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>wikipage.py get/set/merge</span><span class="text-red-600">filesystem path</span></div>
+                <div class="flex justify-between border-2 border-red-400 bg-red-50 rounded px-2 py-1.5"><span>wikipage.py move</span><span class="text-red-600">vault-relative</span></div>
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>normalize_raw.py</span><span class="text-slate-500">vault-relative</span></div>
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>place.py</span><span class="text-slate-500">prints vault-relative</span></div>
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>build_index.py</span><span class="text-slate-500">no args</span></div>
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>commit.py</span><span class="text-slate-500">manifest json path</span></div>
+                <div class="flex justify-between border border-slate-300 rounded px-2 py-1.5"><span>vault.py</span><span class="text-slate-500">no args</span></div>
+                <p class="font-sans text-[11px] text-red-700 pt-1">Same file, same CLI, two path meanings. Each call is a fresh process re-resolving the vault root.</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — one adapter over the modules</p>
+              <div class="space-y-3">
+                <div class="deep text-stone-100 rounded p-4 font-mono text-[11px] leading-relaxed">
+                  <div class="lbl text-stone-400 font-sans mb-2">single adapter</div>
+                  wiki page get|set|merge<br/>
+                  wiki page move<br/>
+                  wiki raw normalize<br/>
+                  wiki index build<br/>
+                  wiki commit<br/>
+                  wiki root
+                  <div class="mt-3 pt-3 border-t border-slate-700 text-stone-400 font-sans">Every path vault-relative. Root resolved once.</div>
+                </div>
+                <p class="text-[11px] text-slate-500">The seam is real: the same modules are also called in-process by tests and by card C's <span class="font-mono">ingest</span>.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p>Seven argparse adapters, each shallow, and <span class="font-mono text-xs">wikipage.py</span> takes a filesystem path for <span class="font-mono text-xs">set</span> but a vault-relative one for <span class="font-mono text-xs">move</span> — an interface wart the skills have to document around.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>One <span class="font-mono text-xs">wiki</span> entry point dispatching subcommands, with vault-relative paths everywhere. The modules behind it don't move.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-amber-600">
+            <li>Skills document one interface</li>
+            <li>Path convention stops varying</li>
+            <li>Root resolved once, not per call</li>
+            <li>Smaller surface for a Haiku agent to learn</li>
+          </ul>
+        </article>
+
+        <!-- ============ F ============ -->
+        <article id="f" class="space-y-5">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <h2 class="font-serif text-2xl">F. Split transcript capture at a pure seam</h2>
+            <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-medium">Speculative</span>
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">in-process</span>
+          </div>
+
+          <p class="font-mono text-sm text-slate-600">scripts/save-session-to-vault.py <span class="text-red-600">(140 lines, no test file)</span></p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">Before — one main(), no seam</p>
+              <div class="space-y-0">
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">env lookup + session state read</div>
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">JSONL parse + meta/sidechain filter</div>
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">markdown rendering (hardcoded "Darren")</div>
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">filename scheme <span class="text-red-700">(#33 wants this changed)</span></div>
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">glob-and-delete prior capture</div>
+                <div class="border-l-4 border-red-400 bg-red-50 pl-3 py-2 text-[11px]">write + print rel path</div>
+                <p class="text-[11px] text-slate-500 pt-2">Module-level <span class="font-mono">WIKI_ROOT</span> resolves at import — the vault can't be injected, so nothing here is reachable from a test.</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="lbl text-slate-500 mb-3">After — pure core, thin edge</p>
+              <div class="space-y-3">
+                <div class="deep text-stone-100 rounded p-4">
+                  <div class="lbl text-stone-400">pure — the test surface</div>
+                  <div class="font-mono text-sm mt-1">transcript_to_page(jsonl, meta)<br/>→ (filename, markdown)</div>
+                  <div class="text-[11px] text-stone-400 mt-2">filtering, rendering, naming — all data in, data out</div>
+                </div>
+                <svg width="100%" height="24"><line x1="10%" y1="12" x2="90%" y2="12" stroke="#475569" class="seam"/></svg>
+                <div class="border border-slate-300 rounded p-3 text-[11px]">
+                  <span class="font-mono">main()</span>: resolve session, read file, <span class="font-mono">Vault.write_raw()</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="lbl text-slate-500 mb-1">Problem</p>
+              <p>The only script in <span class="font-mono text-xs">scripts/</span> with no test file, because every decision in it is entangled with I/O and an import-time vault root. #33 wants to change the filename scheme with nothing to verify against.</p>
+            </div>
+            <div>
+              <p class="lbl text-slate-500 mb-1">Solution</p>
+              <p>Move filtering, rendering and naming behind one pure interface; leave <span class="font-mono text-xs">main()</span> as the adapter that reads the file and writes through <span class="font-mono text-xs">Vault</span>.</p>
+            </div>
+          </div>
+
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm list-disc list-inside marker:text-slate-500">
+            <li>Restores ADR-0005's TDD rule here</li>
+            <li>#33 becomes a one-test change</li>
+            <li>Speaker labels stop being hardcoded</li>
+          </ul>
+        </article>
+
+      </section>
+
+      <section id="top-recommendation" class="rounded-xl border-2 border-emerald-600 bg-white p-8 space-y-4">
+        <p class="lbl text-emerald-700">Top recommendation</p>
+        <h2 class="font-serif text-3xl"><a href="#a" class="hover:underline">A — one module reads the frontmatter schema</a>, taken together with <a href="#b" class="hover:underline">B</a>.</h2>
+        <p class="text-sm text-slate-700 max-w-3xl">It is the smallest change on the list and the one everything else waits on: <span class="font-mono text-xs">Vault.search()</span> (#39) will otherwise encode the schema a fifth time, card C's plan needs a record type to name, and B's <span class="font-mono text-xs">pages()</span> wants records to yield. Do it before #39 starts, not after.</p>
+        <p class="text-sm text-slate-500">Then <a href="#c" class="underline decoration-dotted">C</a> — it carries the most leverage, but it moves ADR-0005's layer line and deserves the grilling first.</p>
+      </section>
+
+    </main>
+  </body>
+</html>
