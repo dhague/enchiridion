@@ -159,6 +159,33 @@ def test_acquire_lock_unparsable_lock_is_stale(tmp_path):
     assert acquire_lock(lock_path) is True
 
 
+def test_concurrent_stale_takeover_only_one_winner(tmp_path):
+    """Two racing takeovers of the same stale lock (#67): exactly one must
+    win. Without the mutex, both threads can pass ``_lock_is_stale`` before
+    either has written its own lock, and both would return ``True``."""
+    lock_path = tmp_path / ".wiki-knowledge" / "watch.lock"
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead_pid = proc.pid
+    proc.wait()
+    write_lock(lock_path, pid=dead_pid)
+
+    results: list[bool] = []
+    barrier = threading.Barrier(8)
+
+    def _race():
+        barrier.wait()
+        results.append(acquire_lock(lock_path))
+
+    threads = [threading.Thread(target=_race) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results.count(True) == 1
+    assert json.loads(lock_path.read_text())["pid"] == os.getpid()
+
+
 # --- queue atomicity --------------------------------------------------------
 
 
@@ -187,6 +214,30 @@ def test_remove_from_queue(tmp_path):
 def test_read_queue_missing_file_is_empty(tmp_path):
     queue_path = tmp_path / ".wiki-knowledge" / "watch-queue.jsonl"
     assert read_queue(queue_path) == []
+
+
+# --- eligibility check on settle ---------------------------------------------
+
+
+def test_check_and_enqueue_enqueues_when_eligible(tmp_path):
+    queue_path = tmp_path / ".wiki-knowledge" / "watch-queue.jsonl"
+    assert watch_raw.check_and_enqueue({"raw/a.md"}, "raw/a.md", queue_path) is True
+    assert read_queue(queue_path) == ["raw/a.md"]
+
+
+def test_check_and_enqueue_skips_when_not_eligible(tmp_path):
+    queue_path = tmp_path / ".wiki-knowledge" / "watch-queue.jsonl"
+    assert watch_raw.check_and_enqueue({"raw/other.md"}, "raw/a.md", queue_path) is False
+    assert read_queue(queue_path) == []
+
+
+def test_check_and_enqueue_takes_no_vault_root(tmp_path):
+    """`check_and_enqueue` no longer runs its own scan (#66) — it only
+    consults the eligible set the caller already computed for this batch."""
+    import inspect
+
+    params = list(inspect.signature(watch_raw.check_and_enqueue).parameters)
+    assert params == ["eligible_rels", "settled_rel", "queue_path"]
 
 
 @settings(deadline=None, max_examples=25)

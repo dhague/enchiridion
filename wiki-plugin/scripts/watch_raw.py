@@ -139,19 +139,31 @@ def acquire_lock(
     means another watcher is already running — this call returns ``False``
     without touching the lock file. A stale lock is logged, removed, and
     replaced with this process's own lock.
+
+    The stale check, unlink, and write happen under a companion
+    ``.mutex`` file held with an exclusive ``flock`` for the whole
+    sequence, so two processes racing a stale takeover can't both pass
+    the staleness check before either has written its own lock (#67).
     """
     now = now or datetime.now(timezone.utc)
     pid_alive = pid_alive or _pid_alive
 
-    if lock_path.exists():
-        stale, pid = _lock_is_stale(lock_path, now, pid_alive)
-        if not stale:
-            return False
-        print(f"previous watcher exited without cleanup, removing stale lock (pid={pid})")
-        lock_path.unlink()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    mutex_path = lock_path.with_name(lock_path.name + ".mutex")
+    with open(mutex_path, "w", encoding="utf-8") as mutex:
+        fcntl.flock(mutex, fcntl.LOCK_EX)
+        try:
+            if lock_path.exists():
+                stale, pid = _lock_is_stale(lock_path, now, pid_alive)
+                if not stale:
+                    return False
+                print(f"previous watcher exited without cleanup, removing stale lock (pid={pid})")
+                lock_path.unlink()
 
-    write_lock(lock_path, started_at=now)
-    return True
+            write_lock(lock_path, started_at=now)
+            return True
+        finally:
+            fcntl.flock(mutex, fcntl.LOCK_UN)
 
 
 # --- queue file ---------------------------------------------------------------
@@ -213,16 +225,15 @@ def read_queue(queue_path: Path) -> list[str]:
 # --- eligibility check on settle ----------------------------------------------
 
 
-def check_and_enqueue(vault_root: Path, settled_rel: str, queue_path: Path) -> bool:
-    """Re-run the sweep scan and enqueue ``settled_rel`` iff it's eligible.
+def check_and_enqueue(eligible_rels: set[str], settled_rel: str, queue_path: Path) -> bool:
+    """Enqueue ``settled_rel`` iff it's in ``eligible_rels``.
 
     A settled filesystem event doesn't automatically mean "ingest this" — a
     file matching its folder's ``.ingestignore``, or one whose back-pointer
-    page is already up to date, settles too. Reusing ``ingest_scan.scan``
-    keeps eligibility semantics identical to the manual sweep.
+    page is already up to date, settles too. ``eligible_rels`` comes from one
+    ``ingest_scan.scan`` per poll tick (not per file, see caller), keeping
+    eligibility semantics identical to the manual sweep.
     """
-    result = ingest_scan.scan(vault_root)
-    eligible_rels = {c.raw_rel for c in result.eligible}
     if settled_rel in eligible_rels:
         append_queue(queue_path, settled_rel)
         return True
@@ -305,12 +316,20 @@ def _main(argv=None) -> int:
 
     try:
         while not stop_event.is_set():
-            for rel in debouncer.settled_files():
+            settled = debouncer.settled_files()
+            if settled:
                 try:
-                    if check_and_enqueue(root, rel, paths.queue):
-                        print(f"queued {rel}")
+                    result = ingest_scan.scan(root)
+                    eligible_rels = {c.raw_rel for c in result.eligible}
                 except Exception as exc:  # noqa: BLE001 - log and keep watching
-                    print(f"error scanning {rel}: {exc}")
+                    print(f"error scanning raw/: {exc}")
+                    eligible_rels = set()
+                for rel in settled:
+                    try:
+                        if check_and_enqueue(eligible_rels, rel, paths.queue):
+                            print(f"queued {rel}")
+                    except Exception as exc:  # noqa: BLE001 - log and keep watching
+                        print(f"error queuing {rel}: {exc}")
             stop_event.wait(args.poll_interval)
     finally:
         observer.stop()
