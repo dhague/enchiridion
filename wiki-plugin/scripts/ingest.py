@@ -11,7 +11,15 @@ regenerate the index -> derive a commit.Manifest from the plan -> commit.
 Validation is two-phase and runs entirely before any write: shape (required
 fields, valid op) then semantic (an update's `rel` exists, a create's target
 doesn't yet, every edge/raw_source link resolves to a real page — either
-already on disk or another page this same plan creates).
+already on disk or another page this same plan creates — and, for a plan
+naming a raw artifact, the chain of evidence: a `source/` stub for that
+artifact plus a `source` edge to it from every other page in the plan). This
+is the agent-time layer of the chain-of-evidence check (#34 point 4): it
+catches a violating plan at the agent's working point, before any write.
+The real hard block lives in :mod:`commit` — every manifest that names a
+`raw_source` is re-checked at commit time, so a hand-built manifest or a
+future caller cannot slip a violation past :func:`validate` and into
+history.
 
 Ingestion is not the only caller: `wiki-retrieval`'s confirmed synthesis-page
 save is the same shape — one `create` page of kind `synthesis`, `source`
@@ -119,17 +127,21 @@ def _resolve(path: str, page_dir: str) -> str:
     return posixpath.normpath(posixpath.join(page_dir or ".", path))
 
 
-def _page_dir(page: PagePlan) -> str | None:
-    """The vault-relative directory this page's links resolve from, or ``None``
-    when it can't be computed yet (an invalid ``kind``/``rel`` already recorded
-    as its own shape error)."""
+def _page_rel(page: PagePlan) -> str | None:
+    """The vault-relative path this page will occupy, or ``None`` when it can't
+    be computed yet (an invalid ``kind``/``rel`` already recorded as its own
+    shape error)."""
     if page.op == "create":
         if page.kind not in place.KINDS or not page.title:
             return None
-        return posixpath.dirname(place.path(page.kind, page.title))
-    if not page.rel:
-        return None
-    return posixpath.dirname(page.rel)
+        return place.path(page.kind, page.title)
+    return page.rel or None
+
+
+def _page_dir(page: PagePlan) -> str | None:
+    """The vault-relative directory this page's links resolve from."""
+    rel = _page_rel(page)
+    return None if rel is None else posixpath.dirname(rel)
 
 
 def _page_links(page: PagePlan) -> list[str]:
@@ -137,6 +149,83 @@ def _page_links(page: PagePlan) -> list[str]:
     for targets in page.edges.values():
         links.extend(targets)
     return links
+
+
+def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
+    """Check the page -> stub -> raw file chain every raw ingestion must leave.
+
+    A raw file that produces pages at all must produce a `source/` stand-in for
+    itself, and every other page in the same plan must carry a `source` edge
+    back to that stub — so a reader can always walk from a claim to the artifact
+    it came from. Unlike the other typed edges this one is not judgment: it is
+    checked here, before any write, rather than left to the ingesting agent to
+    remember.
+
+    The stub may be a page this plan creates or one an earlier pass already
+    left on disk (a re-ingest updating it in place), and a page already
+    carrying the edge on disk need not restate it in the plan.
+    """
+    raw = posixpath.normpath(plan.raw)
+    v = Vault(root)
+    cached: dict[str, WikiPage | None] = {}
+
+    def on_disk(rel: str) -> WikiPage | None:
+        if rel not in cached:
+            cached[rel] = v.load(rel) if (root / rel).is_file() else None
+        return cached[rel]
+
+    def raw_source_link(page: PagePlan, rel: str) -> str | None:
+        """This page's ``raw_source``, from the plan or from disk.
+
+        The disk fallback is what lets a stub an earlier pass already filed
+        satisfy the rule without the plan restating the link.
+        """
+        link = page.frontmatter.get("raw_source")
+        if link is None and page.op == "update":
+            existing = on_disk(rel)
+            link = None if existing is None else existing.get("raw_source")
+        return link if isinstance(link, str) else None
+
+    stub_rel: str | None = None
+    placed: list[tuple[PagePlan, str]] = []
+    for page in plan.pages:
+        rel = _page_rel(page)
+        if rel is None:
+            continue
+        placed.append((page, rel))
+        if posixpath.dirname(rel) != "wiki/source":
+            continue
+        link = raw_source_link(page, rel)
+        dest = _link_path(link) if link is not None else None
+        if dest is not None and _resolve(dest, posixpath.dirname(rel)) == raw:
+            stub_rel = rel
+
+    if stub_rel is None:
+        return [
+            f"plan.raw {plan.raw} needs a source/ page whose raw_source points at it "
+            "— every ingested raw file gets a stand-in, even a thin stub"
+        ]
+
+    errors: list[str] = []
+    for page, rel in placed:
+        if rel == stub_rel:
+            continue
+        # The plan's own `source` edges, plus — for an update — any the page
+        # already carries: an earlier pass's edge counts, so a re-ingest never
+        # has to restate one.
+        links = list(page.edges.get("source", []))
+        existing = on_disk(rel) if page.op == "update" else None
+        if existing is not None and isinstance(existing.get("source"), list):
+            links.extend(existing.get("source"))
+        page_dir = posixpath.dirname(rel)
+        targets = {
+            _resolve(dest, page_dir)
+            for dest in (_link_path(link) for link in links)
+            if dest is not None
+        }
+        if stub_rel not in targets:
+            errors.append(f"{rel} needs a source edge to the stub {stub_rel}")
+    return errors
 
 
 def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
@@ -207,6 +296,9 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
                 continue
             if not (root / resolved).exists():
                 errors.append(f"{prefix}: link {link!r} does not resolve to a real page")
+
+    if root is not None and plan.raw:
+        errors.extend(_chain_of_evidence_errors(plan, root))
 
     if errors:
         raise PlanError("; ".join(errors))

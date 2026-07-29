@@ -217,6 +217,219 @@ def test_validate_rejects_raw_source_not_matching_plan_raw(vault_root):
         ingest.validate(plan, vault_root)
 
 
+# --- validation: the mandatory source/ stub + source edges (#34) ----------------
+
+
+def _raw_plan_dict(**overrides):
+    """A plan sourced from a raw artifact: its `source/` stub plus one distilled page.
+
+    The shape #34 makes mandatory — every page a raw file produces carries a
+    `source` edge back to that file's stub, and the stub always exists.
+    """
+    base = {
+        "title": "Postgres tuning notes",
+        "source_date": "2026-03-01",
+        "raw": "raw/notes.md",
+        "pages": [
+            {
+                "op": "create",
+                "kind": "source",
+                "title": "Notes",
+                "body": "# Notes\n\nStands in for the raw file.\n",
+                "frontmatter": {
+                    "summary": "The tuning notes as filed",
+                    "raw_source": "[notes.md](../../raw/notes.md)",
+                },
+                "edges": {},
+            },
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "Prepared Statements",
+                "body": "# Prepared Statements\n\nReduce parse overhead.\n",
+                "frontmatter": {"summary": "Reusing a parsed query plan"},
+                "edges": {"source": ["[Notes](../source/notes.md)"]},
+            },
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.fixture
+def raw_notes(vault_root):
+    (vault_root / "raw" / "notes.md").write_text("raw notes\n", encoding="utf-8")
+    return vault_root
+
+
+def test_validate_passes_when_stub_and_every_source_edge_are_present(raw_notes):
+    plan = ingest.IngestPlan.from_dict(_raw_plan_dict())
+    ingest.validate(plan, raw_notes)  # no raise
+
+
+def test_validate_rejects_a_raw_ingestion_with_no_source_stub(raw_notes):
+    """The case the old 'distil straight into concept/ and skip source/' allowed."""
+    d = _raw_plan_dict()
+    del d["pages"][0]
+    d["pages"][0]["edges"] = {}
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="source/ page"):
+        ingest.validate(plan, raw_notes)
+
+
+def test_validate_rejects_a_stub_whose_raw_source_points_elsewhere(raw_notes):
+    (raw_notes / "raw" / "other.md").write_text("other\n", encoding="utf-8")
+    d = _raw_plan_dict()
+    d["pages"][0]["frontmatter"]["raw_source"] = "[other.md](../../raw/other.md)"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="source/ page"):
+        ingest.validate(plan, raw_notes)
+
+
+def test_validate_rejects_a_created_page_missing_the_source_edge(raw_notes):
+    d = _raw_plan_dict()
+    d["pages"][1]["edges"] = {"related": ["[Existing](../concept/existing.md)"]}
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="source edge"):
+        ingest.validate(plan, raw_notes)
+
+
+def test_validate_rejects_one_missing_source_edge_among_several_pages(raw_notes):
+    d = _raw_plan_dict()
+    d["pages"].append(
+        {
+            "op": "create",
+            "kind": "concept",
+            "title": "Connection Pooling",
+            "body": "# Connection Pooling\n",
+            "frontmatter": {},
+            "edges": {},  # the one page that forgot it
+        }
+    )
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="wiki/concept/connection-pooling.md"):
+        ingest.validate(plan, raw_notes)
+
+
+def test_validate_requires_the_source_edge_on_an_updated_page_too(raw_notes):
+    """#34 point 3: step 3's update-in-place case is not exempt."""
+    d = _raw_plan_dict()
+    d["pages"][1] = {
+        "op": "update",
+        "title": "Existing",
+        "rel": "wiki/concept/existing.md",
+        "frontmatter": {"volatility": "evolving"},
+        "edges": {},
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="source edge"):
+        ingest.validate(plan, raw_notes)
+
+
+def test_validate_accepts_an_updated_page_carrying_the_source_edge(raw_notes):
+    d = _raw_plan_dict()
+    d["pages"][1] = {
+        "op": "update",
+        "title": "Existing",
+        "rel": "wiki/concept/existing.md",
+        "frontmatter": {"volatility": "evolving"},
+        "edges": {"source": ["[Notes](../source/notes.md)"]},
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, raw_notes)  # no raise
+
+
+def test_validate_accepts_a_source_edge_the_page_already_carries_on_disk(raw_notes):
+    """A re-ingest need not restate an edge the page already has."""
+    (raw_notes / "wiki" / "source" / "notes.md").write_text(
+        '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
+        encoding="utf-8",
+    )
+    Vault(raw_notes).set(
+        "wiki/concept/existing.md", "source", ["[Notes](../source/notes.md)"]
+    )
+    d = {
+        "title": "Second pass over the same notes",
+        "raw": "raw/notes.md",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Notes",
+                "rel": "wiki/source/notes.md",
+                "frontmatter": {},
+                "edges": {},
+            },
+            {
+                "op": "update",
+                "title": "Existing",
+                "rel": "wiki/concept/existing.md",
+                "frontmatter": {"volatility": "evolving"},
+                "edges": {},
+            },
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, raw_notes)  # no raise
+
+
+def test_validate_recognises_an_existing_stub_updated_in_place(raw_notes):
+    """The stub may be an `update` whose raw_source lives on disk, not in the plan."""
+    (raw_notes / "wiki" / "source" / "notes.md").write_text(
+        '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
+        encoding="utf-8",
+    )
+    d = {
+        "title": "Second pass over the same notes",
+        "raw": "raw/notes.md",
+        "pages": [
+            {
+                "op": "update",
+                "title": "Notes",
+                "rel": "wiki/source/notes.md",
+                "frontmatter": {},
+                "edges": {},
+            },
+            {
+                "op": "create",
+                "kind": "concept",
+                "title": "Prepared Statements",
+                "body": "# Prepared Statements\n",
+                "frontmatter": {},
+                "edges": {"source": ["[Notes](../source/notes.md)"]},
+            },
+        ],
+    }
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, raw_notes)  # no raise
+
+
+def test_validate_does_not_require_the_stub_to_link_to_itself(raw_notes):
+    """The stub is exempt from the edge rule — nothing sources itself."""
+    d = _raw_plan_dict()
+    del d["pages"][1]
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, raw_notes)  # no raise
+
+
+def test_validate_skips_the_gate_when_the_plan_has_no_raw(vault_root):
+    """A synthesis save has no raw artifact, so there is no stub to demand."""
+    plan = ingest.IngestPlan.from_dict(_plan_dict())
+    assert plan.raw is None
+    ingest.validate(plan, vault_root)  # no raise
+
+
+def test_execute_writes_the_source_edge_to_every_page_from_a_raw_file(raw_notes):
+    plan = ingest.IngestPlan.from_dict(_raw_plan_dict())
+    ingest.execute(raw_notes, plan)
+
+    v = Vault(raw_notes)
+    stub = v.load("wiki/source/notes.md")
+    assert stub.get("raw_source") == "[notes.md](../../raw/notes.md)"
+    distilled = v.load("wiki/concept/prepared-statements.md")
+    assert distilled.get("source") == ["[Notes](../source/notes.md)"]
+    assert _git(raw_notes, "status", "--porcelain") == ""
+
+
 # --- execution: create ---------------------------------------------------------
 
 
