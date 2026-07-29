@@ -18,11 +18,20 @@ Every script in `scripts/` resolves the vault root itself (`$WIKI_ROOT`, else th
 
 The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
 
+## Folder hints: `INGESTION.md`
+
+A raw folder may carry an optional `INGESTION.md` holding freeform, human-authored instructions for ingesting *that folder's* documents — e.g. `raw/emails/INGESTION.md` saying "take `source_date` from the message's `Date:` header, list the recipients in the body, prefer the `correspondence` tag". Read it like a `SKILL.md`: plain prose to interpret, not a schema to parse.
+
+- **Lookup is the document's own folder, and only that.** Ingesting `raw/emails/foo.eml` looks for `raw/emails/INGESTION.md`. There is deliberately **no ancestor walk** — `raw/INGESTION.md` and a vault-root one are *not* consulted, so there is never a precedence question to resolve.
+- **Hints win on conflict.** They are an explicit override for that folder, not a tiebreaker. If a folder's `INGESTION.md` says "always make a `source/` page for these", it beats the default placement algorithm's answer.
+- **They cannot extend the frontmatter schema.** The `wiki-conventions` schema is the fixed contract retrieval relies on; a hint steers judgment *already inside* this procedure — how to chunk, which tags to prefer, how to derive `source_date`, whether these documents get a `source/` page, which typed edges are likely — and never adds a frontmatter key, a kind, or a folder. So "list the recipients" puts recipients in the page **body**; it does not mint a `recipients:` key.
+- **An `INGESTION.md` is never itself ingested.** It is instructions, not content — if you are handed one as `<path>`, or sweep a folder containing one, skip it.
+
 ## Procedure
 
 Given one document at `<path>`:
 
-1. **Read** the document in full.
+1. **Read** the document in full, and — alongside it — `<path>`'s own folder's `INGESTION.md` if one exists (see [Folder hints](#folder-hints-ingestionmd) above). Anything it says overrides the defaults in the steps below.
 2. **Semantic-chunk.** Decide whether it holds one page-worthy idea or several. Default to one page; split only when the document genuinely covers multiple independent ideas that would each deserve their own future citation.
 3. **Check for overlap.** Find existing pages covering the same subject as any candidate chunk from step 2 by querying the lexical index: `python "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" "<term1> <term2> ..." --limit 20 --json`. The BM25-ranked title+summary+body match is a much better overlap detector than substring grep — and this is the step where a miss creates a *duplicate page*, so the ranking earns its keep here. (`raw=False`, the default, is correct: hyphenated tags would otherwise crash the FTS5 `MATCH`.) For every existing page that surfaces, classify the relationship before deciding what to write:
    - **No overlap.** The candidate is a new subject. Proceed to create a new page below; still consider the surfaced page(s) as typed-edge targets in step 4.
@@ -67,7 +76,7 @@ Given one document at `<path>`:
    }
    ```
 
-   A few judgment calls stay yours when filling this in, mirroring the old steps 4-7:
+   A few judgment calls stay yours when filling this in, mirroring the old steps 4-7 — and each of them is one a folder's `INGESTION.md` may override outright:
    - **Kind** (create pages only): `source/` (stand-in for the raw artifact) → `synthesis/` (saved query result) → `entity/` (named, repeatedly-linked thing) → `concept/` (default), first match wins. Not every ingested artifact needs a `source/` stand-in — create one only when the raw artifact itself is the citable reference; when the artifact's value is really the knowledge inside it, distill straight into `concept/`/`entity/` and skip `source/`. `ingest.py` computes the exact kebab-slug path from `kind`+`title` — never hand-slugify.
    - **Typed edges** (`refines`/`contradicts`/`example-of`/`source`/`related`) — judge these for **every new or updated page**, against every existing page surfaced in step 3. Assign the most specific type that's true (`related` only as a fallback); `contradicts`/`supersedes` are already decided by step 3 where applicable, and belong on the *new* page only — never on the superseded page.
    - **Body**, for an `update` page: write the *complete* new body text (not a diff) when the material actually changes something in it; omit the `body` key entirely to leave the existing body untouched. For a `create` page, `body` is always required.
