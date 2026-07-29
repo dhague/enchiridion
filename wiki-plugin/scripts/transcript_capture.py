@@ -164,6 +164,10 @@ def transcript_to_page(
     return filename, "\n".join(lines)
 
 
+class CaptureError(Exception):
+    """A capture could not proceed; message is user-facing (CLI prints it as-is)."""
+
+
 # ---------------------------------------------------------------------------
 # Filesystem-local: resolve session state, write the capture
 # ---------------------------------------------------------------------------
@@ -243,3 +247,32 @@ def write_capture(wiki_root, filename: str, markdown: str, *, short_id: str) -> 
         f.write(markdown)
 
     return os.path.relpath(out_path, str(wiki_root)).replace("\\", "/")
+
+
+def capture_session(*, wiki_root, slug=None, env=None, cwd=None, now=None) -> str:
+    """Find, render, and write this session's transcript; return its vault-relative path.
+
+    The whole pipeline (find_transcript_path -> transcript_to_page ->
+    write_capture) as one call, for a caller that just wants "save the
+    current session" - the CLI adapter, and any future auto-save hook or
+    batch importer. Raises CaptureError with a user-facing message on any
+    failure; callers that want the individual steps still have them.
+    """
+    transcript_path, error = find_transcript_path(env=env, cwd=cwd)
+    if error:
+        raise CaptureError(error)
+
+    session_id = os.path.splitext(os.path.basename(transcript_path))[0]
+    with open(transcript_path, encoding="utf-8") as f:
+        jsonl_lines = f.readlines()
+
+    try:
+        filename, markdown = transcript_to_page(
+            jsonl_lines, session_id=session_id, now=now or datetime.now(), slug=slug,
+        )
+    except ValueError as exc:
+        raise CaptureError(f"Not enough conversation to save: {exc}") from exc
+
+    return write_capture(
+        wiki_root, filename, markdown, short_id=session_id.split("-")[0],
+    )
