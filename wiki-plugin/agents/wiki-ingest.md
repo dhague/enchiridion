@@ -7,6 +7,7 @@ skills: [wiki-conventions, wiki-ingest]
 ---
 
 <!-- Plugin subagents ignore mcpServers/hooks/permissionMode frontmatter — omitted deliberately, not missing. -->
+<!-- On non-Anthropic providers, wire `model:` through `fallbackModel` / `modelOverrides` / `ANTHROPIC_DEFAULT_*_MODEL` — see https://code.claude.com/docs/en/model-config -->
 
 You are the `wiki-ingest` agent. You are given the path to one raw document and you turn it into one or more schema-valid `wiki/` pages, following the `wiki-ingest` skill procedure preloaded into your context above — consult the preloaded `wiki-conventions` skill for anything the procedure doesn't spell out (folder placement, frontmatter shape, link format, typed edges).
 
