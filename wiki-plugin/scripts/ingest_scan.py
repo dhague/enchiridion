@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import posixpath
 import shutil
 import subprocess
 import sys
@@ -231,14 +230,13 @@ def _back_pointers_by_raw(
 ) -> dict[str, list[str]]:
     """``{raw_rel: [page_rel, …]}`` for every page with a ``raw_source``.
 
-    ``raw_rel`` is vault-relative (``raw/notes/foo.md``); the page
-    rels (``pages``' keys, already ``wiki/``-prefixed per
-    :meth:`vault.Vault.pages_with_text`) are too. ``raw_source``
-    destinations live as ``../raw/…`` (wiki/-relative, per
-    :mod:`page_record`'s rebasing), and they are percent-encoded for
-    filenames with special characters — :func:`wikipage.percent_decode`
-    is the single decode boundary, and this is the compare against
-    disk, so the target is decoded before the lookup.
+    ``raw_rel`` is vault-relative (``raw/notes/foo.md``); the page rels
+    (``pages``' keys, already ``wiki/``-prefixed per
+    :meth:`vault.Vault.pages_with_text`) are too. ``page_record`` already
+    hands back each ``raw_source`` target decoded and wiki-root-relative
+    (e.g. ``raw/foo (draft).md``); :func:`wikipage.resolve_link_dest` with
+    ``prefix="wiki"`` is the only step left to reach the vault-relative
+    form this map is keyed by.
     """
     out: dict[str, list[str]] = {}
     for rel, (rec, _text) in pages.items():
@@ -246,11 +244,7 @@ def _back_pointers_by_raw(
             if key != "raw_source":
                 continue
             for target in targets:
-                # target is wiki/-relative (e.g. ``../raw/foo (draft).md``);
-                # decode the percent-encoding, then ``posixpath.join("wiki", …)``
-                # and ``normpath`` give the vault-relative form.
-                decoded = wikipage.percent_decode(target)
-                raw_rel = posixpath.normpath(posixpath.join("wiki", decoded))
+                raw_rel = wikipage.resolve_link_dest(target, "", prefix="wiki")
                 out.setdefault(raw_rel, []).append(rel)
     return out
 

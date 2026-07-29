@@ -49,6 +49,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import chain_of_evidence
 import commit
 import place
 import wikipage
@@ -110,23 +111,6 @@ class IngestPlan:
         )
 
 
-def _link_path(link: str) -> str | None:
-    """Return a markdown link's decoded, anchor-free destination path.
-
-    ``None`` when ``link`` isn't a markdown link at all. Decoded rather than raw:
-    a preserved raw filename with a space or paren in it is percent-encoded
-    in the destination, and only the decoded form compares against a path
-    on disk.
-    """
-    match = next(iter(wikipage.iter_links(link)), None)
-    return match.decoded_path if match is not None else None
-
-
-def _resolve(path: str, page_dir: str) -> str:
-    """Re-express a decoded link path (relative to ``page_dir``) as vault-relative."""
-    return posixpath.normpath(posixpath.join(page_dir or ".", path))
-
-
 def _page_rel(page: PagePlan) -> str | None:
     """The vault-relative path this page will occupy, or ``None`` when it can't
     be computed yet (an invalid ``kind``/``rel`` already recorded as its own
@@ -151,81 +135,44 @@ def _page_links(page: PagePlan) -> list[str]:
     return links
 
 
-def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
-    """Check the page -> stub -> raw file chain every raw ingestion must leave.
+def _projected_page(page: PagePlan, v: Vault) -> WikiPage | None:
+    """The frontmatter this page will carry once ``plan`` is executed, without
+    writing anything.
 
-    A raw file that produces pages at all must produce a `source/` stand-in for
-    itself, and every other page in the same plan must carry a `source` edge
-    back to that stub — so a reader can always walk from a claim to the artifact
-    it came from. Unlike the other typed edges this one is not judgment: it is
-    checked here, before any write, rather than left to the ingesting agent to
-    remember.
-
-    The stub may be a page this plan creates or one an earlier pass already
-    left on disk (a re-ingest updating it in place), and a page already
-    carrying the edge on disk need not restate it in the plan.
+    A create page starts blank; an update page starts from its on-disk copy
+    (or blank, for an update naming a page the plan itself hasn't written
+    yet — the shape error that's caught elsewhere), so a re-ingest's on-disk
+    edges and a fresh plan's edges are both visible to the same check.
+    ``None`` when the page's rel can't yet be resolved (its own shape error).
     """
-    raw = posixpath.normpath(plan.raw)
+    rel = _page_rel(page)
+    if rel is None:
+        return None
+    if page.op == "create":
+        base = WikiPage("")
+    else:
+        base = v.load(rel) if (v.root / rel).is_file() else WikiPage("")
+    return _apply_frontmatter(base, page)
+
+
+def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
+    """Check the page -> stub -> raw file chain every raw ingestion must leave
+    (#34 point 4), via the shared :func:`chain_of_evidence.check`.
+
+    ``staged`` projects each page in the plan to the frontmatter it will
+    carry post-write — an update merges onto its on-disk copy, so a page
+    already carrying the edge on disk need not restate it in the plan.
+    """
     v = Vault(root)
-    cached: dict[str, WikiPage | None] = {}
-
-    def on_disk(rel: str) -> WikiPage | None:
-        if rel not in cached:
-            cached[rel] = v.load(rel) if (root / rel).is_file() else None
-        return cached[rel]
-
-    def raw_source_link(page: PagePlan, rel: str) -> str | None:
-        """This page's ``raw_source``, from the plan or from disk.
-
-        The disk fallback is what lets a stub an earlier pass already filed
-        satisfy the rule without the plan restating the link.
-        """
-        link = page.frontmatter.get("raw_source")
-        if link is None and page.op == "update":
-            existing = on_disk(rel)
-            link = None if existing is None else existing.get("raw_source")
-        return link if isinstance(link, str) else None
-
-    stub_rel: str | None = None
-    placed: list[tuple[PagePlan, str]] = []
+    staged: dict[str, WikiPage] = {}
     for page in plan.pages:
         rel = _page_rel(page)
         if rel is None:
             continue
-        placed.append((page, rel))
-        if posixpath.dirname(rel) != "wiki/source":
-            continue
-        link = raw_source_link(page, rel)
-        dest = _link_path(link) if link is not None else None
-        if dest is not None and _resolve(dest, posixpath.dirname(rel)) == raw:
-            stub_rel = rel
-
-    if stub_rel is None:
-        return [
-            f"plan.raw {plan.raw} needs a source/ page whose raw_source points at it "
-            "— every ingested raw file gets a stand-in, even a thin stub"
-        ]
-
-    errors: list[str] = []
-    for page, rel in placed:
-        if rel == stub_rel:
-            continue
-        # The plan's own `source` edges, plus — for an update — any the page
-        # already carries: an earlier pass's edge counts, so a re-ingest never
-        # has to restate one.
-        links = list(page.edges.get("source", []))
-        existing = on_disk(rel) if page.op == "update" else None
-        if existing is not None and isinstance(existing.get("source"), list):
-            links.extend(existing.get("source"))
-        page_dir = posixpath.dirname(rel)
-        targets = {
-            _resolve(dest, page_dir)
-            for dest in (_link_path(link) for link in links)
-            if dest is not None
-        }
-        if stub_rel not in targets:
-            errors.append(f"{rel} needs a source edge to the stub {stub_rel}")
-    return errors
+        projected = _projected_page(page, v)
+        if projected is not None:
+            staged[rel] = projected
+    return chain_of_evidence.check(staged, plan.raw)
 
 
 def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
@@ -287,11 +234,11 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
         if page_dir is None:
             continue
         for link in _page_links(page):
-            dest = _link_path(link)
+            dest = wikipage.link_dest(link)
             if dest is None:
                 errors.append(f"{prefix}: {link!r} is not a markdown link")
                 continue
-            resolved = _resolve(dest, page_dir)
+            resolved = wikipage.resolve_link_dest(dest, page_dir, prefix="")
             if resolved in prospective:
                 continue
             if not (root / resolved).exists():
@@ -348,9 +295,9 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
             created.append(rel)
 
             for link in plan_page.edges.get("supersedes", []):
-                dest = _link_path(link)
+                dest = wikipage.link_dest(link)
                 if dest is not None:
-                    superseded.append((_resolve(dest, page_dir), rel))
+                    superseded.append((wikipage.resolve_link_dest(dest, page_dir, prefix=""), rel))
         else:
             rel = plan_page.rel
             page = v.load(rel)
