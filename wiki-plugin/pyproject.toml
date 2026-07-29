@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "ruamel.yaml",     # round-trip frontmatter — NOT pyyaml (pyyaml coerces types / loses formatting)
     "markdown-it-py",  # AST with source maps for position-splice link rewriting
+    "watchdog",        # filesystem events for the raw/ watcher (#62, per #37)
 ]
 
 [project.optional-dependencies]
