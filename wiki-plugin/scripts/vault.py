@@ -217,6 +217,32 @@ class Vault:
         """Page count, db size, backend (``fts5`` or ``re``), schema version."""
         return self._get_index().status()
 
+    # --- ingestion sweep (#54) -----------------------------------------
+
+    def scan_raw(self, folder: str | None = None):
+        """Walk ``raw/`` and return the sweep's eligibility verdict.
+
+        ``folder`` is a subfolder of ``raw/`` (without the ``raw/``
+        prefix) — the natural unit since ``.ingestignore`` and
+        ``INGESTION.md`` both live beside one another, one per raw
+        folder. ``None`` scans the whole inbox. See :mod:`ingest_scan`.
+        """
+        import ingest_scan
+        return ingest_scan.scan(self.root, folder)
+
+    def append_ignore_entry(
+        self, folder: str, pattern: str, comment: str | None = None
+    ) -> None:
+        """Append a pattern to ``raw/<folder>/.ingestignore``.
+
+        The vault-side mirror of :func:`ingest_scan.append_ignore_entry`,
+        used by the sweep interaction when the user answers ``never``
+        to a per-file offer. Idempotent: an already-present pattern is
+        not double-listed.
+        """
+        import ingest_scan
+        ingest_scan.append_ignore_entry(self.root / "raw" / folder, pattern, comment)
+
 
 # --- CLI ---------------------------------------------------------------------
 
