@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Iterable
 
 import page_record
+import vault as vault_mod
 import wikipage
 
 
@@ -226,20 +227,21 @@ def _git_porcelain_mentions(repo: Path, rel: str) -> bool:
 
 
 def _back_pointers_by_raw(
-    raw_root: Path,
-    records: dict[str, "page_record.PageRecord"],
+    pages: dict[str, tuple["page_record.PageRecord", str]],
 ) -> dict[str, list[str]]:
     """``{raw_rel: [page_rel, …]}`` for every page with a ``raw_source``.
 
     ``raw_rel`` is vault-relative (``raw/notes/foo.md``); the page
-    rels are too. ``raw_source`` destinations live as ``../raw/…`` (the
-    page's-directory-relative form), and they are percent-encoded for
-    filenames with special characters — :func:`wikipage.split_dest`
+    rels (``pages``' keys, already ``wiki/``-prefixed per
+    :meth:`vault.Vault.pages_with_text`) are too. ``raw_source``
+    destinations live as ``../raw/…`` (wiki/-relative, per
+    :mod:`page_record`'s rebasing), and they are percent-encoded for
+    filenames with special characters — :func:`wikipage.percent_decode`
     is the single decode boundary, and this is the compare against
     disk, so the target is decoded before the lookup.
     """
     out: dict[str, list[str]] = {}
-    for rel, rec in records.items():
+    for rel, (rec, _text) in pages.items():
         for key, targets in rec.edges:
             if key != "raw_source":
                 continue
@@ -249,20 +251,8 @@ def _back_pointers_by_raw(
                 # and ``normpath`` give the vault-relative form.
                 decoded = wikipage.percent_decode(target)
                 raw_rel = posixpath.normpath(posixpath.join("wiki", decoded))
-                out.setdefault(raw_rel, []).append(f"wiki/{rel}")
+                out.setdefault(raw_rel, []).append(rel)
     return out
-
-
-def _load_wiki_pages(root: Path) -> dict[str, str]:
-    """Every ``wiki/**`` page as a ``{vault-rel: text}`` map."""
-    wiki_root = root / "wiki"
-    pages: dict[str, str] = {}
-    for path in wiki_root.rglob("*.md"):
-        rel = path.relative_to(root).as_posix()
-        if rel == "wiki/_index.md":
-            continue
-        pages[rel] = path.read_text(encoding="utf-8")
-    return pages
 
 
 # --- eligibility ---------------------------------------------------------
@@ -298,11 +288,8 @@ def scan(root: Path, folder: str | None = None) -> ScanResult:
     eligibility signal. ``.ingestignore`` is the file's own folder
     only; a parent's policy never bleeds in.
     """
-    wiki_pages = _load_wiki_pages(root)
-    records = page_record.load_records(
-        {rel.removeprefix("wiki/"): text for rel, text in wiki_pages.items()}
-    )
-    back_pointers = _back_pointers_by_raw(root / "raw", records)
+    pages = vault_mod.Vault(root).pages_with_text()
+    back_pointers = _back_pointers_by_raw(pages)
 
     eligible: list[IngestCandidate] = []
     ignored: list[str] = []
@@ -338,6 +325,31 @@ def scan(root: Path, folder: str | None = None) -> ScanResult:
             eligible.append(IngestCandidate(rel, "changed-since-ingestion", pointing))
 
     return ScanResult(eligible=eligible, ignored=ignored)
+
+
+# --- Sweep coordinator ----------------------------------------------------
+
+
+class Sweep:
+    """An in-process facade over one vault's raw/ sweep (#59).
+
+    Depends on :class:`vault.Vault`, not the other way around — closing
+    the seam #41 left open, where ``Vault`` carried ``scan_raw`` and
+    ``append_ignore_entry`` as thin wrappers around this module via a
+    deferred import. ``Vault`` stays pure vault I/O; this is where the
+    raw/ sweep's own state (which vault, which folder) lives.
+    """
+
+    def __init__(self, vault: "vault_mod.Vault"):
+        self.vault = vault
+
+    def scan(self, folder: str | None = None) -> ScanResult:
+        return scan(self.vault.root, folder)
+
+    def append_ignore_entry(
+        self, folder: str, pattern: str, comment: str | None = None
+    ) -> None:
+        append_ignore_entry(self.vault.root / "raw" / folder, pattern, comment)
 
 
 # --- CLI -----------------------------------------------------------------
@@ -390,7 +402,6 @@ def _folder_arg(arg: str | None) -> str | None:
 
 def _main(argv=None) -> int:
     import argparse
-    import vault as vault_mod
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

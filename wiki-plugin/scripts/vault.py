@@ -106,23 +106,29 @@ class Vault:
         if self._index is not None:
             self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
 
-    def load_wiki_pages(self) -> dict[str, str]:
-        """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
+    def load_wiki_pages(self, *, include_index: bool = False) -> dict[str, str]:
+        """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``.
+
+        ``_index.md`` is a generated file, not a page, so it's excluded by
+        default. The rare caller that wants it too (a page-move rewriting
+        the index's own links, say) opts in with ``include_index=True``.
+        """
         wiki_root = self.root / "wiki"
         pages: dict[str, str] = {}
         for path in wiki_root.rglob("*.md"):
             rel = path.relative_to(self.root).as_posix()
+            if not include_index and rel == "wiki/_index.md":
+                continue
             pages[rel] = path.read_text(encoding="utf-8")
         return pages
 
-    def pages(self) -> dict[str, PageRecord]:
-        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
+    def pages_with_text(self) -> dict[str, tuple[PageRecord, str]]:
+        """Every ``wiki/**`` page as a ``{rel: (PageRecord, text)}`` map.
 
-        ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
-        one convention every :class:`Vault` enumeration method uses.
-        ``_index.md`` is never a page; ``raw/`` is never walked. Records are
-        decoded via :mod:`page_record`, whose edge-rebasing is wiki/-relative
-        by contract; only the outward-facing ``rel`` is relabelled here.
+        Same ``rel`` convention as :meth:`pages` (vault-relative,
+        ``_index.md`` excluded, ``raw/`` never walked) — but keeps the raw
+        text alongside the record, for callers (the raw/ sweep's
+        back-pointer resolution) that need both without re-reading the file.
         """
         wiki_relative = {
             rel.removeprefix("wiki/"): text
@@ -130,9 +136,18 @@ class Vault:
         }
         records = page_record.load_records(wiki_relative)
         return {
-            f"wiki/{rel}": replace(rec, rel=f"wiki/{rel}")
+            f"wiki/{rel}": (replace(rec, rel=f"wiki/{rel}"), wiki_relative[rel])
             for rel, rec in records.items()
         }
+
+    def pages(self) -> dict[str, PageRecord]:
+        """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
+
+        ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
+        one convention every :class:`Vault` enumeration method uses.
+        ``_index.md`` is never a page; ``raw/`` is never walked.
+        """
+        return {rel: rec for rel, (rec, _text) in self.pages_with_text().items()}
 
     def set(self, rel: str, key: str, value) -> WikiPage:
         """Load, :meth:`WikiPage.set`, and write back the page at ``rel``."""
@@ -175,7 +190,7 @@ class Vault:
         the new rel, removing the old, re-upserting the changed files),
         which is correct and cheaper than a per-file upsert.
         """
-        files = self.load_wiki_pages()
+        files = self.load_wiki_pages(include_index=True)
         if old_rel not in files:
             raise FileNotFoundError(f"{old_rel} not found under {self.root}")
 
@@ -196,7 +211,7 @@ class Vault:
         or written; only *other* pages' inbound links are fixed. Returns the
         changed vault-relative paths, sorted.
         """
-        pages = self.load_wiki_pages()
+        pages = self.load_wiki_pages(include_index=True)
         return sorted(self._write_changed(plan_move(pages, old_rel, new_rel), pages))
 
     # --- search / index facade -------------------------------------------
@@ -216,32 +231,6 @@ class Vault:
     def index_status(self) -> IndexStatus:
         """Page count, db size, backend (``fts5`` or ``re``), schema version."""
         return self._get_index().status()
-
-    # --- ingestion sweep (#54) -----------------------------------------
-
-    def scan_raw(self, folder: str | None = None):
-        """Walk ``raw/`` and return the sweep's eligibility verdict.
-
-        ``folder`` is a subfolder of ``raw/`` (without the ``raw/``
-        prefix) — the natural unit since ``.ingestignore`` and
-        ``INGESTION.md`` both live beside one another, one per raw
-        folder. ``None`` scans the whole inbox. See :mod:`ingest_scan`.
-        """
-        import ingest_scan
-        return ingest_scan.scan(self.root, folder)
-
-    def append_ignore_entry(
-        self, folder: str, pattern: str, comment: str | None = None
-    ) -> None:
-        """Append a pattern to ``raw/<folder>/.ingestignore``.
-
-        The vault-side mirror of :func:`ingest_scan.append_ignore_entry`,
-        used by the sweep interaction when the user answers ``never``
-        to a per-file offer. Idempotent: an already-present pattern is
-        not double-listed.
-        """
-        import ingest_scan
-        ingest_scan.append_ignore_entry(self.root / "raw" / folder, pattern, comment)
 
 
 # --- CLI ---------------------------------------------------------------------

@@ -40,7 +40,7 @@ If you're tempted to write a new standalone design doc for this project, don't �
 Built around one `WikiPage`/`Vault` library, split across two modules with a one-way dependency (`vault -> wikipage`, no deferred imports either side):
 
 - `wiki-plugin/scripts/wikipage.py` — the pure half. `WikiPage` (`get`/`set`/`merge`/`retarget`, each returning a new instance) plus `plan_move`. No I/O.
-- `wiki-plugin/scripts/vault.py` — `Vault`, owning all I/O (`load`/`write`/`load_wiki_pages`/`set`/`merge`/`move_page`/`rewrite_inbound_links`/`pages()`/`search()`/`reindex()`) plus `resolve_vault_root()`.
+- `wiki-plugin/scripts/vault.py` — `Vault`, owning all I/O (`load`/`write`/`load_wiki_pages`/`set`/`merge`/`move_page`/`rewrite_inbound_links`/`pages()`/`pages_with_text()`/`search()`/`reindex()`) plus `resolve_vault_root()`.
 
 Tests and CLIs split on the same seam: `test_wikipage.py` is pure (no vault touched); every `Vault` test lives in `test_vault.py`. `wikipage.py get/set/merge` take a file path and never resolve a vault root; moving a page is `vault.py move <old_rel> <new_rel>` (needs the whole vault to fix inbound links); bare `vault.py` prints the resolved root.
 

@@ -394,22 +394,22 @@ class TestScanResult:
         assert [c.raw_rel for c in result.eligible] == ["raw/notes/b.md"]
 
 
-# --- Vault facade --------------------------------------------------------
+# --- Sweep coordinator -----------------------------------------------------
 
 
-class TestVaultFacade:
-    def test_vault_scan_raw_delegates(self, tmp_path):
+class TestSweep:
+    def test_sweep_scan_delegates(self, tmp_path):
         _seed_vault(tmp_path)
         (tmp_path / "raw" / "foo.md").write_text("raw", encoding="utf-8")
-        v = Vault(tmp_path)
-        result = v.scan_raw()
+        sweep = ingest_scan.Sweep(Vault(tmp_path))
+        result = sweep.scan()
         assert [c.raw_rel for c in result.eligible] == ["raw/foo.md"]
 
-    def test_vault_append_ignore_entry_writes_under_raw(self, tmp_path):
+    def test_sweep_append_ignore_entry_writes_under_raw(self, tmp_path):
         _seed_vault(tmp_path)
         (tmp_path / "raw" / "notes").mkdir()
-        v = Vault(tmp_path)
-        v.append_ignore_entry("notes", "*.tmp")
+        sweep = ingest_scan.Sweep(Vault(tmp_path))
+        sweep.append_ignore_entry("notes", "*.tmp")
         assert (tmp_path / "raw" / "notes" / ".ingestignore").read_text(encoding="utf-8") == "*.tmp\n"
 
 
