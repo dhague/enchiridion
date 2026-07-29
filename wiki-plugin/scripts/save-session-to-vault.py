@@ -17,11 +17,20 @@ The JSONL filter + markdown render + filename scheme live in
 ``transcript_to_page`` (pure), so the rules can be tested without
 filesystem or env; vault-root resolution happens in ``main()`` so it can
 be injected.
+
+The filename carries an optional ``--slug`` naming what the session
+covered, supplied by the calling agent. Identity lives in the short
+session id at the *end* of the name, so the name is bound once at first
+save: a re-save finds the existing file by that id and rewrites it in
+place rather than renaming it.
 """
+import argparse
 import glob
 import json
 import os
+import re
 import sys
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +42,38 @@ from vault import resolve_vault_root  # noqa: E402
 # ---------------------------------------------------------------------------
 # Pure seam: JSONL -> (filename, markdown)
 # ---------------------------------------------------------------------------
+
+
+SLUG_MAX_LENGTH = 60
+
+
+def sanitize_slug(phrase, *, max_length: int = SLUG_MAX_LENGTH) -> str:
+    """Reduce a free-text phrase to a filesystem-safe kebab-case slug.
+
+    The phrase is authored by a language model, so this sanitizes rather
+    than trusts: NFKD-fold to ASCII, lowercase, collapse everything
+    outside ``[a-z0-9]`` to a single ``-``, strip the ends, and cap the
+    length on a word boundary where there is one.
+
+    Returns ``""`` when nothing survives (empty input, pure punctuation,
+    non-transliterable script) - the caller falls back to the bare
+    ``<date>-<short_id>`` name. The result is ``[a-z0-9-]`` only, so it
+    needs no percent-encoding when it appears in a link destination.
+    """
+    if not phrase:
+        return ""
+    folded = unicodedata.normalize("NFKD", str(phrase))
+    ascii_only = folded.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only.lower()).strip("-")
+    if len(slug) <= max_length:
+        return slug
+    # Look one character past the cap: if the cut lands on a separator,
+    # the word before it is whole. Otherwise fall back to the last
+    # boundary inside the window, and to a hard truncation when the slug
+    # is one long word with no boundary at all.
+    window = slug[: max_length + 1]
+    head = window.rsplit("-", 1)[0] if "-" in window else ""
+    return (head or slug[:max_length]).strip("-")
 
 
 def _extract_text(content):
@@ -61,6 +102,7 @@ def transcript_to_page(
     *,
     session_id: str,
     now: datetime,
+    slug: str | None = None,
     user_label: str = "User",
     assistant_label: str = "Claude",
     min_turns: int = 2,
@@ -70,6 +112,10 @@ def transcript_to_page(
     Pure: no I/O, no env, no filesystem. ``jsonl_lines`` is an iterable
     of raw lines from the Claude Code transcript (anything ``str.splitlines``
     yields works). Returns ``(filename, markdown)``.
+
+    ``slug`` is a free-text phrase naming what the session covered; it is
+    sanitized here, not trusted, and a phrase that sanitizes to nothing
+    degrades to the bare ``<date>-<short_id>`` name.
 
     The pure form is what the /save-conversation script tests against; the
     same function is also reachable from a future ad-hoc REPL use, so the
@@ -108,8 +154,13 @@ def transcript_to_page(
             f"Transcript has {len(turns)} non-empty turn(s); need at least {min_turns}."
         )
 
+    # The short id goes last: it is the session's identity, and putting
+    # it at the end is what lets a re-save find the already-bound file
+    # with a single '*-<short_id>.md' glob whether or not a slug is set.
     short_id = session_id.split("-")[0]
-    filename = f"{now:%Y-%m-%d-%H%M}-{short_id}-session.md"
+    safe_slug = sanitize_slug(slug)
+    middle = f"{safe_slug}-" if safe_slug else ""
+    filename = f"{now:%Y-%m-%d-%H%M}-{middle}{short_id}.md"
 
     lines = [
         f"# Session {session_id}",
@@ -182,7 +233,50 @@ def find_transcript_path(env=None, cwd=None):
     return transcript_path, None
 
 
-def main():
+def write_capture(wiki_root, filename: str, markdown: str, *, short_id: str) -> str:
+    """Write the capture into ``raw/conversations/``; return its vault-relative path.
+
+    One file per session, and **the name is bound at first save**. An
+    earlier capture of the same session is found by globbing
+    ``*-<short_id>.md`` and its path is reused *verbatim* - same
+    timestamp, same slug - with the contents rewritten in place. A fresh
+    name is composed only when nothing is found.
+
+    So no raw file is ever renamed: the no-raw-renames rule holds, and
+    inbound ``raw_source`` links to an already-ingested capture stay
+    valid without any link rewriting.
+    """
+    conversations_dir = os.path.join(str(wiki_root), "raw", "conversations")
+    os.makedirs(conversations_dir, exist_ok=True)
+
+    already_bound = sorted(
+        glob.glob(os.path.join(conversations_dir, f"*-{short_id}.md"))
+    )
+    out_path = already_bound[0] if already_bound else os.path.join(
+        conversations_dir, filename
+    )
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(markdown)
+
+    return os.path.relpath(out_path, str(wiki_root)).replace("\\", "/")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Save this session's transcript into the vault's raw inbox.",
+    )
+    parser.add_argument(
+        "--slug",
+        default=None,
+        help=(
+            "Short phrase naming what this session covered, used in the "
+            "filename. Sanitized to [a-z0-9-]; ignored if nothing survives. "
+            "Only used on the first save - a re-save keeps the bound name."
+        ),
+    )
+    args = parser.parse_args(argv)
+
     transcript_path, error = find_transcript_path()
     if error:
         print(error, file=sys.stderr)
@@ -195,7 +289,7 @@ def main():
 
     try:
         filename, markdown = transcript_to_page(
-            jsonl_lines, session_id=session_id, now=datetime.now(),
+            jsonl_lines, session_id=session_id, now=datetime.now(), slug=args.slug,
         )
     except ValueError as exc:
         print(f"Not enough conversation to save: {exc}", file=sys.stderr)
@@ -204,24 +298,11 @@ def main():
     # Vault root is resolved at call time, not at import, so the module
     # is importable in a test environment that has no vault on disk.
     wiki_root = resolve_vault_root()
-    conversations_dir = os.path.join(str(wiki_root), "raw", "conversations")
-    os.makedirs(conversations_dir, exist_ok=True)
-    out_path = os.path.join(conversations_dir, filename)
-
-    # One file per session: remove any earlier capture of this same
-    # session so the timestamp in the filename stays current rather
-    # than accumulating a new file per save.
-    short_id = session_id.split("-")[0]
-    for existing in glob.glob(
-        os.path.join(conversations_dir, f"*-{short_id}-session.md")
-    ):
-        os.remove(existing)
-
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(markdown)
-
-    raw_relative_path = os.path.relpath(out_path, str(wiki_root)).replace("\\", "/")
-    print(raw_relative_path)
+    print(
+        write_capture(
+            wiki_root, filename, markdown, short_id=session_id.split("-")[0],
+        )
+    )
 
 
 if __name__ == "__main__":

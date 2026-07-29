@@ -4,17 +4,24 @@ Splitting it at a pure seam (transcript_to_page) so the JSONL filter +
 markdown render can be tested without filesystem or env (#45). And
 regression tests for the cwd-sensitive session-state lookup that bug
 report hit on 2026-07-28.
+
+Plus the agent-authored slug in the raw filename (#46): sanitization is
+pure and property-tested, and the write path pins the one real invariant
+— a re-save of the same session never changes the filename.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 # The production script lives at scripts/save-session-to-vault.py — a
 # hyphen, not an underscore, so the import system can't pick it up
@@ -57,7 +64,7 @@ def test_transcript_to_page_returns_filename_and_markdown():
     filename, markdown = save_session_to_vault.transcript_to_page(
         lines, session_id="abc123-uuid", now=now,
     )
-    assert filename == "2026-07-28-1026-abc123-session.md"
+    assert filename == "2026-07-28-1026-abc123.md"
     assert isinstance(markdown, str)
 
 
@@ -67,7 +74,7 @@ def test_transcript_to_page_filename_uses_short_id_and_now():
     filename, _ = save_session_to_vault.transcript_to_page(
         lines, session_id="shortid-rest-of-uuid", now=now,
     )
-    assert filename == "2026-01-02-0304-shortid-session.md"
+    assert filename == "2026-01-02-0304-shortid.md"
 
 
 def test_transcript_to_page_filters_is_meta_entries():
@@ -387,3 +394,231 @@ def test_sessions_dir_falls_back_to_cwd_when_no_marker(tmp_path, monkeypatch):
     assert session_state.sessions_dir() == (
         tmp_path / ".claude" / "wiki-knowledge" / "sessions"
     )
+
+
+# ---------------------------------------------------------------------------
+# sanitize_slug — a model-authored filename is untrusted filesystem input
+# ---------------------------------------------------------------------------
+
+SLUG_SHAPE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def test_sanitize_slug_kebabs_an_ordinary_phrase():
+    assert save_session_to_vault.sanitize_slug(
+        "Charting wayfinder 33"
+    ) == "charting-wayfinder-33"
+
+
+def test_sanitize_slug_collapses_runs_of_punctuation():
+    assert save_session_to_vault.sanitize_slug(
+        "Charting: wayfinder #33!!"
+    ) == "charting-wayfinder-33"
+
+
+def test_sanitize_slug_strips_leading_and_trailing_punctuation():
+    assert save_session_to_vault.sanitize_slug("--- hello ---") == "hello"
+
+
+def test_sanitize_slug_folds_unicode_to_ascii():
+    # NFKD decomposition drops the combining accents; what survives is
+    # the ASCII skeleton.
+    assert save_session_to_vault.sanitize_slug("Café naïve") == "cafe-naive"
+
+
+def test_sanitize_slug_drops_unrepresentable_unicode():
+    # Nothing ASCII survives, so this is the empty-slug fallback case.
+    assert save_session_to_vault.sanitize_slug("日本語") == ""
+
+
+def test_sanitize_slug_defuses_path_separators():
+    assert save_session_to_vault.sanitize_slug(
+        "../../etc/passwd"
+    ) == "etc-passwd"
+    assert save_session_to_vault.sanitize_slug(
+        r"C:\Windows\System32"
+    ) == "c-windows-system32"
+
+
+def test_sanitize_slug_all_punctuation_is_empty():
+    for phrase in ("..", "///", "###", "   ", "-", "!@#$%^&*()"):
+        assert save_session_to_vault.sanitize_slug(phrase) == "", phrase
+
+
+def test_sanitize_slug_empty_and_none_are_empty():
+    assert save_session_to_vault.sanitize_slug("") == ""
+    assert save_session_to_vault.sanitize_slug(None) == ""
+
+
+def test_sanitize_slug_caps_on_a_word_boundary():
+    phrase = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+    slug = save_session_to_vault.sanitize_slug(phrase)
+    assert len(slug) <= 60
+    # Cut between words, so no half-word tail.
+    assert slug == "alpha-beta-gamma-delta-epsilon-zeta-eta-theta-iota-kappa"
+
+
+def test_sanitize_slug_hard_truncates_a_single_long_word():
+    # No boundary to cut on, so the cap still has to hold.
+    slug = save_session_to_vault.sanitize_slug("x" * 200)
+    assert slug == "x" * 60
+
+
+@given(st.text())
+@settings(max_examples=300)
+def test_sanitize_slug_shape_property(phrase):
+    slug = save_session_to_vault.sanitize_slug(phrase)
+    assert slug == "" or SLUG_SHAPE.match(slug), repr(slug)
+
+
+@given(st.text(), st.integers(min_value=1, max_value=120))
+@settings(max_examples=300)
+def test_sanitize_slug_length_property(phrase, max_length):
+    slug = save_session_to_vault.sanitize_slug(phrase, max_length=max_length)
+    assert len(slug) <= max_length, repr(slug)
+
+
+@given(st.text())
+@settings(max_examples=300)
+def test_sanitize_slug_is_idempotent(phrase):
+    once = save_session_to_vault.sanitize_slug(phrase)
+    assert save_session_to_vault.sanitize_slug(once) == once
+
+
+# ---------------------------------------------------------------------------
+# transcript_to_page — the slug in the filename
+# ---------------------------------------------------------------------------
+
+
+def _two_turns():
+    return [_entry("user", "hi"), _entry("assistant", "hello")]
+
+
+def test_transcript_to_page_filename_carries_the_slug():
+    filename, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(),
+        session_id="1dc3e094-rest-of-uuid",
+        now=datetime(2026, 7, 28, 14, 30),
+        slug="charting wayfinder 33",
+    )
+    assert filename == "2026-07-28-1430-charting-wayfinder-33-1dc3e094.md"
+
+
+def test_transcript_to_page_sanitizes_the_slug_it_is_given():
+    # The caller is a language model; the script is the enforcement point.
+    filename, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(),
+        session_id="1dc3e094-rest",
+        now=datetime(2026, 7, 28, 14, 30),
+        slug="../../Charting: Wayfinder #33!",
+    )
+    assert filename == "2026-07-28-1430-charting-wayfinder-33-1dc3e094.md"
+
+
+def test_transcript_to_page_without_slug_keeps_the_bare_shape():
+    filename, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(),
+        session_id="1dc3e094-rest",
+        now=datetime(2026, 7, 28, 14, 30),
+    )
+    assert filename == "2026-07-28-1430-1dc3e094.md"
+
+
+def test_transcript_to_page_slug_sanitizing_to_empty_falls_back():
+    # A slug of pure punctuation must not leave a doubled separator
+    # behind - it degrades to the no-slug shape.
+    filename, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(),
+        session_id="1dc3e094-rest",
+        now=datetime(2026, 7, 28, 14, 30),
+        slug="///",
+    )
+    assert filename == "2026-07-28-1430-1dc3e094.md"
+
+
+def test_transcript_to_page_short_id_is_always_the_filename_suffix():
+    # This is what makes the '*-<short_id>.md' dedup glob work with and
+    # without a slug: identity lives at the end of the name.
+    with_slug, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(), session_id="sid1234-rest",
+        now=datetime(2026, 1, 1, 0, 0), slug="anything at all",
+    )
+    without, _ = save_session_to_vault.transcript_to_page(
+        _two_turns(), session_id="sid1234-rest",
+        now=datetime(2026, 1, 1, 0, 0),
+    )
+    assert with_slug.endswith("-sid1234.md")
+    assert without.endswith("-sid1234.md")
+
+
+# ---------------------------------------------------------------------------
+# write_capture — the name is bound once, at first save
+# ---------------------------------------------------------------------------
+
+
+def test_write_capture_writes_the_composed_name_on_first_save(tmp_path):
+    rel = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-28-1430-a-slug-abc123.md", "body", short_id="abc123",
+    )
+    assert rel == "raw/conversations/2026-07-28-1430-a-slug-abc123.md"
+    written = tmp_path / rel
+    assert written.read_text(encoding="utf-8") == "body"
+
+
+def test_write_capture_creates_the_conversations_dir(tmp_path):
+    assert not (tmp_path / "raw" / "conversations").exists()
+    save_session_to_vault.write_capture(
+        tmp_path, "2026-01-01-0000-abc123.md", "body", short_id="abc123",
+    )
+    assert (tmp_path / "raw" / "conversations").is_dir()
+
+
+def test_write_capture_resave_reuses_the_bound_name(tmp_path):
+    # The invariant: a second save of the same session never changes the
+    # filename, whatever slug is passed the second time. No rename ever
+    # happens, so #28's no-raw-renames rule holds and inbound links to
+    # the raw file stay valid.
+    first = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-28-1430-first-slug-abc123.md", "v1", short_id="abc123",
+    )
+    second = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-29-0900-a-totally-different-slug-abc123.md", "v2",
+        short_id="abc123",
+    )
+    assert second == first
+    assert (tmp_path / first).read_text(encoding="utf-8") == "v2"
+    # Exactly one file for this session - no duplicate, no leftover.
+    assert sorted(p.name for p in (tmp_path / "raw" / "conversations").iterdir()) == [
+        "2026-07-28-1430-first-slug-abc123.md"
+    ]
+
+
+def test_write_capture_resave_reuses_a_slugless_bound_name(tmp_path):
+    # First save had no slug; a later save that supplies one must still
+    # not rename the artifact.
+    first = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-28-1430-abc123.md", "v1", short_id="abc123",
+    )
+    second = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-29-0900-now-with-a-slug-abc123.md", "v2",
+        short_id="abc123",
+    )
+    assert second == first == "raw/conversations/2026-07-28-1430-abc123.md"
+
+
+def test_write_capture_leaves_other_sessions_alone(tmp_path):
+    other = tmp_path / "raw" / "conversations" / "2026-07-01-1200-zzz999.md"
+    other.parent.mkdir(parents=True)
+    other.write_text("someone else", encoding="utf-8")
+    rel = save_session_to_vault.write_capture(
+        tmp_path, "2026-07-28-1430-mine-abc123.md", "mine", short_id="abc123",
+    )
+    assert rel == "raw/conversations/2026-07-28-1430-mine-abc123.md"
+    assert other.read_text(encoding="utf-8") == "someone else"
+
+
+def test_write_capture_returns_a_posix_relative_path(tmp_path):
+    rel = save_session_to_vault.write_capture(
+        tmp_path, "2026-01-01-0000-abc123.md", "body", short_id="abc123",
+    )
+    assert "\\" not in rel
+    assert rel.startswith("raw/conversations/")
