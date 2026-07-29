@@ -445,6 +445,67 @@ def test_percent_roundtrip():
     assert decoded == original
 
 
+# --- link_dest / resolve_link_dest ---------------------------------------------
+#
+# The single owner of "given a markdown link, produce a vault-relative path"
+# (#58) — previously reimplemented, with subtle differences, in ingest.py,
+# commit.py and page_record.py.
+
+
+def test_link_dest_returns_decoded_path():
+    assert wikipage.link_dest("[Notes](../raw/my%20notes.md)") == "../raw/my notes.md"
+
+
+def test_link_dest_strips_anchor():
+    assert wikipage.link_dest("[A](../concept/a.md#section)") == "../concept/a.md"
+
+
+def test_link_dest_none_for_non_link():
+    assert wikipage.link_dest("not a link") is None
+
+
+def test_resolve_link_dest_joins_page_dir_with_default_prefix():
+    assert (
+        wikipage.resolve_link_dest("../raw/notes.md", "source", prefix="wiki")
+        == "wiki/raw/notes.md"
+    )
+
+
+def test_resolve_link_dest_no_prefix_when_page_dir_already_vault_relative():
+    assert (
+        wikipage.resolve_link_dest("../../raw/notes.md", "wiki/source", prefix="")
+        == "raw/notes.md"
+    )
+
+
+def test_resolve_link_dest_empty_page_dir():
+    assert wikipage.resolve_link_dest("a.md", "", prefix="") == "a.md"
+
+
+@given(
+    dest=st.text(
+        alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="/\\"),
+        min_size=1,
+        max_size=15,
+    ).filter(lambda s: s not in (".", "..") and s.strip() == s and s),
+    page_dir=st.lists(
+        st.text(
+            alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="/\\"),
+            min_size=1,
+            max_size=10,
+        ).filter(lambda s: s not in (".", "..") and s.strip() == s and s),
+        max_size=3,
+    ).map(lambda parts: "/".join(parts)),
+)
+@settings(max_examples=50)
+def test_prop_resolve_link_dest_stable_under_re_resolution(dest, page_dir):
+    """Resolving an already-resolved (vault-relative) path a second time,
+    with no further prefix to add, is a no-op — no double-prefixing."""
+    once = wikipage.resolve_link_dest(dest, page_dir, prefix="wiki")
+    twice = wikipage.resolve_link_dest(once, "", prefix="")
+    assert twice == once
+
+
 # --- plan_move: example cases --------------------------------------------------
 
 

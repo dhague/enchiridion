@@ -179,6 +179,31 @@ def iter_links(text: str):
         )
 
 
+def link_dest(link: str) -> str | None:
+    """Extract a whole markdown-link scalar's destination, decoded.
+
+    ``link`` is a full ``"[label](dest)"`` (or image) scalar, as stored in
+    frontmatter or found in body text — not a bare destination. ``None``
+    when ``link`` isn't a markdown link at all.
+    """
+    match = next(iter(iter_links(link)), None)
+    return match.decoded_path if match is not None else None
+
+
+def resolve_link_dest(dest: str, page_dir: str, prefix: str = "wiki") -> str:
+    """Resolve an already-decoded link destination to a normalized path.
+
+    ``page_dir`` is the directory the link lives in. ``prefix`` is joined in
+    front when truthy (default ``"wiki"`` — for a ``page_dir`` that is
+    wiki-root-relative, as `page_record.py`'s ``rel`` convention is); pass
+    ``prefix=""`` when ``page_dir`` is already fully vault-relative (already
+    starts with ``"wiki/"``). One place owns the ``normpath``/``join``
+    quirks that used to be reimplemented at every call site.
+    """
+    base = posixpath.join(prefix, page_dir) if prefix else (page_dir or ".")
+    return posixpath.normpath(posixpath.join(base or ".", dest))
+
+
 def _is_relative_dest(path: str) -> bool:
     """True when ``path`` (the pre-anchor part) is a vault-relative reference.
 

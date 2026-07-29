@@ -48,17 +48,15 @@ class PageRecord:
     superseded_by: list[str] = field(default_factory=list)
 
 
-def _link_target(markdown_link: str) -> str:
-    """Strip a quoted markdown link (``[title](path)``) down to its path."""
-    match = next(iter(wikipage.iter_links(markdown_link)), None)
-    if match is None:
+def _rebase_to_wiki_root(markdown_link: str, page_dir: str) -> str:
+    """Resolve a quoted markdown link (``[title](path)``) to a decoded path
+    relative to ``wiki/`` — ``page_dir`` is wiki-root-relative, matching this
+    module's ``rel`` convention, so no ``wiki/`` prefix is added here.
+    """
+    dest = wikipage.link_dest(markdown_link)
+    if dest is None:
         raise ValueError(f"not a markdown link: {markdown_link!r}")
-    return match.dest
-
-
-def _rebase_to_wiki_root(target: str, page_dir: str) -> str:
-    """Re-express a target relative to the page's own directory as relative to wiki/."""
-    return posixpath.normpath(posixpath.join(page_dir, target))
+    return wikipage.resolve_link_dest(dest, page_dir, prefix="")
 
 
 def page_record(rel: str, text: str) -> PageRecord:
@@ -75,11 +73,9 @@ def page_record(rel: str, text: str) -> PageRecord:
         if not value:
             continue
         if key == "raw_source":
-            targets = [_rebase_to_wiki_root(_link_target(value), page_dir)]
+            targets = [_rebase_to_wiki_root(value, page_dir)]
         else:
-            targets = [
-                _rebase_to_wiki_root(_link_target(item), page_dir) for item in value
-            ]
+            targets = [_rebase_to_wiki_root(item, page_dir) for item in value]
         edges.append((key, targets))
 
     return PageRecord(
