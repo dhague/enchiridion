@@ -240,8 +240,12 @@ class _RawEventHandler(FileSystemEventHandler):
     def on_any_event(self, event) -> None:
         if event.is_directory:
             return
+        # Atomic saves (vim, VSCode, Obsidian: write-temp-then-rename) surface
+        # as a single moved event whose *dest_path* is the file that matters —
+        # src_path is the temp file, already gone by the time we'd re-check it.
+        path = getattr(event, "dest_path", "") or event.src_path
         try:
-            rel = Path(event.src_path).relative_to(self.root).as_posix()
+            rel = Path(path).relative_to(self.root).as_posix()
         except ValueError:
             return
         self.debouncer.record_event(rel)

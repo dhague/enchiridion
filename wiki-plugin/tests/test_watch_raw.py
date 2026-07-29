@@ -22,9 +22,12 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from watchdog.events import FileCreatedEvent, FileMovedEvent
+
 import watch_raw
 from watch_raw import (
     Debouncer,
+    _RawEventHandler,
     acquire_lock,
     append_queue,
     read_queue,
@@ -204,6 +207,47 @@ def test_concurrent_appends_dont_corrupt_queue(tmp_path_factory, rels):
     lines = read_queue(queue_path)
     assert set(lines) == set(rels)
     assert len(lines) == len(set(rels))  # no duplicated or mangled lines
+
+
+# --- event handler -----------------------------------------------------------
+
+
+def test_handler_records_created_event_by_src_path(tmp_path):
+    debouncer = Debouncer(clock=lambda: 0.0)
+    handler = _RawEventHandler(tmp_path, debouncer)
+
+    event = FileCreatedEvent(str(tmp_path / "raw" / "note.md"))
+    handler.on_any_event(event)
+
+    assert "raw/note.md" in debouncer._last_event
+
+
+def test_handler_records_moved_event_by_dest_path_not_src_path(tmp_path):
+    """Atomic saves (vim/VSCode/Obsidian) surface as one moved event: the
+    real file is at ``dest_path``, ``src_path`` is a temp file that's
+    already gone. Debouncing the temp path would silently drop the save (#65)."""
+    debouncer = Debouncer(clock=lambda: 0.0)
+    handler = _RawEventHandler(tmp_path, debouncer)
+
+    event = FileMovedEvent(
+        str(tmp_path / "raw" / ".note.md.tmp12345"),
+        str(tmp_path / "raw" / "note.md"),
+    )
+    handler.on_any_event(event)
+
+    assert "raw/note.md" in debouncer._last_event
+    assert "raw/.note.md.tmp12345" not in debouncer._last_event
+
+
+def test_handler_ignores_directory_events(tmp_path):
+    debouncer = Debouncer(clock=lambda: 0.0)
+    handler = _RawEventHandler(tmp_path, debouncer)
+
+    event = FileCreatedEvent(str(tmp_path / "raw" / "subdir"))
+    event.is_directory = True
+    handler.on_any_event(event)
+
+    assert debouncer._last_event == {}
 
 
 # --- SIGTERM graceful shutdown ----------------------------------------------
