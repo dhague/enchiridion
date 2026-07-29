@@ -13,7 +13,13 @@ fields, valid op) then semantic (an update's `rel` exists, a create's target
 doesn't yet, every edge/raw_source link resolves to a real page — either
 already on disk or another page this same plan creates — and, for a plan
 naming a raw artifact, the chain of evidence: a `source/` stub for that
-artifact plus a `source` edge to it from every other page in the plan).
+artifact plus a `source` edge to it from every other page in the plan). This
+is the agent-time layer of the chain-of-evidence check (#34 point 4): it
+catches a violating plan at the agent's working point, before any write.
+The real hard block lives in :mod:`commit` — every manifest that names a
+`raw_source` is re-checked at commit time, so a hand-built manifest or a
+future caller cannot slip a violation past :func:`validate` and into
+history.
 
 Ingestion is not the only caller: `wiki-retrieval`'s confirmed synthesis-page
 save is the same shape — one `create` page of kind `synthesis`, `source`
