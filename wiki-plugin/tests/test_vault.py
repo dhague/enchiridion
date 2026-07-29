@@ -221,6 +221,41 @@ def test_vault_pages_never_walks_raw(small_vault):
     assert "raw/notes/x.md" not in v.pages()
 
 
+# --- Vault.load_wiki_pages()/pages_with_text(): the #41 boundary (#59) ------
+
+
+def test_vault_load_wiki_pages_excludes_index_md_by_default(small_vault):
+    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
+    v = Vault(small_vault)
+    assert "wiki/_index.md" not in v.load_wiki_pages()
+
+
+def test_vault_load_wiki_pages_includes_index_md_when_asked(small_vault):
+    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
+    v = Vault(small_vault)
+    assert "wiki/_index.md" in v.load_wiki_pages(include_index=True)
+
+
+def test_vault_pages_with_text_round_trips_the_same_text_on_disk(small_vault):
+    v = Vault(small_vault)
+    pages = v.pages_with_text()
+    rec, text = pages["wiki/entity/b.md"]
+    assert rec.rel == "wiki/entity/b.md"
+    assert text == (small_vault / "wiki/entity/b.md").read_text(encoding="utf-8")
+
+
+def test_vault_pages_with_text_excludes_index_md(small_vault):
+    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
+    v = Vault(small_vault)
+    assert "wiki/_index.md" not in v.pages_with_text()
+
+
+def test_vault_pages_derived_from_pages_with_text(small_vault):
+    v = Vault(small_vault)
+    with_text = v.pages_with_text()
+    assert v.pages() == {rel: rec for rel, (rec, _text) in with_text.items()}
+
+
 def test_vault_rewrite_inbound_links_for_non_page_target(small_vault):
     # A raw/ file rename: the target itself is never read/written, only the
     # wiki pages that link to it.
