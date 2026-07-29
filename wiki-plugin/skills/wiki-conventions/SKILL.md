@@ -23,7 +23,7 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
 │   ├── _index.md             ← generated (build_index.py); indexes wiki/** only, never raw/
 │   ├── concept/              ← an idea / technique / pattern / principle / how-it-works (the default)
 │   ├── entity/               ← a named thing linked repeatedly (person / team / product / tool / service / project / org)
-│   ├── source/               ← a stand-in for a raw artifact; REQUIRES `source:` → ../../raw/…
+│   ├── source/               ← a stand-in for a raw artifact; one per ingested raw file, REQUIRES `raw_source:` → ../../raw/…
 │   └── synthesis/            ← a saved query result; links to its inputs via `source`-type edges
 └── raw/                      ← immutable originals, git-tracked, sibling of wiki/
     └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … an OPEN set
@@ -38,10 +38,19 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
 
 Ingestion runs this **top-to-bottom, first match wins**, so placement is deterministic. The kinds split into *origin-defined* (`source`, `synthesis` — where the page came from, mutually exclusive) and *subject-defined* (`entity`, `concept` — what it's about):
 
-1. Is it a stand-in for an ingested raw artifact? → **`source/`** (must carry a `source:` field → its `raw/` file).
+1. Is it a stand-in for an ingested raw artifact? → **`source/`** (must carry a `raw_source:` field → its `raw/` file).
 2. Is it a saved query result synthesized from other pages? → **`synthesis/`**.
 3. Is it primarily a named thing linked repeatedly? → **`entity/`**.
 4. Otherwise → **`concept/`** (the default).
+
+### The chain of evidence
+
+**Every raw file an ingestion produces pages from gets a `source/` stand-in, and every page that pass produces or updates carries a `source` edge back to it.** So a reader can always walk *page → `source/` stub → `raw/` artifact* and reach the thing a claim actually came from — the one path that has to exist for a citation to be checkable.
+
+- **No exemption for distillation.** When a raw file's value is entirely the knowledge inside it, and that knowledge lands in `concept/`/`entity/` pages, the stub is still created. It just becomes a **thin stub**: `title`, a one-paragraph `summary`, and the required `raw_source` link — nothing more. It does not duplicate the distilled content; its whole job is to be the addressable link target. A raw file that *is* the citable reference (a runbook, a spec) still gets a fuller `source/` page. Same schema either way; only the body's substance differs.
+- **The `source` back-edge is not judgment.** Unlike `refines`/`contradicts`/`example-of`/`related`, which are weighed per page, this edge is mandatory on every page of the pass — each page of a multi-chunk split, and a page **updated in place** as much as a newly created one.
+- **Enforced, not merely conventional.** `ingest.py` validates both halves before it writes anything: a plan naming a `raw` artifact must place a `source/` page whose `raw_source` resolves to it, and every other page in that plan must carry a `source` edge to that stub. A plan that doesn't is rejected, so a violation can never reach a commit. The stub may equally be one an earlier pass already left on disk.
+- **A raw file ingestion declines outright** — spam, an exact duplicate, junk — produces no pages, so there is nothing for this rule to govern.
 
 **Decidability bar:** given only a page's title + summary, the correct folder is the same every time, with no tie-break needed. If two folders are ever a genuine toss-up, the axis is wrong — the fix is to merge them and push the distinction to tags, never to add a folder.
 
@@ -137,7 +146,7 @@ The edge is **directional** — it reads *this page* → *key* → *target*. Inc
 | **`refines`** | *this page refines the target* | This page sharpens, extends, or adds precision to the target's idea. The target is the broader/earlier statement; this page is the finer one. |
 | **`contradicts`** | *this page contradicts the target* | This page's claim conflicts with the target's. Record the edge even before the conflict is resolved; when it *is* resolved by replacement, also set `supersedes`. |
 | **`example-of`** | *this page is an example of the target* | This page is a concrete instance / case study of the general concept the target describes. |
-| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. The canonical use: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from. **Not** the same as the `raw_source:` frontmatter field, which points a `source/` page into `raw/`. |
+| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. Two uses: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from, and — **mandatorily**, see [The chain of evidence](#the-chain-of-evidence) — every page an ingestion produces points at that raw file's `source/` stub. **Not** the same as the `raw_source:` frontmatter field, which points a `source/` page into `raw/`. |
 | **`related`** | *this page is associatively related to the target* | A real connection that is none of the above. The catch-all — prefer a sharper type whenever one fits, because retrieval can follow a specific type purposefully and can only wander a `related` one. |
 
-**Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
+**Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. The one exception to "judge it per page" is the mandatory `source` back-edge above. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
