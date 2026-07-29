@@ -57,7 +57,9 @@ Given a question:
 
    From each page you do read, harvest its outbound relationships — the typed-edge keys and `supersedes` in frontmatter, plus body links to other `wiki/` pages — as **next-hop candidates**, and judge those the same way (summary first, body only on survival).
 
-   **Follow the typed edge the question implies.** Unambiguous shapes map to one edge and one direction; anything else defaults to "follow all typed edges in both directions." The patterns live in [Edge-following rules](#edge-following-rules) below. Direction matters: a question that reads "what does X refine" asks for X's outbound `refines:` list; "what refines X" asks which pages name X under their own `refines:`. Inverting one for the other is a silent miss in either direction.
+   **Follow the typed edge the question implies.** Unambiguous shapes map to one edge and one direction; anything else defaults to "follow all typed edges in both directions **except `source`**." The patterns live in [Edge-following rules](#edge-following-rules) below. Direction matters: a question that reads "what does X refine" asks for X's outbound `refines:` list; "what refines X" asks which pages name X under their own `refines:`. Inverting one for the other is a silent miss in either direction.
+
+   `source` is excluded from that fallback because it belongs to the provenance path, not general expansion — it names the raw artifact a page distilled, not another concept to fan out into. Only follow it when the question matches the provenance row below.
 
 4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Build a `superseded_by` map for the candidate set: for every page P, if any other page Q in the vault has `supersedes: [P]` in its frontmatter, then P is replaced by Q. With the agent's tools, one pass is `Grep` for the frontmatter pattern `^\s*supersedes:` plus each seed's filename in the body of any `wiki/**/*.md` — `page_record.py` derives the same map in-process for `build_index.py` and the upcoming `Vault.search()` under the name `superseded_by`.
 
@@ -76,7 +78,13 @@ Given a question:
 
    If you hit the budget with the question still unanswered, say so in the answer (what you searched, what you'd read next) rather than silently truncating or blowing through it.
 
-6. **Synthesize, with honest temporal framing.** Answer from what you actually read, and **cite every claim** with the page it came from (a relative link or its vault path — the reader must be able to open it). For each cited page state its age and its `volatility` plainly, so the asker can calibrate their own trust:
+6. **Synthesize, with honest temporal framing.** Answer from what you actually read, and **cite every claim** with the page it came from (a relative link or its vault path — the reader must be able to open it).
+
+   **Two citation modes, and the question decides which applies:**
+   - **Normal** — the common case, for every question that isn't provenance-shaped. Cite the concept (or entity/synthesis) page itself, with its age and `volatility` stated as below. Do not read the `source` stub or the raw artifact behind it; the concept page is standing in for that raw material, and reading through it is wasted budget the question didn't ask for.
+   - **Provenance** — when the question matches the provenance row in [Edge-following rules](#edge-following-rules). Follow the chain all the way to the raw artifact (concept page → `source` → stub → `raw_source` → raw file) and cite the raw artifact itself, with a specific location (line or page number) for the claim. Frame the concept page as a lens on that source, not as the citation: *"per [Concept](...), drawing on [raw-file.md](...) line 42…"*. If a provenance question lands on a page with no `source` edge (pre-#34 content), degrade gracefully — cite the page normally and note that no provenance chain exists for it.
+
+   For each cited page state its age and its `volatility` plainly, so the asker can calibrate their own trust:
    - **valid time** is the page's own `source_date` — when the knowledge is *from*;
    - **transaction time** is `git_date` from the search hit, populated in one `git log` pass at index time (see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) — sanity-check it before quoting it: a vault that was bulk-imported gives every page the same commit date, which says nothing about the knowledge. When commit dates are uninformative, frame the answer on `source_date` and say that's what you're using;
    - **`volatility`** says how much that age matters: `stable` facts do not age out, `evolving` ones drift, `volatile` ones are possibly current-only.
@@ -131,6 +139,7 @@ When a question's shape implies a specific typed edge, follow *that* edge in the
 | "what did X draw on" / "what sources X" | `source` | outbound from X | X's `source:` list |
 | "where is X used" / "what uses X" | `source` | inbound to X | pages whose `source:` lists X |
 | "related to X" (default) | `related` | both | X's `related:` list + pages whose `related:` lists X |
+| "what's the evidence for X" / "source for X" / "raw data behind X" / "provenance of X" / "where did this come from" / "cite the original" / "back it up" | `source` | outbound from X | X's `source:` list → the stub page → its `raw_source:` → the raw artifact, with a location (line or page number) |
 
 The two directions are NOT symmetric: outbound follows links that *leave* a page; inbound finds pages that *point at* a page. Inverting one for the other is a silent miss in either direction.
 
