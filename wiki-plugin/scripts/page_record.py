@@ -52,6 +52,15 @@ def _rebase_to_wiki_root(markdown_link: str, page_dir: str) -> str:
     """Resolve a quoted markdown link (``[title](path)``) to a decoded path
     relative to ``wiki/`` — ``page_dir`` is wiki-root-relative, matching this
     module's ``rel`` convention, so no ``wiki/`` prefix is added here.
+
+    The result is one ``..`` short of true vault-relative (e.g. a
+    ``raw_source`` link from ``source/foo.md`` decodes to ``raw/foo.md``, not
+    ``../raw/foo.md``). This is intentional and only safe because every
+    consumer of these edges re-resolves them through
+    :func:`wikipage.resolve_link_dest` with ``prefix="wiki"`` (see
+    ``ingest_scan._back_pointers_by_raw``) — the omitted prefix there cancels
+    the missing ``..`` here. Don't add the prefix on this side without also
+    dropping it on the consumer side, or paths will double up.
     """
     dest = wikipage.link_dest(markdown_link)
     if dest is None:
