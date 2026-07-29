@@ -19,9 +19,10 @@ The substantive logic lives in `scripts/watch_raw.py` (event detection, per-file
    ```
    using `Bash` with `run_in_background: true`. Accepts `--debounce <seconds>` (default 30) if the user asked for a different debounce window.
 
-3. **Wait briefly** (~2s), then check the background output:
+3. **Poll for startup**, up to a ~10s deadline (checking every ~0.5s) rather than a fixed sleep — a slow machine or cold Python/watchdog import can take longer than a couple of seconds to report in. Check the background output on each poll:
    - If it printed `another watcher is already running (lock at ...)` and exited, **surface this to the user** and stop — do not start a second watcher against the same vault.
-   - Otherwise it printed `watching <raw/> (debounce=...s, pid=...)` and is running normally; continue.
+   - If it printed `watching <raw/> (debounce=...s, pid=...)`, it's running normally; continue.
+   - If the deadline is reached with neither line seen, **surface this to the user** and stop — the watcher's startup could not be confirmed.
 
 4. **Startup sweep.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest_scan.py" --json` once. For each eligible file, dispatch a `wiki-ingest` Sonnet subagent via `Task` with the file's path (and, for a `changed-since-ingestion` file, its back-pointers as a reconciliation hint) — same shape as the existing `/wiki-ingest sweep`'s per-file delegation, but **without** the per-file yes/skip/never gate: every eligible file at startup is ingested. Wait for each manifest, log it (see Logging below), then move to the next file.
 
