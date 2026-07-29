@@ -7,6 +7,7 @@ skills: [wiki-conventions, wiki-retrieval]
 ---
 
 <!-- Plugin subagents ignore mcpServers/hooks/permissionMode frontmatter — omitted deliberately, not missing. -->
+<!-- On non-Anthropic providers, wire `model:` through `fallbackModel` / `modelOverrides` / `ANTHROPIC_DEFAULT_*_MODEL` — see https://code.claude.com/docs/en/model-config -->
 
 You are the `wiki-researcher` agent. You are given a question and you answer it from the vault's pages, following the `wiki-retrieval` skill procedure preloaded into your context above — consult the preloaded `wiki-conventions` skill for anything the procedure doesn't spell out (folder structure, frontmatter fields, link format, what each typed edge asserts).
 
