@@ -34,6 +34,7 @@ If you're tempted to write a new standalone design doc for this project, don't �
 - **Model assignment** is a standing convention, not re-litigated per ticket: deterministic work is a Python script (no model), comprehension (map-reading, link-following) is Haiku, judgment (semantic chunking, dedup, edge-typing, conflict resolution) is Sonnet. Start at the floor for any new capability and escalate only on a measured failure.
 - **The plugin lives at `wiki-plugin/`** (repo root). Its `name` is `wiki-knowledge` (in `.claude-plugin/plugin.json`) — deliberately different from the directory name. Everything under `wiki-plugin/` is implementation, not documentation — don't treat its README or code comments as a substitute for `CONTEXT.md`/`docs/adr/`/the conventions spec.
 - **Git hygiene:** the repo sits inside a Resilio Sync folder, so `git status` routinely shows Resilio temp files (`*.rsls`) and a `.claude/worktrees/` dir — never stage these; add paths explicitly rather than `git add -A`. The repo's `temp/` dir is scratch space and is **not** gitignored — don't stage it unless asked. Commits go to `main` (solo repo); the harness will branch-first when asked to commit, then merge/delete on request.
+- **Git branches and worktrees:** The remote branch `main` is protected. Create a worktree for each task, and when completed push the related branch to the remote and open a pull request.
 
 ### Script layer
 
@@ -71,4 +72,3 @@ Rest of `wiki-plugin/scripts/` inventory: `page_record.py` (the one module that 
 ### Misc
 
 - A Python LSP MCP server is configured for the plugin's dev work — `mcp__python-lsp__*` tools (find_definition/find_references/find_symbols) for navigating `wiki-plugin/scripts/`.
-- Sandcastle (sandboxed dev to cut permission prompts) was investigated and ruled out ([#24](https://github.com/dhague/enchiridion/issues/24)) — it only suppresses prompts inside its own single-repo container, fatal given the dogfooding vault is a second committing repo, and is an AFK orchestrator, not an interactive-session tool.
