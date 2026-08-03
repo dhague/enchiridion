@@ -18,25 +18,48 @@ import sys
 #: The fixed kind-folder set (wiki-conventions §Folder structure).
 KINDS = ("source", "synthesis", "entity", "concept")
 
+#: Maximum length for generated kebab-slug filenames, to stay readable and
+#: leave headroom under the Windows 255-char path limit (#70).
+MAX_SLUG_LENGTH = 64
+
 _APOSTROPHE = re.compile(r"['’]")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_MIN_WORD_CUT = 8
 
 
-def slugify(title: str) -> str:
+def _truncate_slug(slug: str, max_length: int) -> str:
+    """Truncate *slug* to *max_length*, cutting at the last hyphen boundary
+    when there is a reasonable word break (≥ *min_cut* chars). Falls back to a
+    hard cut at *max_length*."""
+    if len(slug) <= max_length:
+        return slug
+    cut = slug.rfind("-", 0, max_length)
+    if cut >= _MIN_WORD_CUT:
+        return slug[:cut].rstrip("-")
+    return slug[:max_length].rstrip("-")
+
+
+def slugify(title: str, max_length: int | None = None) -> str:
     """Return ``title`` as a lowercase kebab-slug: apostrophes dropped (so
     "What's" -> "whats", not "what-s"), other punctuation and runs of
     whitespace/symbols collapsed to one hyphen, no leading/trailing hyphen.
+
+    When *max_length* is given, the slug is truncated to at most that many
+    characters, at a hyphen boundary when possible (see :func:`_truncate_slug`).
     """
     slug = _APOSTROPHE.sub("", title.lower())
     slug = _NON_ALNUM.sub("-", slug)
-    return slug.strip("-")
+    slug = slug.strip("-")
+    if max_length is not None:
+        slug = _truncate_slug(slug, max_length)
+    return slug
 
 
 def path(kind: str, title: str) -> str:
     """Return the vault-relative path for a new page of ``kind`` titled ``title``."""
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}; must be one of {KINDS}")
-    return f"wiki/{kind}/{slugify(title)}.md"
+    return f"wiki/{kind}/{slugify(title, MAX_SLUG_LENGTH)}.md"
 
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
