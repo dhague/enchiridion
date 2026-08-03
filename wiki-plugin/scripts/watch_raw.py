@@ -22,7 +22,7 @@ CLI::
 """
 from __future__ import annotations
 
-import fcntl
+import contextlib
 import json
 import os
 import signal
@@ -31,7 +31,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, IO
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -42,6 +42,43 @@ import vault as vault_mod
 DEFAULT_DEBOUNCE_SECONDS = 30.0
 STALE_LOCK_SECONDS = 600  # 10 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
+
+
+# --- cross-platform exclusive file lock ---------------------------------------
+#
+# ``fcntl.flock`` doesn't exist on Windows; ``msvcrt.locking`` is its closest
+# equivalent there (whole-file advisory lock, one byte is enough — we only
+# ever hold it for the duration of a read-modify-write, never for actual
+# file content).
+
+if sys.platform == "win32":
+    import msvcrt
+
+    @contextlib.contextmanager
+    def _exclusive_lock(fileobj: IO[str]):
+        # ``msvcrt.locking`` refuses to lock a region past end-of-file, so an
+        # empty (just-truncated) lock/mutex file needs a byte written first.
+        fileobj.seek(0, os.SEEK_END)
+        if fileobj.tell() == 0:
+            fileobj.write(" ")
+            fileobj.flush()
+        fileobj.seek(0)
+        msvcrt.locking(fileobj.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            fileobj.seek(0)
+            msvcrt.locking(fileobj.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    @contextlib.contextmanager
+    def _exclusive_lock(fileobj: IO[str]):
+        fcntl.flock(fileobj, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fileobj, fcntl.LOCK_UN)
 
 
 # --- debounce --------------------------------------------------------------
@@ -80,14 +117,31 @@ class Debouncer:
 # --- lock file ---------------------------------------------------------------
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+if sys.platform == "win32":
+    import ctypes
+
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+    def _pid_alive(pid: int) -> bool:
+        # ``os.kill(pid, 0)`` isn't a liveness probe on Windows — for signal
+        # values other than CTRL_C_EVENT/CTRL_BREAK_EVENT it calls
+        # TerminateProcess(handle, sig), so ``os.kill(pid, 0)`` would actually
+        # kill a live process (with exit code 0) instead of just checking it.
+        handle = ctypes.windll.kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
         return True
-    return True
+else:
+
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
 
 def write_lock(lock_path: Path, pid: int | None = None, started_at: datetime | None = None) -> None:
@@ -150,20 +204,16 @@ def acquire_lock(
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     mutex_path = lock_path.with_name(lock_path.name + ".mutex")
-    with open(mutex_path, "w", encoding="utf-8") as mutex:
-        fcntl.flock(mutex, fcntl.LOCK_EX)
-        try:
-            if lock_path.exists():
-                stale, pid = _lock_is_stale(lock_path, now, pid_alive)
-                if not stale:
-                    return False
-                print(f"previous watcher exited without cleanup, removing stale lock (pid={pid})")
-                lock_path.unlink()
+    with open(mutex_path, "w", encoding="utf-8") as mutex, _exclusive_lock(mutex):
+        if lock_path.exists():
+            stale, pid = _lock_is_stale(lock_path, now, pid_alive)
+            if not stale:
+                return False
+            print(f"previous watcher exited without cleanup, removing stale lock (pid={pid})")
+            lock_path.unlink()
 
-            write_lock(lock_path, started_at=now)
-            return True
-        finally:
-            fcntl.flock(mutex, fcntl.LOCK_UN)
+        write_lock(lock_path, started_at=now)
+        return True
 
 
 # --- queue file ---------------------------------------------------------------
@@ -183,17 +233,13 @@ def _with_queue_lock(queue_path: Path, fn: Callable[[list[str]], list[str]]) -> 
     """
     queue_path.parent.mkdir(parents=True, exist_ok=True)
     writelock_path = _queue_writelock_path(queue_path)
-    with open(writelock_path, "w", encoding="utf-8") as lockfile:
-        fcntl.flock(lockfile, fcntl.LOCK_EX)
-        try:
-            existing = read_queue(queue_path)
-            new_lines = fn(existing)
-            tmp_path = queue_path.with_name(queue_path.name + ".tmp")
-            content = "".join(line + "\n" for line in new_lines)
-            tmp_path.write_text(content, encoding="utf-8")
-            tmp_path.replace(queue_path)
-        finally:
-            fcntl.flock(lockfile, fcntl.LOCK_UN)
+    with open(writelock_path, "w", encoding="utf-8") as lockfile, _exclusive_lock(lockfile):
+        existing = read_queue(queue_path)
+        new_lines = fn(existing)
+        tmp_path = queue_path.with_name(queue_path.name + ".tmp")
+        content = "".join(line + "\n" for line in new_lines)
+        tmp_path.write_text(content, encoding="utf-8")
+        tmp_path.replace(queue_path)
 
 
 def append_queue(queue_path: Path, rel: str) -> None:
