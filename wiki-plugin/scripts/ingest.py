@@ -56,6 +56,10 @@ import wikipage
 from vault import Vault
 from wikipage import WikiPage
 
+#: Maximum full-path length (vault root + vault-relative path) in characters,
+#: to stay under Windows' 255-char path limit (#70).
+MAX_PATH_LENGTH = 255
+
 
 class PlanError(ValueError):
     """Raised when a plan fails shape or semantic validation."""
@@ -219,6 +223,12 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
                 target = place.path(page.kind, page.title)
                 if (root / target).exists():
                     errors.append(f"{prefix}: create target {target} already exists")
+                full = str(root / target)
+                if len(full) > MAX_PATH_LENGTH:
+                    errors.append(
+                        f"{prefix}: path {target} exceeds {MAX_PATH_LENGTH} chars"
+                        f" ({len(full)} chars with vault root)"
+                    )
         else:
             if page.kind is not None:
                 errors.append(f"{prefix}.kind must not be set for op=update")

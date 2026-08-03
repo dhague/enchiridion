@@ -311,6 +311,25 @@ def test_validate_rejects_one_missing_source_edge_among_several_pages(raw_notes)
         ingest.validate(plan, raw_notes)
 
 
+# --- validation: path-length ceiling (#70) --------------------------------------
+
+
+def test_validate_rejects_path_exceeding_max_length(monkeypatch, vault_root):
+    """A create plan whose full path exceeds the limit is rejected before any write."""
+    monkeypatch.setattr(ingest, "MAX_PATH_LENGTH", 60)
+    d = _plan_dict()
+    d["pages"][0]["title"] = "Long Enough Title"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="exceeds"):
+        ingest.validate(plan, vault_root)
+
+
+def test_validate_accepts_path_within_limit(vault_root):
+    d = _plan_dict()
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, vault_root)  # no raise
+
+
 def test_validate_requires_the_source_edge_on_an_updated_page_too(raw_notes):
     """#34 point 3: step 3's update-in-place case is not exempt."""
     d = _raw_plan_dict()
