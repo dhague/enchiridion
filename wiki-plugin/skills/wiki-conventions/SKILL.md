@@ -150,3 +150,42 @@ The edge is **directional** — it reads *this page* → *key* → *target*. Inc
 | **`related`** | *this page is associatively related to the target* | A real connection that is none of the above. The catch-all — prefer a sharper type whenever one fits, because retrieval can follow a specific type purposefully and can only wander a `related` one. |
 
 **Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. The one exception to "judge it per page" is the mandatory `source` back-edge above. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
+
+## Scripts
+
+Every script in `scripts/` resolves the vault root itself (`$WIKI_ROOT`, else the nearest ancestor `wiki/` directory, else cwd — see `vault.py`). Make sure your shell's working directory is already inside the target vault (or export `WIKI_ROOT`) before invoking any of them.
+
+The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
+
+### Common tasks
+
+- **Resolve the vault root:** `vault.py` (prints the resolved path).
+- **Search the vault:** `search.py "<terms>" --limit N --json`.
+- **Check for overlap before ingesting:** `overlap.py --title "..." --summary "..." [--body-file <path>]` — returns `duplicate`/`refines`/`related`/`distinct` hints.
+- **Edit a page's frontmatter:** `wikipage.py set <page> <key> <value>` (overwrite any field). Use `wikipage.py merge <page> <key> <json-list>` for lists (`tags`, edge keys) — it unions, no read-then-write needed.
+- **Read a frontmatter field:** `wikipage.py get <page> <key>`.
+- **Move a page:** `vault.py move <old-rel> <new-rel>` — rewrites all inbound links across the vault and outbound links inside the page.
+- **Ingest pages from a plan:** `ingest.py --plan <path>` — validates, places, writes frontmatter/body, regenerates the index, and commits.
+- **Scan raw/ for eligible files:** `ingest_scan.py [folder] --json`.
+- **Commit staged pages:** `commit.py --manifest <path>` — writes a structured commit; gates on chain-of-evidence for raw ingestions.
+- **Regenerate the index:** `build_index.py` (no arguments).
+- **Reindex the search database:** `search.py --reindex [--full]`.
+- **Scaffold a new vault:** `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`.
+- **Save a conversation:** `save-session-to-vault.py --slug "<short phrase>"`.
+
+### Script catalogue
+
+- **`overlap.py`** — BM25 overlap check: classify a planned page against the existing vault. `overlap.py --title "..." --summary "..." [--body-file <path>] [--limit N] [--duplicate-threshold F] [--related-threshold F]`. Call during ingestion step 3 before writing an IngestPlan.
+- **`search.py`** — Full-text search over the FTS5 index with metadata filters. `search.py "<terms>" [--tag T] [--tag-any T] [--kind K] [--since DATE] [--until DATE] [--date-field FIELD] [--volatility V] [--limit N] [--include-superseded] [--raw] [--json]`. Also `--reindex [--full]` and `--status`. Call for any vault search.
+- **`ingest.py`** — Execute an IngestPlan JSON: validate, place, write, reindex, commit. `ingest.py --plan <path>`. Call after the agent assembles a plan (ingestion or synthesis save).
+- **`ingest_scan.py`** — Sweep `raw/` for files needing ingestion (never-ingested, changed-since-ingestion). `ingest_scan.py [folder] --json`. Call for `/wiki-ingest` sweep mode or `/wiki-watch` startup.
+- **`watch_raw.py`** — Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, and queue file. `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. Launched in the background by `/wiki-watch`.
+- **`vault.py`** — Vault-root resolution and vault I/O. Bare invocation prints the resolved vault root. `vault.py move <old-rel> <new-rel>` rewrites all inbound and outbound links. Imported by most other scripts.
+- **`init_wiki.py`** — Scaffold a new empty vault: folders, empty index, `.gitignore`, git init, optional `settings.json`. `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. Call from `/wiki-init`.
+- **`save-session-to-vault.py`** — Capture the current session's transcript as a raw file in the vault. `save-session-to-vault.py --slug "<phrase>"`. Call from `/save-conversation`.
+- **`wikipage.py`** — Pure-functional page model: frontmatter get/set/merge, body access, link iteration. `wikipage.py get <file> <key>`, `wikipage.py set <file> <key> <value> [--json]`, `wikipage.py merge <file> <key> <json-list>`. Call for frontmatter edits during ingestion (overlap-driven updates, edge refinement). Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`.
+- **`page_record.py`** — The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Library only (no CLI). Imported by `build_index.py`, `Vault.pages()`, `ingest_scan.py`, `search_index.py`.
+- **`place.py`** — Compute a new page's vault-relative path from kind and title. `place.py <kind> "<title>"`. Used by `ingest.py`; call directly to preview a page's planned path.
+- **`commit.py`** — Write one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns the SHA. `commit.py --manifest <path>`. Called by `ingest.py`; call directly for hand-assembled commits.
+- **`chain_of_evidence.py`** — Enforce the page → source stub → raw file chain. Library only (no CLI). Calls `check(staged, raw)` → list of errors. Imported by `ingest.py` (pre-flight validation) and `commit.py` (commit-time gate).
+- **`build_index.py`** — Regenerate `wiki/_index.md` from every page's frontmatter as a GFM table. `build_index.py` (no arguments). Called by `init_wiki.py`, `ingest.py`, and directly on demand.

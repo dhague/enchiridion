@@ -16,15 +16,7 @@ Retrieval **never modifies an existing page** — no edit, no move, no delete, e
   If the returned answer carries a `save-candidate` block, you are also the one who **puts the offer to the user and performs the save on their yes** — see [Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page). You hold the conversation, so the confirmation can only happen here.
 - **If you are the `wiki-researcher` agent**, continue directly with the procedure below using your own tools. You **recommend** a save (step 8); you never perform one — a subagent cannot ask the user anything, and an unconfirmed save is the exact failure this design exists to prevent.
 
-## Vault root and script location
-
-Every script in `scripts/` resolves the vault root itself (`$WIKI_ROOT`, else the nearest ancestor `wiki/` directory, else cwd — see `vault.py`). Make sure your shell's working directory is already inside the target vault (or export `WIKI_ROOT`) before invoking any of them. To resolve it explicitly for your own `Read` paths:
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/vault.py"   # prints the resolved vault root
-```
-
-The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
+Every script invoked below lives in this plugin's install directory and resolves the vault root itself — see the `## Scripts` section of `wiki-conventions` for the full reference (vault-root resolution, `${CLAUDE_PLUGIN_ROOT}`, common tasks, and the script catalogue).
 
 Search `wiki/**` only. `raw/` holds the immutable originals a `source/` page already stands in for; reading it duplicates content you have summaries for, and it is not in the index.
 
