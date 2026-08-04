@@ -12,11 +12,7 @@ Reads `wiki-conventions` for anything this procedure doesn't spell out — folde
 - **If you are not already running as the `wiki-ingest` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-ingest <path>` in an ordinary session), your only action is to delegate: call `Task` with `subagent_type: "wiki-ingest"` and a prompt containing the document path, then relay the manifest it returns back to the user verbatim. This keeps the judgment-heavy steps below running on the `wiki-ingest` agent's Sonnet model regardless of what model the invoking session happens to be running.
 - **If you are the `wiki-ingest` agent**, continue directly with the procedure below using your own tools.
 
-## Vault root and script location
-
-Every script in `scripts/` resolves the vault root itself (`$WIKI_ROOT`, else the nearest ancestor `wiki/` directory, else cwd — see `vault.py`). Make sure your shell's working directory is already inside the target vault (or export `WIKI_ROOT`) before invoking any of them.
-
-The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
+Every script invoked below lives in this plugin's install directory and resolves the vault root itself — see the `## Scripts` section of `wiki-conventions` for the full reference (vault-root resolution, `${CLAUDE_PLUGIN_ROOT}`, common tasks, and the script catalogue).
 
 ## Invocation
 
