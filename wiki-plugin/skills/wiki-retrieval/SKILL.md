@@ -61,8 +61,6 @@ Given a question:
    - **Chains.** A supersession chain A → B → C where A, B, C are all in the set collapses to **just C** (the head); A and B are mentioned as history, not read. Don't blow the budget walking a chain frontmatter by frontmatter — one follow per page is enough; the rest is mentioned, not cited.
    - **Head not in set.** If a seed P is superseded by a Q that *isn't* in the candidate set, **add Q to the set** (frontmatter-only read is enough to confirm the chain head) and remove P from the active set. The user asked about the current view; P is not it.
 
-   The mental shortcut, when you're about to cite a page: scan the frontmatter of every other page you're about to cite for a `supersedes:` that names this one. If one exists, cite the *superseding* page instead and frame the older one as what it replaced.
-
 5. **Stop at the budget.** Retrieval is bounded, and the bound is stated so it can't quietly run away:
    - **max 2 hops** from the seed set,
    - **~12 pages read** in full,
@@ -76,10 +74,7 @@ Given a question:
    - **Normal** — the common case, for every question that isn't provenance-shaped. Cite the concept (or entity/synthesis) page itself, with its age and `volatility` stated as below. Do not read the `source` stub or the raw artifact behind it; the concept page is standing in for that raw material, and reading through it is wasted budget the question didn't ask for.
    - **Provenance** — when the question matches the provenance row in [Edge-following rules](#edge-following-rules). Follow the chain all the way to the raw artifact (concept page → `source` → stub → `raw_source` → raw file) and cite the raw artifact itself, with a specific location (line or page number) for the claim. Frame the concept page as a lens on that source, not as the citation: *"per [Concept](...), drawing on [raw-file.md](...) line 42…"*. If a provenance question lands on a page with no `source` edge (pre-#34 content), degrade gracefully — cite the page normally and note that no provenance chain exists for it.
 
-   For each cited page state its age and its `volatility` plainly, so the asker can calibrate their own trust:
-   - **valid time** is the page's own `source_date` — when the knowledge is *from*;
-   - **transaction time** is `git_date` from the search hit, populated in one `git log` pass at index time (see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) — sanity-check it before quoting it: a vault that was bulk-imported gives every page the same commit date, which says nothing about the knowledge. When commit dates are uninformative, frame the answer on `source_date` and say that's what you're using;
-   - **`volatility`** says how much that age matters: `stable` facts do not age out, `evolving` ones drift, `volatile` ones are possibly current-only.
+   For each cited page state its age (`source_date` = valid time, `git_date` = transaction time — see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) and its `volatility` (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)) plainly, so the asker can calibrate their own trust. Sanity-check `git_date` before quoting it: a vault that was bulk-imported gives every page the same commit date, which says nothing about the knowledge — when commit dates are uninformative, frame the answer on `source_date` and say that's what you're using.
 
    Phrase it in the answer, don't bury it — e.g. *"per [Rate limits](wiki/concept/rate-limits.md), marked `volatile`, from 2025-01-12 and last committed 14 months ago…"*. A `stable` page from three years ago is not stale; a `volatile` page from last quarter may already be wrong. Never present a `volatile` fact with the same confidence as a `stable` one just because it is what you found.
 
