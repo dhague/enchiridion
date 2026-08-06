@@ -419,6 +419,19 @@ class SearchIndex:
             pages_stale=0,
         )
 
+    def tag_counts(self) -> list[tuple[str, int]]:
+        """Every tag in the vault with its usage count, most-used first
+        (ties broken alphabetically). Staleness-scans first, like ``search``,
+        so a tag minted by an external edit is visible immediately."""
+        self._scan()
+        return [
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT tag, COUNT(*) AS n FROM page_tag "
+                "GROUP BY tag ORDER BY n DESC, tag ASC"
+            )
+        ]
+
     def search(
         self,
         text: str | None = None,

@@ -114,7 +114,7 @@ This gives a clean **bitemporal** model with no field able to lie: `source_date`
 
 ## Tags
 
-Tags are the **emergent half** of the contract — generated at ingestion, not conformed to a fixed list. When ingesting, **reuse an existing tag** where one fits (grep the index / existing pages first) and **mint a new one** only where nothing fits. There is no controlled vocabulary to enumerate here and no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not from a closed set. This is why the folder structure is spelled out above and the tag set is not.
+Tags are the **emergent half** of the contract — generated at ingestion, not conformed to a fixed list. When ingesting, **reuse an existing tag** where one fits and **mint a new one** only where nothing fits. `discover.py --plan` hands back the vault's whole tag vocabulary with usage counts alongside every candidate, so reuse-first is something the discovery call gives you, not a discipline to go grep pages for. There is no controlled vocabulary to enumerate here and no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not from a closed set. This is why the folder structure is spelled out above and the tag set is not.
 
 ## Links
 
@@ -161,7 +161,7 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 
 - **Resolve the vault root:** `vault.py` (prints the resolved path).
 - **Search the vault:** `search.py "<terms>" --limit N --json`.
-- **Check for overlap before ingesting:** `overlap.py --title "..." --summary "..." [--body-file <path>]` — returns `duplicate`/`refines`/`related`/`distinct` hints.
+- **Discover before ingesting:** `discover.py --plan <draft-plan.json>` — one call, keyed by every page the draft plan proposes: `duplicate`/`refines`/`related`/`distinct` hints plus each candidate's `summary`/`tags`/`volatility`/`superseded_by`, and the vault's whole tag vocabulary with usage counts.
 - **Edit a page's frontmatter:** `wikipage.py set <page> <key> <value>` (overwrite any field). Use `wikipage.py merge <page> <key> <json-list>` for lists (`tags`, edge keys) — it unions, no read-then-write needed.
 - **Read a frontmatter field:** `wikipage.py get <page> <key>`.
 - **Move a page:** `vault.py move <old-rel> <new-rel>` — rewrites all inbound links across the vault and outbound links inside the page.
@@ -175,7 +175,7 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 
 ### Script catalogue
 
-- **`overlap.py`** — BM25 overlap check: classify a planned page against the existing vault. `overlap.py --title "..." --summary "..." [--body-file <path>] [--limit N] [--duplicate-threshold F] [--related-threshold F]`. Call during ingestion step 3 before writing an IngestPlan.
+- **`discover.py`** — Single-call discovery for ingestion: BM25 overlap classification for every page a draft plan proposes, plus the vault's tag vocabulary. `discover.py --plan <draft-plan.json> [--limit N] [--duplicate-threshold F] [--related-threshold F]` prints `{"pages": [{"title", "candidates": [{rel, title, score, hint, summary, tags, volatility, superseded_by}]}], "vocabulary": [{"tag", "count"}]}`. A single-page mode (`--title`/`--summary`/`--body-file`, same candidate shape) remains for ad-hoc checks outside a plan. Call during ingestion step 3, before writing the real `IngestPlan` — the draft plan it reads is the same shape, ahead of the overlap/tag judgment calls it exists to inform.
 - **`search.py`** — Full-text search over the FTS5 index with metadata filters. `search.py "<terms>" [--tag T] [--tag-any T] [--kind K] [--since DATE] [--until DATE] [--date-field FIELD] [--volatility V] [--limit N] [--include-superseded] [--raw] [--json]`. Also `--reindex [--full]` and `--status`. Call for any vault search.
 - **`ingest.py`** — Execute an IngestPlan JSON: validate, place, write, reindex, commit. `ingest.py --plan <path>`. Call after the agent assembles a plan (ingestion or synthesis save).
 - **`ingest_scan.py`** — Sweep `raw/` for files needing ingestion (never-ingested, changed-since-ingestion). `ingest_scan.py [folder] --json`. Call for `/wiki-ingest` sweep mode or `/wiki-watch` startup.
@@ -183,7 +183,7 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 - **`vault.py`** — Vault-root resolution and vault I/O. Bare invocation prints the resolved vault root. `vault.py move <old-rel> <new-rel>` rewrites all inbound and outbound links. Imported by most other scripts.
 - **`init_wiki.py`** — Scaffold a new empty vault: folders, empty index, `.gitignore`, git init, optional `settings.json`. `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. Call from `/wiki-init`.
 - **`save-session-to-vault.py`** — Capture the current session's transcript as a raw file in the vault. `save-session-to-vault.py --slug "<phrase>"`. Call from `/save-conversation`.
-- **`wikipage.py`** — Pure-functional page model: frontmatter get/set/merge, body access, link iteration. `wikipage.py get <file> <key>`, `wikipage.py set <file> <key> <value> [--json]`, `wikipage.py merge <file> <key> <json-list>`. Call for frontmatter edits during ingestion (overlap-driven updates, edge refinement). Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`.
+- **`wikipage.py`** — Pure-functional page model: frontmatter get/set/merge, body access, link iteration. `wikipage.py get <file> <key>`, `wikipage.py set <file> <key> <value> [--json]`, `wikipage.py merge <file> <key> <json-list>`. Call for frontmatter edits during ingestion (discovery-driven updates, edge refinement). Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`.
 - **`page_record.py`** — The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Library only (no CLI). Imported by `build_index.py`, `Vault.pages()`, `ingest_scan.py`, `search_index.py`.
 - **`place.py`** — Compute a new page's vault-relative path from kind and title. `place.py <kind> "<title>"`. Used by `ingest.py`; call directly to preview a page's planned path.
 - **`commit.py`** — Write one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns the SHA. `commit.py --manifest <path>`. Called by `ingest.py`; call directly for hand-assembled commits.
