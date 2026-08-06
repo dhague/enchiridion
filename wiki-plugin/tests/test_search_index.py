@@ -550,6 +550,69 @@ class TestGitDate:
         # git_date=2026-07-01 does
         assert [h.rel for h in idx.search(since="2026-06-01", date_field="git_date")] == ["concepts/a.md"]
 
+    def test_scan_computes_git_dates_once(self, tmp_path, monkeypatch):
+        """#124: a multi-page scan must run one ``git log`` pass, not one per
+        page — N subprocesses collapse to 1."""
+        pages = {
+            "concepts/a.md": _page(rel="concepts/a.md"),
+            "concepts/b.md": _page(rel="concepts/b.md"),
+            "concepts/c.md": _page(rel="concepts/c.md"),
+        }
+        idx = SearchIndex(_vault(tmp_path, pages))
+        calls: list[str] = []
+        real = search_index._compute_git_dates
+        monkeypatch.setattr(
+            search_index, "_compute_git_dates",
+            lambda root: (calls.append(str(root)) or real(root)),
+        )
+        idx.search()
+        assert calls == [str(tmp_path)]
+
+    def test_reindex_walk_computes_git_dates_once(self, tmp_path, monkeypatch):
+        pages = {
+            "concepts/a.md": _page(rel="concepts/a.md"),
+            "concepts/b.md": _page(rel="concepts/b.md"),
+        }
+        idx = SearchIndex(_vault(tmp_path, pages))
+        calls: list[str] = []
+        real = search_index._compute_git_dates
+        monkeypatch.setattr(
+            search_index, "_compute_git_dates",
+            lambda root: (calls.append(str(root)) or real(root)),
+        )
+        idx.reindex(full=True)
+        assert calls == [str(tmp_path)]
+
+    def test_injected_git_dates_need_no_git_repo(self, tmp_path):
+        """#124: ``upsert_page`` accepts the git-date map, so date propagation
+        is assertable without standing up a git repo."""
+        path = tmp_path / "wiki" / "concepts" / "a.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_page(rel="concepts/a.md"), encoding="utf-8")
+        idx = SearchIndex(tmp_path)
+        idx.upsert_page(
+            "concepts/a.md", path.read_text(encoding="utf-8"),
+            git_dates={"concepts/a.md": "2026-03-15"},
+        )
+        (hit,) = idx.search()
+        assert hit.git_date == "2026-03-15"
+
+    def test_scan_uses_injected_git_dates_for_stale_page(self, tmp_path, monkeypatch):
+        """The scan must thread its map through to the upsert: a page that
+        changed since the last index picks up its date in the same pass."""
+        path = tmp_path / "wiki" / "concepts" / "a.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_page(rel="concepts/a.md", body="original"), encoding="utf-8")
+        idx = SearchIndex(tmp_path)
+        assert idx.search("original")
+        path.write_text(_page(rel="concepts/a.md", body="rewritten"), encoding="utf-8")
+        os.utime(path, None)
+        monkeypatch.setattr(
+            search_index, "_compute_git_dates", lambda _root: {"concepts/a.md": "2026-04-20"}
+        )
+        (hit,) = idx.search("rewritten")
+        assert hit.git_date == "2026-04-20"
+
 
 # --- CLI -----------------------------------------------------------------
 

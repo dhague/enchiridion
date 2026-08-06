@@ -283,6 +283,7 @@ class SearchIndex:
         }
         seen: set[str] = set()
         stats = IndexStats()
+        git_dates = _compute_git_dates(self.root)
         for path in (self.root / "wiki").rglob("*.md"):
             rel = path.relative_to(self.root / "wiki").as_posix()
             seen.add(rel)
@@ -290,10 +291,12 @@ class SearchIndex:
             mtime_ns, size = st.st_mtime_ns, st.st_size
             prev = indexed.get(rel)
             if prev is None:
-                self.upsert_page(rel, path.read_text(encoding="utf-8"))
+                self.upsert_page(rel, path.read_text(encoding="utf-8"),
+                                 git_dates=git_dates)
                 stats.inserted += 1
             elif prev != (mtime_ns, size):
-                self.upsert_page(rel, path.read_text(encoding="utf-8"))
+                self.upsert_page(rel, path.read_text(encoding="utf-8"),
+                                 git_dates=git_dates)
                 stats.updated += 1
 
         for rel in indexed.keys() - seen:
@@ -310,9 +313,11 @@ class SearchIndex:
         rebuild path."""
         start = time.monotonic()
         stats = IndexStats()
+        git_dates = _compute_git_dates(self.root)
         for path in (self.root / "wiki").rglob("*.md"):
             rel = path.relative_to(self.root / "wiki").as_posix()
-            self.upsert_page(rel, path.read_text(encoding="utf-8"))
+            self.upsert_page(rel, path.read_text(encoding="utf-8"),
+                             git_dates=git_dates)
             stats.inserted += 1
         self._recompute_superseded_by()
         stats.pages = self._count_pages()
@@ -327,15 +332,26 @@ class SearchIndex:
 
     # -- per-page upsert/remove (used inline by Vault) -------------------
 
-    def upsert_page(self, rel: str, text: str) -> None:
+    def upsert_page(
+        self, rel: str, text: str,
+        git_dates: dict[str, str] | None = None,
+    ) -> None:
         """Index/replace one page. ``rel`` is wiki-relative. The file at
         ``self.root / "wiki" / rel`` must already exist — its
         ``(mtime_ns, size)`` is stored verbatim, and is what the next
-        staleness scan compares against to call this row fresh."""
+        staleness scan compares against to call this row fresh.
+
+        ``git_dates`` is the ``{rel: date}`` map from one :func:`_compute_git_dates`
+        pass; scan callers derive it once per walk and hand it down. When it's
+        ``None`` (the single-page path, ``Vault.write``'s inline update) it is
+        computed here — one full-history ``git log`` pass per write, the honest
+        cost of that already-documented latency optimisation.
+        """
         rec = page_record.page_record(rel, text)
         path = self.root / "wiki" / rel
         st = path.stat()
-        git_dates = _compute_git_dates(self.root)
+        if git_dates is None:
+            git_dates = _compute_git_dates(self.root)
         body = _body_text(text)
 
         c = self._conn
