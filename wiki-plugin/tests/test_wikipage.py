@@ -482,6 +482,82 @@ def test_resolve_link_dest_empty_page_dir():
     assert wikipage.resolve_link_dest("a.md", "", prefix="") == "a.md"
 
 
+# --- compose_link (#101: plans name rels, ingest.py composes the link) ---------
+
+
+def test_compose_link_relativises_across_kinds():
+    assert (
+        wikipage.compose_link("Notes", "wiki/source/notes.md", "wiki/concept")
+        == "[Notes](../source/notes.md)"
+    )
+
+
+def test_compose_link_same_directory_is_the_bare_filename():
+    assert (
+        wikipage.compose_link("Existing", "wiki/concept/existing.md", "wiki/concept")
+        == "[Existing](existing.md)"
+    )
+
+
+def test_compose_link_encodes_the_destination_not_the_label():
+    assert (
+        wikipage.compose_link("My Notes (draft).md", "raw/My Notes (draft).md", "wiki/source")
+        == "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"
+    )
+
+
+def test_compose_link_empty_page_dir():
+    assert wikipage.compose_link("A", "a.md", "") == "[A](a.md)"
+
+
+# --- iter_links: balanced-paren destinations (#101) -----------------------------
+
+
+def test_iter_links_balanced_parens_in_dest():
+    body = "[Foo](https://en.wikipedia.org/wiki/Foo_(disambiguation))"
+    (lk,) = list(wikipage.iter_links(body))
+    assert lk.dest == "https://en.wikipedia.org/wiki/Foo_(disambiguation)"
+
+
+def test_iter_links_balanced_parens_does_not_swallow_a_following_link():
+    body = "[a](x_(y).md) [b](z.md)"
+    dests = [lk.dest for lk in wikipage.iter_links(body)]
+    assert dests == ["x_(y).md", "z.md"]
+
+
+def test_iter_links_unbalanced_close_paren_still_ends_the_destination():
+    # a title in parens after the dest still works once the dest itself balances
+    body = '[a](x.md "a title")'
+    (lk,) = list(wikipage.iter_links(body))
+    assert lk.dest == "x.md"
+
+
+# --- normalize_body_links (#101: ingest.py re-encodes body links on write) -----
+
+
+def test_normalize_body_links_encodes_an_unencoded_paren():
+    body = "See [notes](../../raw/My%20Notes%20(draft).md)."
+    assert (
+        wikipage.normalize_body_links(body)
+        == "See [notes](../../raw/My%20Notes%20%28draft%29.md)."
+    )
+
+
+def test_normalize_body_links_is_idempotent():
+    body = "See [notes](../../raw/My%20Notes%20%28draft%29.md)."
+    assert wikipage.normalize_body_links(body) == body
+
+
+def test_normalize_body_links_leaves_absolute_urls_alone():
+    body = "[Wikipedia](https://en.wikipedia.org/wiki/Foo_(disambiguation))"
+    assert wikipage.normalize_body_links(body) == body
+
+
+def test_normalize_body_links_leaves_bare_anchors_alone():
+    body = "[Section](#some-heading)"
+    assert wikipage.normalize_body_links(body) == body
+
+
 @given(
     dest=st.text(
         alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="/\\"),

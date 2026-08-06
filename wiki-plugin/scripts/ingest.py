@@ -6,6 +6,18 @@ Semantic chunking and overlap classification stay judgment and stay with the
 ingesting agent; everything downstream of that decision is mechanics, and
 mechanics belongs in a tested script, not prose an agent re-derives every run.
 
+A plan names link targets by **vault-relative rel only** — `edges` and
+`supersedes` values are paths like `"wiki/concept/foo.md"`, never composed
+`"[Title](../dest.md)"` strings. Composing the actual link — title (read
+from the target, on disk or elsewhere in this same plan), `../`
+relativisation, percent-encoding, and YAML quoting — is this module's job
+(:func:`_compose_edges`/:func:`wikipage.compose_link`), not the authoring
+agent's. `raw_source` follows the same rule via a boolean sentinel:
+`frontmatter: {"raw_source": true}` marks the page as the plan's `raw`
+artifact's stub, and the real link is composed from `plan.raw`. Body links
+are normalised (re-encoded) the same way on write, via
+:func:`wikipage.normalize_body_links`.
+
 The pipeline, in order: validate -> per page (place -> frontmatter -> body) ->
 regenerate the index -> derive a commit.Manifest from the plan -> commit.
 Validation is two-phase and runs entirely before any write: shape (required
@@ -132,14 +144,56 @@ def _page_dir(page: PagePlan) -> str | None:
     return None if rel is None else posixpath.dirname(rel)
 
 
-def _page_links(page: PagePlan) -> list[str]:
-    links = list(page.frontmatter.get("raw_source", "") and [page.frontmatter["raw_source"]] or [])
-    for targets in page.edges.values():
-        links.extend(targets)
-    return links
+def _resolve_title(target_rel: str, plan: IngestPlan, v: Vault) -> str:
+    """The title a link to ``target_rel`` should carry.
+
+    Prefers this same plan's own page for that rel — an update that
+    corrects a title makes every link written by the same plan reflect the
+    correction — then falls back to the on-disk page's own title, then the
+    rel's basename as a last resort (only reachable when validation didn't
+    already reject an unresolvable target).
+    """
+    target_rel = posixpath.normpath(target_rel)
+    for p in plan.pages:
+        if _page_rel(p) == target_rel:
+            return p.title
+    if (v.root / target_rel).is_file():
+        title = v.load(target_rel).get("title")
+        if title:
+            return title
+    return posixpath.basename(target_rel)
 
 
-def _projected_page(page: PagePlan, v: Vault) -> WikiPage | None:
+def _compose_raw_source(page_dir: str, plan: IngestPlan) -> str:
+    """The composed ``raw_source`` link for the ``frontmatter.raw_source: true`` sentinel."""
+    return wikipage.compose_link(posixpath.basename(plan.raw), plan.raw, page_dir)
+
+
+def _compose_edges(
+    edges: dict[str, list[str]], page_dir: str, plan: IngestPlan, v: Vault
+) -> dict[str, list[str]]:
+    """Compose every edge-key's vault-relative rels into markdown links."""
+    return {
+        key: [wikipage.compose_link(_resolve_title(rel, plan, v), rel, page_dir) for rel in rels]
+        for key, rels in edges.items()
+    }
+
+
+def _page_link_targets(page: PagePlan, plan: IngestPlan) -> list[tuple[str, str]]:
+    """``(key, normalized target rel)`` pairs this page's edges/``raw_source``
+    name, for existence validation. Plans name targets by vault-relative rel
+    only, so this is a direct normalize — no markdown-link parsing.
+    """
+    targets: list[tuple[str, str]] = []
+    if page.frontmatter.get("raw_source") is True and plan.raw:
+        targets.append(("raw_source", posixpath.normpath(plan.raw)))
+    for key, rels in page.edges.items():
+        for rel in rels:
+            targets.append((key, posixpath.normpath(rel)))
+    return targets
+
+
+def _projected_page(page: PagePlan, plan: IngestPlan, v: Vault) -> WikiPage | None:
     """The frontmatter this page will carry once ``plan`` is executed, without
     writing anything.
 
@@ -156,7 +210,7 @@ def _projected_page(page: PagePlan, v: Vault) -> WikiPage | None:
         base = WikiPage("")
     else:
         base = v.load(rel) if (v.root / rel).is_file() else WikiPage("")
-    return _apply_frontmatter(base, page)
+    return _apply_frontmatter(base, page, plan, v)
 
 
 def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
@@ -173,7 +227,7 @@ def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
         rel = _page_rel(page)
         if rel is None:
             continue
-        projected = _projected_page(page, v)
+        projected = _projected_page(page, plan, v)
         if projected is not None:
             staged[rel] = projected
     return chain_of_evidence.check(staged, plan.raw)
@@ -237,22 +291,23 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
             elif root is not None and not (root / page.rel).is_file():
                 errors.append(f"{prefix}.rel {page.rel} does not exist")
 
+        raw_source = page.frontmatter.get("raw_source")
+        if raw_source is not None and raw_source is not True:
+            errors.append(
+                f"{prefix}.frontmatter.raw_source must be true (derived from plan.raw),"
+                f" got {raw_source!r}"
+            )
+        elif raw_source is True and not plan.raw:
+            errors.append(f"{prefix}.frontmatter.raw_source is true but plan.raw is not set")
+
         if root is None:
             continue
 
-        page_dir = _page_dir(page)
-        if page_dir is None:
-            continue
-        for link in _page_links(page):
-            dest = wikipage.link_dest(link)
-            if dest is None:
-                errors.append(f"{prefix}: {link!r} is not a markdown link")
+        for key, target in _page_link_targets(page, plan):
+            if target in prospective:
                 continue
-            resolved = wikipage.resolve_link_dest(dest, page_dir, prefix="")
-            if resolved in prospective:
-                continue
-            if not (root / resolved).exists():
-                errors.append(f"{prefix}: link {link!r} does not resolve to a real page")
+            if not (root / target).exists():
+                errors.append(f"{prefix}: {key} target {target!r} does not resolve to a real page")
 
     if root is not None and plan.raw:
         errors.extend(_chain_of_evidence_errors(plan, root))
@@ -261,15 +316,18 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
         raise PlanError("; ".join(errors))
 
 
-def _apply_frontmatter(page: WikiPage, plan_page: PagePlan) -> WikiPage:
+def _apply_frontmatter(page: WikiPage, plan_page: PagePlan, plan: IngestPlan, v: Vault) -> WikiPage:
+    page_dir = _page_dir(plan_page) or ""
     page = page.set("title", plan_page.title)
     merging = plan_page.op == "update"
     for key, value in plan_page.frontmatter.items():
+        if key == "raw_source" and value is True:
+            value = _compose_raw_source(page_dir, plan)
         if merging and isinstance(value, list):
             page = page.merge(key, value)
         else:
             page = page.set(key, value)
-    for key, links in plan_page.edges.items():
+    for key, links in _compose_edges(plan_page.edges, page_dir, plan, v).items():
         page = page.merge(key, links) if merging else page.set(key, links)
     return page
 
@@ -278,7 +336,7 @@ def _apply_body(page: WikiPage, new_body: str | None) -> WikiPage:
     if new_body is None:
         return page
     _fm, _body, offset = wikipage.split_frontmatter(page.text)
-    return WikiPage(page.text[:offset] + new_body)
+    return WikiPage(page.text[:offset] + wikipage.normalize_body_links(new_body))
 
 
 def execute(vault_root: Path | str, plan: IngestPlan) -> str:
@@ -298,20 +356,17 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
     for plan_page in plan.pages:
         if plan_page.op == "create":
             rel = place.path(plan_page.kind, plan_page.title)
-            page_dir = posixpath.dirname(rel)
-            page = _apply_frontmatter(WikiPage(""), plan_page)
-            page = WikiPage(page.text + plan_page.body)
+            page = _apply_frontmatter(WikiPage(""), plan_page, plan, v)
+            page = WikiPage(page.text + wikipage.normalize_body_links(plan_page.body))
             v.write(rel, page)
             created.append(rel)
 
-            for link in plan_page.edges.get("supersedes", []):
-                dest = wikipage.link_dest(link)
-                if dest is not None:
-                    superseded.append((wikipage.resolve_link_dest(dest, page_dir, prefix=""), rel))
+            for target_rel in plan_page.edges.get("supersedes", []):
+                superseded.append((posixpath.normpath(target_rel), rel))
         else:
             rel = plan_page.rel
             page = v.load(rel)
-            page = _apply_frontmatter(page, plan_page)
+            page = _apply_frontmatter(page, plan_page, plan, v)
             page = _apply_body(page, plan_page.body)
             v.write(rel, page)
             updated.append(rel)

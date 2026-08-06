@@ -72,7 +72,7 @@ Given one document at `<path>`:
          "body": "<what this artifact is; thin when its content was distilled into the pages below>",
          "frontmatter": {
            "summary": "<one line, ≤~20 words>",
-           "raw_source": "[<filename>](<relative/path/into/raw/>)"   // required here, omitted on every other kind — see wiki-conventions; the path is relative to THIS page once placed, and points at the artifact's real, unchanged filename
+           "raw_source": true   // required here, omitted on every other kind — marks this page as the "raw" field's stub; ingest.py composes the actual link
          },
          "edges": {}
        },
@@ -88,9 +88,9 @@ Given one document at `<path>`:
            "volatility": "stable | evolving | volatile"
          },
          "edges": {
-           "source": ["[<the stub's title>](../source/<stub-slug>.md)"],  // mandatory back-edge to the stub above
-           "related": ["[<title>](<relative/path.md>)"],
-           "supersedes": ["[<title>](<relative/path.md>)"]           // include on the new page when step 3 found a contradiction to resolve
+           "source": ["wiki/source/<stub-slug>.md"],  // mandatory back-edge to the stub above
+           "related": ["<vault-relative path.md>"],
+           "supersedes": ["<vault-relative path.md>"]           // include on the new page when step 3 found a contradiction to resolve
          }
        },
        {
@@ -99,8 +99,8 @@ Given one document at `<path>`:
          "title": "<unchanged or corrected title>",
          "frontmatter": { "volatility": "evolving", "tags": ["new-tag"] },   // scalar keys overwrite; a list-valued key like tags is unioned with what the page already has, never overwritten
          "edges": {
-           "source": ["[<the stub's title>](../source/<stub-slug>.md)"],  // an updated page needs it too
-           "related": ["[<title>](<relative/path.md>)"]                   // edge-list keys union with what the page already has
+           "source": ["wiki/source/<stub-slug>.md"],  // an updated page needs it too
+           "related": ["<vault-relative path.md>"]                   // edge-list keys union with what the page already has
          }
          // omit "body" entirely when nothing in the body changes
        }
@@ -108,13 +108,15 @@ Given one document at `<path>`:
    }
    ```
 
+   Every `edges` value and `raw_source: true` names its target by **vault-relative path only** (`"wiki/concept/foo.md"`, matching `place.KINDS`'s folders) — never a composed `[Title](../dest.md)` string. `ingest.py` reads each target's title (on disk, or from this same plan for a sibling it's about to create), works out the `../` relativisation from the writing page's own location, and percent-encodes the destination; you never build the link string by hand. The one exception is a *body* link — write it as ordinary markdown prose (`[label](destination)`), encoded or not; `ingest.py` re-encodes it on write regardless, from whatever you gave it.
+
    A few judgment calls stay yours when filling this in, mirroring the old steps 4-7 — and a folder's `INGESTION.md` may override any of them outright, except where noted below that it can't:
    - **Kind** (create pages only): `source/` (stand-in for the raw artifact) → `synthesis/` (saved query result) → `entity/` (named, repeatedly-linked thing) → `concept/` (default), first match wins. `ingest.py` computes the exact kebab-slug path from `kind`+`title` — never hand-slugify.
-   - **The `source/` stub is not optional** (see [The chain of evidence](../wiki-conventions/SKILL.md#the-chain-of-evidence)). Whenever the plan names a `raw` artifact, one page in it is that artifact's `source/` stand-in, carrying `raw_source`. When the artifact's value is really the knowledge inside it and that lands in `concept/`/`entity/` pages, the stub is still there — just **thin**: `title`, a one-paragraph `summary`, the `raw_source` link, and a body that says what the artifact is rather than restating what was distilled out of it. If a previous pass already filed the stub, target it with an `op: "update"` instead of creating a second one.
+   - **The `source/` stub is not optional** (see [The chain of evidence](../wiki-conventions/SKILL.md#the-chain-of-evidence)). Whenever the plan names a `raw` artifact, one page in it is that artifact's `source/` stand-in, carrying `raw_source: true`. When the artifact's value is really the knowledge inside it and that lands in `concept/`/`entity/` pages, the stub is still there — just **thin**: `title`, a one-paragraph `summary`, the `raw_source: true` flag, and a body that says what the artifact is rather than restating what was distilled out of it. If a previous pass already filed the stub, target it with an `op: "update"` instead of creating a second one.
    - **Typed edges** (`refines`/`contradicts`/`example-of`/`source`/`related`) — judge these for **every new or updated page**, against every existing page surfaced in step 3. Assign the most specific type that's true (`related` only as a fallback); `contradicts`/`supersedes` are already decided by step 3 where applicable, and belong on the *new* page only — never on the superseded page.
      - The one edge that is *not* judgment: **every page in the plan except the stub itself carries a `source` edge to the stub** — each page of a multi-chunk split, and an `op: "update"` page as much as a `create` one. The plan's edges are merged into an updated page, so restating it is safe; omit it only when that page already carries it from an earlier pass.
    - **Body**, for an `update` page: write the *complete* new body text (not a diff) when the material actually changes something in it; omit the `body` key entirely to leave the existing body untouched. For a `create` page, `body` is always required.
-   - **`raw_source`**'s destination points at the raw artifact exactly where it sits (matching the plan's own `raw` field). **Ingestion never renames a raw file** — a file that came from outside the plugin keeps its name verbatim, forever, so don't add a `YYYY-MM-DD-hhmm-` prefix or expect one to appear (that prefix is bound at creation, and only for files the plugin itself creates). Percent-encode the destination — but not the label — where the filename needs it (`%` `space` `(` `)` `#` `<` `>`; leave unicode literal): `"[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"`.
+   - **`raw_source: true`** derives its link from the plan's own `raw` field — the raw artifact wherever it sits. **Ingestion never renames a raw file** — a file that came from outside the plugin keeps its name verbatim, forever, so don't add a `YYYY-MM-DD-hhmm-` prefix or expect one to appear (that prefix is bound at creation, and only for files the plugin itself creates). Two footnotes on the mechanics `ingest.py` handles for you: a literal `#` always separates an anchor from the path, so a `#` inside a *filename* must be written `%23`; an unbalanced `)` inside a filename must likewise be encoded, since a destination ends at the first unbalanced `)`.
 5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates the whole plan up front (every required field, every `update`'s `rel` exists, every `create`'s target doesn't yet, every edge/`raw_source` link resolves to a real page — including a sibling page this same plan is about to create — and, when `raw` is set, the chain of evidence: the stub exists and every other page links back to it) before writing anything, then executes place → frontmatter → body → index → commit in one pass and prints the commit SHA. If it raises, nothing was committed but any pages it did get to are left on disk uncommitted (writes are idempotent, so fix the plan and rerun rather than hand-repairing).
 6. **Report.** Reply with only a short manifest — pages created vs. updated, edges added, any `supersedes` pairs recorded — never page-content dumps.
 
