@@ -41,9 +41,9 @@ def _git(root, *args):
 
 def _seed_vault(root: Path) -> None:
     """A vault with wiki/{concept,entity,source,synthesis}, raw/, and an _index.md."""
-    (root / "wiki" / "concept").mkdir(parents=True)
-    (root / "wiki" / "entity").mkdir(parents=True)
-    (root / "wiki" / "source").mkdir(parents=True)
+    (root / "wiki" / "concepts").mkdir(parents=True)
+    (root / "wiki" / "entities").mkdir(parents=True)
+    (root / "wiki" / "sources").mkdir(parents=True)
     (root / "wiki" / "synthesis").mkdir(parents=True)
     (root / "raw").mkdir()
     (root / "wiki" / "_index.md").write_text("stub\n", encoding="utf-8")
@@ -206,7 +206,7 @@ class TestScanIgnored:
         signal. A file already linked from a page, but matched by its
         folder's policy, must not be offered."""
         _seed_vault(tmp_path)
-        (tmp_path / "wiki" / "source" / "foo.md").write_text(
+        (tmp_path / "wiki" / "sources" / "foo.md").write_text(
             '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/foo.md)"\n---\n# Foo\n',
             encoding="utf-8",
         )
@@ -237,7 +237,7 @@ class TestScanEligibility:
         """No git available, or no date for a path ⇒ treat as eligible
         (fail toward offering, never toward silently skipping)."""
         _seed_vault(tmp_path)
-        (tmp_path / "wiki" / "source" / "foo.md").write_text(
+        (tmp_path / "wiki" / "sources" / "foo.md").write_text(
             '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/foo.md)"\n---\n# Foo\n',
             encoding="utf-8",
         )
@@ -252,7 +252,7 @@ class TestScanEligibility:
         cand = result.eligible[0]
         assert cand.raw_rel == "raw/foo.md"
         assert cand.reason == "changed-since-ingestion"
-        assert cand.back_pointers == ["wiki/source/foo.md"]
+        assert cand.back_pointers == ["wiki/sources/foo.md"]
 
     def test_a_percent_encoded_raw_source_still_matches(self, tmp_path):
         """A raw filename with spaces/parens is percent-encoded in the
@@ -260,7 +260,7 @@ class TestScanEligibility:
         file on disk."""
         _seed_vault(tmp_path)
         # The source page carries an encoded destination.
-        (tmp_path / "wiki" / "source" / "my-notes.md").write_text(
+        (tmp_path / "wiki" / "sources" / "my-notes.md").write_text(
             '---\ntitle: My Notes\n'
             'raw_source: "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"\n'
             '---\n# My Notes\n',
@@ -279,7 +279,7 @@ class TestScanEligibility:
         cand = result.eligible[0]
         assert cand.raw_rel == "raw/My Notes (draft).md"
         assert cand.reason == "changed-since-ingestion"
-        assert cand.back_pointers == ["wiki/source/my-notes.md"]
+        assert cand.back_pointers == ["wiki/sources/my-notes.md"]
 
 
 # --- scan: git-backed eligibility ----------------------------------------
@@ -304,7 +304,7 @@ class TestScanGitBacked:
         commit (`e548c78` in the vault does) — strictly newer, not `>=`,
         means we don't re-offer it forever."""
         (git_vault / "raw" / "notes.md").write_text("raw notes", encoding="utf-8")
-        (git_vault / "wiki" / "source" / "notes.md").write_text(
+        (git_vault / "wiki" / "sources" / "notes.md").write_text(
             '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
             encoding="utf-8",
         )
@@ -334,7 +334,7 @@ class TestScanGitBacked:
             )
 
         (git_vault / "raw" / "notes.md").write_text("raw notes v1", encoding="utf-8")
-        (git_vault / "wiki" / "source" / "notes.md").write_text(
+        (git_vault / "wiki" / "sources" / "notes.md").write_text(
             '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
             encoding="utf-8",
         )
@@ -351,14 +351,14 @@ class TestScanGitBacked:
         cand = result.eligible[0]
         assert cand.raw_rel == "raw/notes.md"
         assert cand.reason == "changed-since-ingestion"
-        assert cand.back_pointers == ["wiki/source/notes.md"]
+        assert cand.back_pointers == ["wiki/sources/notes.md"]
 
     def test_dirty_working_tree_overrides_date_equality(self, git_vault):
         """An uncommitted edit is the cheapest re-offer signal — the
         file is dirty per `git status --porcelain`, so it's offered
         even though the committed dates are equal."""
         (git_vault / "raw" / "notes.md").write_text("raw notes", encoding="utf-8")
-        (git_vault / "wiki" / "source" / "notes.md").write_text(
+        (git_vault / "wiki" / "sources" / "notes.md").write_text(
             '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
             encoding="utf-8",
         )

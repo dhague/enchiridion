@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 import init_wiki
+import place
 
 
 @pytest.fixture(autouse=True)
@@ -70,8 +71,8 @@ def test_query_from_anywhere_requires_plugin_root(tmp_path):
 
 def test_dedicated_mode_creates_kind_folders(tmp_path):
     init_wiki.init_wiki(tmp_path, mode="dedicated")
-    for kind in init_wiki.KIND_FOLDERS:
-        assert (tmp_path / "wiki" / kind).is_dir()
+    for folder in place.KIND_FOLDERS.values():
+        assert (tmp_path / "wiki" / folder).is_dir()
     assert (tmp_path / "raw").is_dir()
 
 

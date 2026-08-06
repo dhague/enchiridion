@@ -21,7 +21,7 @@ Every script invoked below lives in this plugin's install directory and resolves
 A raw folder may carry `raw/<folder>/INGESTION.md`: freeform, human-authored instructions for ingesting *that folder's* documents — e.g. "take `source_date` from the message's `Date:` header, list the recipients in the body, prefer the `correspondence` tag". Read it like a `SKILL.md`: plain prose to interpret, not a schema to parse.
 
 - **Lookup is the document's own folder, and only that.** Ingesting `raw/emails/foo.eml` looks for `raw/emails/INGESTION.md`. There is deliberately **no ancestor walk** — `raw/INGESTION.md` and a vault-root one are *not* consulted, so there is never a precedence question to resolve.
-- **Hints win on conflict.** They are an explicit override for that folder, not a tiebreaker. If a folder's `INGESTION.md` says "file these as `entity/` pages, one per person", it beats the default placement algorithm's answer.
+- **Hints win on conflict.** They are an explicit override for that folder, not a tiebreaker. If a folder's `INGESTION.md` says "file these as `entities/` pages, one per person", it beats the default placement algorithm's answer.
 - **They cannot extend the frontmatter schema, or waive the chain of evidence.** The `wiki-conventions` schema is the fixed contract retrieval relies on; a hint steers judgment *already inside* this procedure — how to chunk, which tags to prefer, how to derive `source_date`, which subject-defined kind fits, which typed edges are likely — and never adds a frontmatter key, a kind, or a folder. So "list the recipients" puts recipients in the page **body**; it does not mint a `recipients:` key. The mandatory `source/` stub and its back-edges are likewise not a default a hint can turn off — `ingest.py` rejects a plan without them either way.
 - **An `INGESTION.md` is never itself ingested.** It is instructions, not content — if you are handed one as `<path>`, skip it.
 
@@ -73,18 +73,18 @@ Given one document at `<path>`. Where a step below calls for more than one indep
            "volatility": "stable | evolving | volatile"
          },
          "edges": {
-           "source": ["wiki/source/<stub-slug>.md"],  // mandatory back-edge to the stub above
+           "source": ["wiki/sources/<stub-slug>.md"],  // mandatory back-edge to the stub above
            "related": ["<vault-relative path.md>"],
            "supersedes": ["<vault-relative path.md>"]           // include on the new page when step 3 found a contradiction to resolve
          }
        },
        {
          "op": "update",
-         "rel": "wiki/concept/existing-page.md",   // the page step 3 classified as substantive-overlap
+         "rel": "wiki/concepts/existing-page.md",   // the page step 3 classified as substantive-overlap
          "title": "<unchanged or corrected title>",
          "frontmatter": { "volatility": "evolving", "tags": ["new-tag"] },   // scalar keys overwrite; a list-valued key like tags is unioned with what the page already has, never overwritten
          "edges": {
-           "source": ["wiki/source/<stub-slug>.md"],  // an updated page needs it too
+           "source": ["wiki/sources/<stub-slug>.md"],  // an updated page needs it too
            "related": ["<vault-relative path.md>"]                   // edge-list keys union with what the page already has
          }
          // omit "body" entirely when nothing in the body changes
@@ -93,7 +93,7 @@ Given one document at `<path>`. Where a step below calls for more than one indep
    }
    ```
 
-   Every `edges` value and `raw_source: true` names its target by **vault-relative path only** (`"wiki/concept/foo.md"`, matching `place.KINDS`'s folders) — never a composed `[Title](../dest.md)` string. `ingest.py` reads each target's title (on disk, or from this same plan for a sibling it's about to create), works out the `../` relativisation from the writing page's own location, and percent-encodes the destination; you never build the link string by hand. The one exception is a *body* link — write it as ordinary markdown prose (`[label](destination)`), encoded or not; `ingest.py` re-encodes it on write regardless, from whatever you gave it.
+   Every `edges` value and `raw_source: true` names its target by **vault-relative path only** (`"wiki/concepts/foo.md"`, matching `place.KIND_FOLDERS`'s folders) — never a composed `[Title](../dest.md)` string. `ingest.py` reads each target's title (on disk, or from this same plan for a sibling it's about to create), works out the `../` relativisation from the writing page's own location, and percent-encodes the destination; you never build the link string by hand. The one exception is a *body* link — write it as ordinary markdown prose (`[label](destination)`), encoded or not; `ingest.py` re-encodes it on write regardless, from whatever you gave it.
 
    A few judgment calls stay yours when filling this in, mirroring the old steps 4-7 — and a folder's `INGESTION.md` may override any of them outright, except where noted below that it can't:
    - **Kind** (create pages only): per the [Placement algorithm](../wiki-conventions/SKILL.md#placement-algorithm), first match wins. `ingest.py` computes the exact kebab-slug path from `kind`+`title` — never hand-slugify.

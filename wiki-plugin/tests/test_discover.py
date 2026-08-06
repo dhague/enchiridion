@@ -61,7 +61,7 @@ def _write_page(root: Path, rel: str, title: str, summary: str, body: str) -> No
 def vault_root(tmp_path):
     _write_page(
         tmp_path,
-        "concept/connection-pooling.md",
+        "concepts/connection-pooling.md",
         "Connection Pooling in Postgres",
         "Reuse connections instead of opening a new one per request.",
         "Connection pooling reduces per-request handshake overhead by "
@@ -69,7 +69,7 @@ def vault_root(tmp_path):
     )
     _write_page(
         tmp_path,
-        "concept/sourdough-starter.md",
+        "concepts/sourdough-starter.md",
         "Feeding a Sourdough Starter",
         "Daily flour-and-water feeding keeps a starter active.",
         "A sourdough starter needs equal parts flour and water once a day, "
@@ -88,7 +88,7 @@ class TestCheckFindsOwnTitle:
             summary="",
             body="",
         )
-        assert any(c.rel == "concept/connection-pooling.md" for c in candidates)
+        assert any(c.rel == "concepts/connection-pooling.md" for c in candidates)
 
 
 class TestCheckSurvivesNoisyNewText:
@@ -105,7 +105,7 @@ class TestCheckSurvivesNoisyNewText:
             summary="A totally unrelated sentence about zebras and volcanoes.",
             body="",
         )
-        assert any(c.rel == "concept/connection-pooling.md" for c in candidates)
+        assert any(c.rel == "concepts/connection-pooling.md" for c in candidates)
 
 
 class TestCheckDisjointTitlesAreDistinct:
@@ -119,7 +119,7 @@ class TestCheckDisjointTitlesAreDistinct:
             body="",
         )
         connection_pooling_hits = [
-            c for c in candidates if c.rel == "concept/connection-pooling.md"
+            c for c in candidates if c.rel == "concepts/connection-pooling.md"
         ]
         assert all(c.hint == "distinct" for c in connection_pooling_hits)
 
@@ -137,7 +137,7 @@ class TestCheckBodyIsQueryScoresHighest:
             "reusing a fixed set of open connections across callers.",
         )
         assert candidates
-        assert candidates[0].rel == "concept/connection-pooling.md"
+        assert candidates[0].rel == "concepts/connection-pooling.md"
 
 
 class TestCheckHintsOnRealHits:
@@ -157,7 +157,7 @@ class TestCheckHintsOnRealHits:
             duplicate_threshold=1e-06,
             related_threshold=1e-08,
         )
-        (top,) = [c for c in candidates if c.rel == "concept/connection-pooling.md"]
+        (top,) = [c for c in candidates if c.rel == "concepts/connection-pooling.md"]
         assert top.hint == "duplicate"
 
     def test_returns_discovery_candidate_instances(self, vault_root):
@@ -181,7 +181,7 @@ class TestCheckReturnsFullPayload:
             summary="",
             body="",
         )
-        (top,) = [c for c in candidates if c.rel == "concept/connection-pooling.md"]
+        (top,) = [c for c in candidates if c.rel == "concepts/connection-pooling.md"]
         assert top.summary == "Reuse connections instead of opening a new one per request."
         assert isinstance(top.tags, list)
         assert isinstance(top.volatility, str)
@@ -200,10 +200,10 @@ class TestDiscoverPlan:
         titles = [title for title, _ in results]
         assert titles == ["Connection Pooling in Postgres", "Feeding a Sourdough Starter"]
         pooling_candidates = dict(results)["Connection Pooling in Postgres"]
-        assert any(c.rel == "concept/connection-pooling.md" for c in pooling_candidates)
+        assert any(c.rel == "concepts/connection-pooling.md" for c in pooling_candidates)
 
     def test_update_page_with_no_body_does_not_crash(self, vault_root):
-        pages = [PagePlan(op="update", title="Connection Pooling in Postgres", rel="wiki/concept/connection-pooling.md", frontmatter={})]
+        pages = [PagePlan(op="update", title="Connection Pooling in Postgres", rel="wiki/concepts/connection-pooling.md", frontmatter={})]
         results = discover_plan(vault_root, pages)
         assert len(results) == 1
 
@@ -232,4 +232,4 @@ class TestVocabularyCLI:
         payload = json.loads(capsys.readouterr().out)
         assert "pages" in payload and "vocabulary" in payload
         assert payload["pages"][0]["title"] == "Connection Pooling in Postgres"
-        assert any(c["rel"] == "concept/connection-pooling.md" for c in payload["pages"][0]["candidates"])
+        assert any(c["rel"] == "concepts/connection-pooling.md" for c in payload["pages"][0]["candidates"])

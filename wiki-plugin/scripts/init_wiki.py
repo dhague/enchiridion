@@ -25,9 +25,7 @@ import sys
 from pathlib import Path
 
 import build_index
-
-#: The plugin-fixed kind-folder set (wiki-conventions, "Vault structure").
-KIND_FOLDERS = ("concept", "entity", "source", "synthesis")
+import place
 
 #: A directory is already a vault if either marker is present.
 _MARKERS = ("wiki", ".wiki-root")
@@ -109,8 +107,8 @@ def init_wiki(
 
     root.mkdir(parents=True, exist_ok=True)
 
-    for kind in KIND_FOLDERS:
-        kind_dir = root / "wiki" / kind
+    for folder in place.KIND_FOLDERS.values():
+        kind_dir = root / "wiki" / folder
         kind_dir.mkdir(parents=True, exist_ok=True)
         (kind_dir / ".gitkeep").touch()
     raw_dir = root / "raw"

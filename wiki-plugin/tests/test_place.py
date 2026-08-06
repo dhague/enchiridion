@@ -31,12 +31,12 @@ def test_slugify_strips_leading_trailing_hyphens():
 # --- path ------------------------------------------------------------------
 
 def test_path_joins_kind_folder_and_slug():
-    assert place.path("concept", "Prepared Statements") == "wiki/concept/prepared-statements.md"
+    assert place.path("concept", "Prepared Statements") == "wiki/concepts/prepared-statements.md"
 
 
 def test_path_covers_all_four_kinds():
     for kind in ("source", "synthesis", "entity", "concept"):
-        assert place.path(kind, "X") == f"wiki/{kind}/x.md"
+        assert place.path(kind, "X") == f"wiki/{place.KIND_FOLDERS[kind]}/x.md"
 
 
 def test_path_rejects_unknown_kind():
@@ -44,11 +44,24 @@ def test_path_rejects_unknown_kind():
         place.path("bogus", "X")
 
 
+def test_kind_folders_pluralize_except_synthesis():
+    assert place.KIND_FOLDERS == {
+        "source": "sources",
+        "synthesis": "synthesis",
+        "entity": "entities",
+        "concept": "concepts",
+    }
+
+
+def test_folder_kinds_is_the_exact_inverse():
+    assert place.FOLDER_KINDS == {folder: kind for kind, folder in place.KIND_FOLDERS.items()}
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_prints_path(capsys):
     place._main(["concept", "Prepared Statements"])
-    assert capsys.readouterr().out == "wiki/concept/prepared-statements.md\n"
+    assert capsys.readouterr().out == "wiki/concepts/prepared-statements.md\n"
 
 
 def test_cli_rejects_unknown_kind(capsys):
@@ -95,7 +108,7 @@ def test_path_truncates_slug_to_64_chars():
         "way-past-the-sixty-four-character-limit-we-enforce-for-windows"
     )
     result = place.path("concept", title)
-    slug = result.removeprefix("wiki/concept/").removesuffix(".md")
+    slug = result.removeprefix("wiki/concepts/").removesuffix(".md")
     assert len(slug) <= place.MAX_SLUG_LENGTH
 
 
@@ -105,6 +118,6 @@ def test_path_cuts_at_hyphen_boundary():
         "away-into-the-forest-never-to-be-seen-again"
     )
     result = place.path("concept", title)
-    slug = result.removeprefix("wiki/concept/").removesuffix(".md")
+    slug = result.removeprefix("wiki/concepts/").removesuffix(".md")
     assert slug == "the-quick-brown-fox-jumps-over-the-lazy-dog-and-then-runs-away"
     assert len(slug) <= place.MAX_SLUG_LENGTH

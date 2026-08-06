@@ -1,10 +1,11 @@
 """The page -> stub -> raw file chain every raw ingestion must leave.
 
 **The rule** (stated here once; :mod:`ingest` and :mod:`commit` only point at
-it): a raw file that produces pages at all must also produce a ``wiki/source/``
-stand-in for itself — a stub whose ``raw_source`` points back at the file — and
-every other page produced from it must carry a ``source`` edge back to that
-stub. So a reader can always walk from a claim to the artifact it came from.
+it): a raw file that produces pages at all must also produce a
+``wiki/sources/`` stand-in for itself — a stub whose ``raw_source`` points
+back at the file — and every other page produced from it must carry a
+``source`` edge back to that stub. So a reader can always walk from a claim
+to the artifact it came from.
 
 Two callers, one function, so the two checks cannot diverge: :mod:`ingest`
 validates a plan before any write (``staged`` projected from the plan, merged
@@ -15,7 +16,12 @@ from __future__ import annotations
 
 import posixpath
 
+import place
 from wikipage import WikiPage, link_dest, resolve_link_dest
+
+#: The `source` kind's folder — the one hardcoded folder string this module
+#: needs, kept in sync with :mod:`place` rather than duplicated.
+_SOURCE_DIR = f"wiki/{place.KIND_FOLDERS['source']}"
 
 
 def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
@@ -30,7 +36,7 @@ def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
 
     stub_rel: str | None = None
     for rel in sorted(staged):
-        if posixpath.dirname(rel) != "wiki/source":
+        if posixpath.dirname(rel) != _SOURCE_DIR:
             continue
         link = staged[rel].get("raw_source")
         if not isinstance(link, str):
@@ -42,7 +48,7 @@ def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
 
     if stub_rel is None:
         return [
-            f"{raw} needs a source/ page whose raw_source points at it "
+            f"{raw} needs a {place.KIND_FOLDERS['source']}/ page whose raw_source points at it "
             "— every ingested raw file gets a stand-in, even a thin stub"
         ]
 

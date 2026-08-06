@@ -6,7 +6,7 @@ Per the amended frontmatter contract (19be866, reconciled in #9), typed edges,
 ``lib.md.iter_links``, which already parses these) to recover each target's
 path, then re-base it from the *page's* directory to be relative to ``wiki/``
 (the directory ``_index.md`` itself lives in). ``_index.md`` indexes
-``wiki/**`` only — never ``raw/`` — though a ``source/`` page's ``raw_source``
+``wiki/**`` only — never ``raw/`` — though a ``sources/`` page's ``raw_source``
 pointer still rides along as data on that page's own row.
 """
 import build_index
@@ -14,7 +14,7 @@ import build_index
 
 def test_single_page_basic_fields():
     pages = {
-        "concept/prepared-statements.md": (
+        "concepts/prepared-statements.md": (
             "---\n"
             "title: Prepared statements\n"
             "summary: Avoid re-parsing repeated SQL text.\n"
@@ -27,7 +27,7 @@ def test_single_page_basic_fields():
     }
     out = build_index.build_index(pages)
     assert (
-        "| [concept/prepared-statements.md](concept/prepared-statements.md) "
+        "| [concepts/prepared-statements.md](concepts/prepared-statements.md) "
         "| Prepared statements | Avoid re-parsing repeated SQL text. "
         "| [sql, perf] | 2026-01-05 | stable |  |"
     ) in out
@@ -35,19 +35,19 @@ def test_single_page_basic_fields():
 
 def test_rows_sorted_by_path():
     pages = {
-        "entity/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "entities/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
-    a_pos = out.index("concept/a.md")
-    b_pos = out.index("entity/b.md")
+    a_pos = out.index("concepts/a.md")
+    b_pos = out.index("entities/b.md")
     assert a_pos < b_pos
 
 
 def test_index_md_itself_excluded():
     pages = {
         "_index.md": "stale content\n",
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
     assert "stale content" not in out
@@ -55,10 +55,10 @@ def test_index_md_itself_excluded():
 
 
 def test_typed_edge_rebased_relative_to_wiki_root():
-    # From entity/b.md, "related" points at "../concept/a.md" (relative to
-    # entity/). Relative to wiki/ (the index's own dir) that's "concept/a.md".
+    # From entities/b.md, "related" points at "../concepts/a.md" (relative to
+    # entities/). Relative to wiki/ (the index's own dir) that's "concepts/a.md".
     pages = {
-        "entity/b.md": (
+        "entities/b.md": (
             "---\n"
             "title: B\n"
             "summary: s\n"
@@ -66,14 +66,14 @@ def test_typed_edge_rebased_relative_to_wiki_root():
             "source_date: 2026-01-01\n"
             "volatility: stable\n"
             "related:\n"
-            '  - "[A](../concept/a.md)"\n'
+            '  - "[A](../concepts/a.md)"\n'
             "---\n"
         ),
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
-    row = [line for line in out.splitlines() if "entity/b.md" in line][0]
-    assert "related:concept/a.md" in row
+    row = [line for line in out.splitlines() if "entities/b.md" in line][0]
+    assert "related:concepts/a.md" in row
 
 
 def test_multiple_targets_under_one_edge_key():
@@ -86,21 +86,21 @@ def test_multiple_targets_under_one_edge_key():
             "source_date: 2026-01-01\n"
             "volatility: stable\n"
             "source:\n"
-            '  - "[A](../concept/a.md)"\n'
-            '  - "[B](../concept/b.md)"\n'
+            '  - "[A](../concepts/a.md)"\n'
+            '  - "[B](../concepts/b.md)"\n'
             "---\n"
         ),
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
-        "concept/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
     row = [line for line in out.splitlines() if "synthesis/s.md" in line][0]
-    assert "source:concept/a.md,concept/b.md" in row
+    assert "source:concepts/a.md,concepts/b.md" in row
 
 
 def test_supersedes_rendered():
     pages = {
-        "source/new.md": (
+        "sources/new.md": (
             "---\n"
             "title: New deploy\n"
             "summary: s\n"
@@ -111,18 +111,18 @@ def test_supersedes_rendered():
             '  - "[Old deploy](old.md)"\n'
             "---\n"
         ),
-        "source/old.md": "---\ntitle: Old deploy\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "sources/old.md": "---\ntitle: Old deploy\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
-    row = [line for line in out.splitlines() if "source/new.md" in line][0]
-    assert "supersedes:source/old.md" in row
+    row = [line for line in out.splitlines() if "sources/new.md" in line][0]
+    assert "supersedes:sources/old.md" in row
 
 
 def test_raw_source_rebased_across_wiki_boundary():
-    # From wiki/source/x.md, raw_source is "../../raw/notes/x.md" (relative to
-    # source/). Relative to wiki/ that's "../raw/notes/x.md".
+    # From wiki/sources/x.md, raw_source is "../../raw/notes/x.md" (relative to
+    # sources/). Relative to wiki/ that's "../raw/notes/x.md".
     pages = {
-        "source/x.md": (
+        "sources/x.md": (
             "---\n"
             "title: X source\n"
             "summary: s\n"
@@ -134,13 +134,13 @@ def test_raw_source_rebased_across_wiki_boundary():
         ),
     }
     out = build_index.build_index(pages)
-    row = [line for line in out.splitlines() if "source/x.md" in line][0]
+    row = [line for line in out.splitlines() if "sources/x.md" in line][0]
     assert "raw_source:../raw/notes/x.md" in row
 
 
 def test_edges_ordered_and_joined_with_semicolon():
     pages = {
-        "concept/a.md": (
+        "concepts/a.md": (
             "---\n"
             "title: A\n"
             "summary: s\n"
@@ -148,32 +148,32 @@ def test_edges_ordered_and_joined_with_semicolon():
             "source_date: 2026-01-01\n"
             "volatility: stable\n"
             "related:\n"
-            '  - "[B](../entity/b.md)"\n'
+            '  - "[B](../entities/b.md)"\n'
             "refines:\n"
-            '  - "[C](../concept/c.md)"\n'
+            '  - "[C](../concepts/c.md)"\n'
             "---\n"
         ),
-        "entity/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
-        "concept/c.md": "---\ntitle: C\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "entities/b.md": "---\ntitle: B\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/c.md": "---\ntitle: C\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
-    row = [line for line in out.splitlines() if line.startswith("| [concept/a.md]")][0]
+    row = [line for line in out.splitlines() if line.startswith("| [concepts/a.md]")][0]
     # Schema field order (refines before related), regardless of authored order.
-    assert "refines:concept/c.md; related:entity/b.md" in row
+    assert "refines:concepts/c.md; related:entities/b.md" in row
 
 
 def test_no_edges_renders_empty_cell():
     pages = {
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     out = build_index.build_index(pages)
-    row = [line for line in out.splitlines() if "concept/a.md" in line][0]
+    row = [line for line in out.splitlines() if "concepts/a.md" in line][0]
     assert row.endswith("|  |")
 
 
 def test_pipe_in_summary_is_escaped():
     pages = {
-        "concept/a.md": (
+        "concepts/a.md": (
             "---\ntitle: A\nsummary: has a | pipe\ntags: []\n"
             "source_date: 2026-01-01\nvolatility: stable\n---\n"
         ),
@@ -190,8 +190,8 @@ def test_empty_vault_renders_header_only():
 
 def test_deterministic_idempotent():
     pages = {
-        "concept/a.md": "---\ntitle: A\nsummary: s\ntags: [x]\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
-        "entity/b.md": "---\ntitle: B\nsummary: s\ntags: [y]\nsource_date: 2026-01-01\nvolatility: evolving\n---\n",
+        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: [x]\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "entities/b.md": "---\ntitle: B\nsummary: s\ntags: [y]\nsource_date: 2026-01-01\nvolatility: evolving\n---\n",
     }
     assert build_index.build_index(pages) == build_index.build_index(pages)
 
@@ -200,8 +200,8 @@ def test_deterministic_idempotent():
 
 def test_write_index_walks_wiki_only_and_writes_file(tmp_path):
     wiki = tmp_path / "wiki"
-    (wiki / "concept").mkdir(parents=True)
-    (wiki / "concept" / "a.md").write_text(
+    (wiki / "concepts").mkdir(parents=True)
+    (wiki / "concepts" / "a.md").write_text(
         "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
         encoding="utf-8",
     )
@@ -213,7 +213,7 @@ def test_write_index_walks_wiki_only_and_writes_file(tmp_path):
 
     assert index_path == wiki / "_index.md"
     content = index_path.read_text(encoding="utf-8")
-    assert "concept/a.md" in content
+    assert "concepts/a.md" in content
     assert "raw content" not in content
     assert "notes/x.md" not in content
 
@@ -222,8 +222,8 @@ def test_write_index_regenerates_stale_index(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir(parents=True)
     (wiki / "_index.md").write_text("stale\n", encoding="utf-8")
-    (wiki / "concept").mkdir()
-    (wiki / "concept" / "a.md").write_text(
+    (wiki / "concepts").mkdir()
+    (wiki / "concepts" / "a.md").write_text(
         "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
         encoding="utf-8",
     )
@@ -232,4 +232,4 @@ def test_write_index_regenerates_stale_index(tmp_path):
 
     content = (wiki / "_index.md").read_text(encoding="utf-8")
     assert "stale" not in content
-    assert "concept/a.md" in content
+    assert "concepts/a.md" in content
