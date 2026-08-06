@@ -50,3 +50,11 @@ A small (~15–30 page), hand-authored ground-truth vault used as the eval and m
 
 **Deployment mode**:
 Whether the plugin resolves the vault as the launch directory (**dedicated**) or via `$WIKI_ROOT` while installed user-scope for use from any repo (**query-from-anywhere**). Both are supported; the vault-root resolution order is what makes either possible (see [ADR-0004](docs/adr/0004-deployment-modes-and-vault-root-resolution.md)).
+
+**Turn**:
+One assistant message in an agent session, which may carry several parallel tool calls. Agent procedures are designed against turn cost — see [ADR-0007](docs/adr/0007-turn-cost-not-tool-call-count.md).
+_Avoid_: Tool call — a turn may batch several tool calls together, so the two counts diverge; see ADR-0007.
+
+**Tool call**:
+One `tool_use` invocation within a turn. Turns are not exactly recoverable from what's observable locally (no per-message identifier or timestamp in the `PostToolUse` payload, and subagent turns aren't persisted at all), so tool-call count is the measured proxy for turn count — see [ADR-0007](docs/adr/0007-turn-cost-not-tool-call-count.md).
+_Avoid_: Turn (interchangeably) — a tool call is one invocation; a turn may contain several. #98 used the two loosely before this ADR pinned them apart.
