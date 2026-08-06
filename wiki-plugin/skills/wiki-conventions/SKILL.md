@@ -153,11 +153,13 @@ The edge is **directional** — it reads *this page* → *key* → *target*. Inc
 
 ## Scripts
 
-Every script in `scripts/` resolves the vault root itself (`$WIKI_ROOT`, else the nearest ancestor `wiki/` directory, else cwd — see `vault.py`). Make sure your shell's working directory is already inside the target vault (or export `WIKI_ROOT`) before invoking any of them.
+Scripts that touch the vault resolve its root themselves (`$WIKI_ROOT`, else the nearest ancestor holding a `wiki/` directory or a `.wiki-root` marker, else cwd — see `vault.py`). Set `WIKI_ROOT` before invoking any of them. `wikipage.py` and `place.py` are the exceptions: they operate only on what you hand them, so no root is resolved.
 
 The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
 
 ### Script catalogue
+
+Everything an agent invokes, plus the two libraries this file's own contracts name. Other modules in `scripts/` are internal implementation, reached through these.
 
 | Script | Call it for | Usage |
 |---|---|---|
@@ -166,10 +168,10 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 | `ingest.py` | Executing an `IngestPlan` — validate, place, write, reindex, commit — after the agent assembles a plan (ingestion or synthesis save). | `ingest.py --plan <path>`. `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to that file's folder's `.ingestignore` instead — the sweep's `never` answer, mutually exclusive with `--plan`. |
 | `ingest_scan.py` | Sweeping `raw/` for files needing ingestion (never-ingested, changed-since-ingestion) — `/wiki-ingest` sweep mode or `/wiki-watch` startup. | `ingest_scan.py [folder] --json`. |
 | `watch_raw.py` | Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, and queue file — launched in the background by `/wiki-watch`. | `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. |
-| `vault.py` | Resolving the vault root, or moving a page (rewrites all inbound links across the vault and outbound links inside the page). Imported by most other scripts. | Bare invocation prints the resolved root. `vault.py move <old-rel> <new-rel>`. |
+| `vault.py` | Resolving the vault root, or moving a page (rewrites all inbound links across the vault and outbound links inside the page). Imported by most other scripts. | Bare invocation (or `vault.py root`) prints the resolved root. `vault.py move <old-rel> <new-rel>`. |
 | `init_wiki.py` | Scaffolding a new empty vault: folders, empty index, `.gitignore`, git init, optional `settings.json`. Called from `/wiki-init`. | `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. |
-| `save-session-to-vault.py` | Capturing the current session's transcript as a raw file in the vault. Called from `/save-conversation`. | `save-session-to-vault.py --slug "<phrase>"`. |
-| `wikipage.py` | Frontmatter edits during ingestion (discovery-driven updates, edge refinement). Pure-functional page model: get/set/merge, body access, link iteration. Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`. | `wikipage.py get <file> <key>` · `set <file> <key> <value> [--json]` (overwrite any field) · `merge <file> <key> <json-list>` (unions list-valued keys — `tags`, edge keys — no read-then-write needed). |
+| `save-session-to-vault.py` | Capturing the current session's transcript as a raw file in the vault. Called from `/save-conversation`. | `save-session-to-vault.py [--slug "<phrase>"]`. |
+| `wikipage.py` | Frontmatter edits during ingestion (discovery-driven updates, edge refinement). Pure-functional page model: get/set/merge, body access, link iteration. Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`, `ingest_scan.py`, `search_index.py`. | `wikipage.py get <file> <key>` · `set <file> <key> <value> [--json]` (overwrite any field) · `merge <file> <key> <json-list>` (unions list-valued keys — `tags`, edge keys — no read-then-write needed). |
 | `page_record.py` | (library only) The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Imported by `build_index.py`, `Vault.pages()`, `ingest_scan.py`, `search_index.py`. | No CLI. |
 | `place.py` | Computing a new page's vault-relative path from kind and title. Used by `ingest.py`; call directly to preview a planned path. | `place.py <kind> "<title>"`. |
 | `commit.py` | Writing one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns the SHA. Called by `ingest.py`; call directly for hand-assembled commits. | `commit.py --manifest <path>`. |
