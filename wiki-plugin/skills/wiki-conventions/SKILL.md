@@ -23,7 +23,7 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
 │   ├── _index.md             ← generated (build_index.py); indexes wiki/** only, never raw/
 │   ├── concepts/             ← an idea / technique / pattern / principle / how-it-works (the default; kind value `concept`)
 │   ├── entities/             ← a named thing linked repeatedly (person / team / product / tool / service / project / org; kind value `entity`)
-│   ├── sources/               ← a stand-in for a raw artifact; one per ingested raw file, REQUIRES `raw_source:` → ../../raw/… (kind value `source`)
+│   ├── sources/              ← a stand-in for a raw artifact; one per ingested raw file, REQUIRES `raw_source:` → ../../raw/… (kind value `source`)
 │   └── synthesis/            ← a saved query result; links to its inputs via `source`-type edges (kind value `synthesis`, folder unchanged)
 └── raw/                      ← immutable originals, git-tracked, sibling of wiki/
     └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … an OPEN set
