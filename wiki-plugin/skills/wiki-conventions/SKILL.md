@@ -153,7 +153,7 @@ The edge is **directional** — it reads *this page* → *key* → *target*. Inc
 
 ## Scripts
 
-Scripts that touch the vault resolve its root themselves (`$WIKI_ROOT`, else the nearest ancestor holding a `wiki/` directory or a `.wiki-root` marker, else cwd — see `vault.py`). Make sure your shell's working directory is already inside the target vault (or export `WIKI_ROOT`) before invoking any of them. `wikipage.py` and `place.py` are the exceptions: they operate only on what you hand them, so no root is resolved.
+Scripts that touch the vault resolve its root themselves (`$WIKI_ROOT`, else the nearest ancestor holding a `wiki/` directory or a `.wiki-root` marker, else cwd — see `vault.py`). Set `WIKI_ROOT` before invoking any of them. `wikipage.py` and `place.py` are the exceptions: they operate only on what you hand them, so no root is resolved.
 
 The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
 
