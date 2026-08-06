@@ -59,7 +59,7 @@ from __future__ import annotations
 import posixpath
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import chain_of_evidence
 import commit
@@ -388,6 +388,22 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
     return commit.commit(root, manifest)
 
 
+def _ignore_raw_file(root: Path, raw_rel: str, comment: str | None) -> None:
+    """Append ``raw_rel`` to its own folder's ``.ingestignore``.
+
+    ``raw_rel`` is vault-relative, exactly as `ingest_scan.py` prints it
+    (``raw/emails/foo.eml``, or ``raw/foo.eml`` at the top level) — the
+    agent never has to reason about `.ingestignore`'s own folder/pattern
+    split, or reach for :class:`ingest_scan.Sweep` directly.
+    """
+    import ingest_scan
+    import vault as vault_mod
+
+    rel_to_raw = PurePosixPath(raw_rel).relative_to("raw")
+    folder = "" if rel_to_raw.parent == PurePosixPath(".") else str(rel_to_raw.parent)
+    ingest_scan.Sweep(vault_mod.Vault(root)).append_ignore_entry(folder, rel_to_raw.name, comment)
+
+
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     import argparse
     import json
@@ -397,12 +413,27 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     import vault as vault_mod
 
     parser = argparse.ArgumentParser(description="Execute an IngestPlan against the resolved vault.")
-    parser.add_argument("--plan", required=True, help="path to an IngestPlan JSON file")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--plan", help="path to an IngestPlan JSON file")
+    group.add_argument(
+        "--ignore",
+        metavar="RAW_REL",
+        help="never offer this raw/ file again for a sweep (appends it to its folder's .ingestignore)",
+    )
+    parser.add_argument(
+        "--ignore-comment",
+        help="optional trailing comment for the --ignore entry",
+    )
     args = parser.parse_args(argv)
+
+    root = vault_mod.resolve_vault_root()
+
+    if args.ignore:
+        _ignore_raw_file(root, args.ignore, args.ignore_comment)
+        return 0
 
     data = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     plan = IngestPlan.from_dict(data)
-    root = vault_mod.resolve_vault_root()
     print(execute(root, plan))
 
     session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")

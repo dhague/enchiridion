@@ -166,6 +166,7 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 - **Read a frontmatter field:** `wikipage.py get <page> <key>`.
 - **Move a page:** `vault.py move <old-rel> <new-rel>` — rewrites all inbound links across the vault and outbound links inside the page.
 - **Ingest pages from a plan:** `ingest.py --plan <path>` — validates, places, writes frontmatter/body, regenerates the index, and commits.
+- **Never offer a raw file again:** `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` — appends it to its own folder's `.ingestignore`.
 - **Scan raw/ for eligible files:** `ingest_scan.py [folder] --json`.
 - **Commit staged pages:** `commit.py --manifest <path>` — writes a structured commit; gates on chain-of-evidence for raw ingestions.
 - **Regenerate the index:** `build_index.py` (no arguments).
@@ -177,7 +178,7 @@ The scripts themselves live in *this plugin's own* install directory, not the va
 
 - **`discover.py`** — Single-call discovery for ingestion: BM25 overlap classification for every page a draft plan proposes, plus the vault's tag vocabulary. `discover.py --plan <draft-plan.json> [--limit N] [--duplicate-threshold F] [--related-threshold F]` prints `{"pages": [{"title", "candidates": [{rel, title, score, hint, summary, tags, volatility, superseded_by}]}], "vocabulary": [{"tag", "count"}]}`. A single-page mode (`--title`/`--summary`/`--body-file`, same candidate shape) remains for ad-hoc checks outside a plan. Call during ingestion step 3, before writing the real `IngestPlan` — the draft plan it reads is the same shape, ahead of the overlap/tag judgment calls it exists to inform.
 - **`search.py`** — Full-text search over the FTS5 index with metadata filters. `search.py "<terms>" [--tag T] [--tag-any T] [--kind K] [--since DATE] [--until DATE] [--date-field FIELD] [--volatility V] [--limit N] [--include-superseded] [--raw] [--json]`. Also `--reindex [--full]` and `--status`. Call for any vault search.
-- **`ingest.py`** — Execute an IngestPlan JSON: validate, place, write, reindex, commit. `ingest.py --plan <path>`. Call after the agent assembles a plan (ingestion or synthesis save).
+- **`ingest.py`** — Execute an IngestPlan JSON: validate, place, write, reindex, commit. `ingest.py --plan <path>`. Call after the agent assembles a plan (ingestion or synthesis save). `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to that file's folder's `.ingestignore` instead — the sweep's `never` answer, mutually exclusive with `--plan`.
 - **`ingest_scan.py`** — Sweep `raw/` for files needing ingestion (never-ingested, changed-since-ingestion). `ingest_scan.py [folder] --json`. Call for `/wiki-ingest` sweep mode or `/wiki-watch` startup.
 - **`watch_raw.py`** — Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, and queue file. `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. Launched in the background by `/wiki-watch`.
 - **`vault.py`** — Vault-root resolution and vault I/O. Bare invocation prints the resolved vault root. `vault.py move <old-rel> <new-rel>` rewrites all inbound and outbound links. Imported by most other scripts.

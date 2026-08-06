@@ -5,56 +5,41 @@ description: Turn a raw document into one or more schema-valid wiki pages — ch
 
 # Wiki Ingest
 
-Reads `wiki-conventions` for anything this procedure doesn't spell out — folder placement, frontmatter schema, link format, typed-edge vocabulary. This file is preloaded into the `wiki-ingest` agent's context at startup, and is also what `/wiki-ingest <path>` loads when invoked directly.
-
-## Invocation
-
-- **If you are not already running as the `wiki-ingest` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-ingest <path>` in an ordinary session), your only action is to delegate: call `Task` with `subagent_type: "wiki-ingest"` and a prompt containing the document path, then relay the manifest it returns back to the user verbatim. This keeps the judgment-heavy steps below running on the `wiki-ingest` agent's Sonnet model regardless of what model the invoking session happens to be running.
-- **If you are the `wiki-ingest` agent**, continue directly with the procedure below using your own tools.
+Reads `wiki-conventions` for anything this procedure doesn't spell out — folder placement, frontmatter schema, link format, typed-edge vocabulary. This file is preloaded into the `wiki-ingest` agent's context at startup, and is also what `/wiki-ingest <path>` loads when invoked directly with a single file. It carries only what that agent executes — the single-file procedure. Sweeping a folder or all of `raw/` is a different consumer (the invoking session, never the agent) and lives in [`reference/sweep.md`](reference/sweep.md), read on demand rather than preloaded here.
 
 Every script invoked below lives in this plugin's install directory and resolves the vault root itself — see the `## Scripts` section of `wiki-conventions` for the full reference (vault-root resolution, `${CLAUDE_PLUGIN_ROOT}`, common tasks, and the script catalogue).
 
 ## Invocation
 
-- `/wiki-ingest <file>` — ingest one document. This is the procedure below, unchanged.
-- `/wiki-ingest <folder>` — sweep that folder's `raw/` subfolder (e.g. `raw/notes` → scan `raw/notes/`) and offer each eligible file individually. Folder names accept the `raw/` prefix or not, interchangeably.
-- `/wiki-ingest` (no path) — sweep all of `raw/`.
+- `/wiki-ingest <folder>` or `/wiki-ingest` (no path) — a **sweep**, not a single ingestion. `Read` [`reference/sweep.md`](reference/sweep.md) now and follow it instead of the rest of this file.
+- `/wiki-ingest <file>` — ingest one document. This is the procedure below.
+- **If you are not already running as the `wiki-ingest` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-ingest <path>` in an ordinary session) and `<path>` is a single file, your only action is to delegate: call `Task` with `subagent_type: "wiki-ingest"` and a prompt containing the document path, then relay the manifest it returns back to the user verbatim.
+- **If you are the `wiki-ingest` agent**, continue directly with the procedure below using your own tools. (The agent only ever does single-file work — a sweep delegates to it one file at a time, per [`reference/sweep.md`](reference/sweep.md).)
 
-A **sweep** is one of: listing every raw file in scope that the underlying scanner considers eligible, asking per file, and delegating each accepted file to the `wiki-ingest` agent one at a time. Run the sweep in the *invoking* session, not as a subagent — a subagent has no channel to the user (see [#18]'s finding, applied unchanged to this procedure), and the per-file confirmation must be answered by the human, not the agent.
+## `INGESTION.md` folder hint
 
-## Folder hints: `INGESTION.md` and `.ingestignore`
-
-A raw folder may carry two control files, both per-folder only and never themselves ingested.
-
-### `INGESTION.md` (optional)
-
-`raw/emails/INGESTION.md` may hold freeform, human-authored instructions for ingesting *that folder's* documents — e.g. "take `source_date` from the message's `Date:` header, list the recipients in the body, prefer the `correspondence` tag". Read it like a `SKILL.md`: plain prose to interpret, not a schema to parse.
+A raw folder may carry `raw/<folder>/INGESTION.md`: freeform, human-authored instructions for ingesting *that folder's* documents — e.g. "take `source_date` from the message's `Date:` header, list the recipients in the body, prefer the `correspondence` tag". Read it like a `SKILL.md`: plain prose to interpret, not a schema to parse.
 
 - **Lookup is the document's own folder, and only that.** Ingesting `raw/emails/foo.eml` looks for `raw/emails/INGESTION.md`. There is deliberately **no ancestor walk** — `raw/INGESTION.md` and a vault-root one are *not* consulted, so there is never a precedence question to resolve.
 - **Hints win on conflict.** They are an explicit override for that folder, not a tiebreaker. If a folder's `INGESTION.md` says "file these as `entity/` pages, one per person", it beats the default placement algorithm's answer.
 - **They cannot extend the frontmatter schema, or waive the chain of evidence.** The `wiki-conventions` schema is the fixed contract retrieval relies on; a hint steers judgment *already inside* this procedure — how to chunk, which tags to prefer, how to derive `source_date`, which subject-defined kind fits, which typed edges are likely — and never adds a frontmatter key, a kind, or a folder. So "list the recipients" puts recipients in the page **body**; it does not mint a `recipients:` key. The mandatory `source/` stub and its back-edges are likewise not a default a hint can turn off — `ingest.py` rejects a plan without them either way.
-- **An `INGESTION.md` is never itself ingested.** It is instructions, not content — if you are handed one as `<path>`, or sweep a folder containing one, skip it.
+- **An `INGESTION.md` is never itself ingested.** It is instructions, not content — if you are handed one as `<path>`, skip it.
 
-### `.ingestignore` (optional)
-
-`raw/<folder>/.ingestignore` is the **per-folder policy file** for the sweep — which files in that folder to never offer, even if they would otherwise be eligible. The `never` answer to a sweep's per-file ask writes into this file (see [Sweep procedure](#sweep-procedure) below).
-
-- **Bare filename globs**, one per line, `fnmatch` semantics: `*.tmp`, `*.bak`, `literal.md`, `2026-06-*.md`. **No `!` negation, no `/` (no path separators), no `**` (no recursive globs).** Lines starting with `#` are comments; blank lines are skipped. No `pathspec` dependency — `fnmatch` from stdlib is enough for a per-folder policy file, and rejecting the rich forms upfront means there is no precedence question to resolve.
-- **Lookup is the document's own folder, and only that** — exactly `INGESTION.md`'s rule. A parent's `.ingestignore` does *not* bleed into a child's files. The two control files now share the same lookup model, so there is one mental model for steering a folder.
-- **An `.ingestignore` is never itself yielded by the scan.** It is policy, not content.
-- **An explicitly named path always ingests**, even when its name matches a pattern. The file governs the *sweep's offer*, not the operation itself — `git add -f` semantics. (`/wiki-ingest <file>` with an explicit path bypasses the ignore check entirely.)
+A folder may also carry `.ingestignore`, a sweep-only policy file — see [`reference/sweep.md`](reference/sweep.md); it has no bearing on this procedure.
 
 ## Procedure
 
-Given one document at `<path>`:
+Given one document at `<path>`. Where a step below calls for more than one independent tool call — e.g. reading the document alongside its folder's `INGESTION.md` — issue them together in one assistant message rather than serially; each extra turn re-reads the whole context.
 
-1. **Read** the document in full, and — alongside it — `<path>`'s own folder's `INGESTION.md` if one exists (see [Folder hints: `INGESTION.md` and `.ingestignore`](#folder-hints-ingestionmd-and-ingestignore) above). Anything it says overrides the defaults in the steps below.
+1. **Read** the document in full, and — alongside it, in the same message — `<path>`'s own folder's `INGESTION.md` if one exists (see [`INGESTION.md` folder hint](#ingestionmd-folder-hint) above). Anything it says overrides the defaults in the steps below.
 2. **Semantic-chunk.** Decide whether it holds one page-worthy idea or several. Default to one page; split only when the document genuinely covers multiple independent ideas that would each deserve their own future citation.
-3. **Draft the plan, then discover.** Write `<plan.json>` now — the same file step 4 finishes and step 5 runs, so nothing gets written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, and `body` filled in (the full shape is in step 4); leave `edges` and any not-yet-judged frontmatter for step 4. Then run `python "${CLAUDE_PLUGIN_ROOT}/scripts/discover.py" --plan <plan.json>` once against the whole draft — no per-chunk calls, no body scratch files. It fronts the same BM25-ranked lexical index `search.py` uses, and for every page in the plan returns candidates classified `duplicate`/`refines`/`related`/`distinct`, each carrying everything you'd otherwise open the page to read (`summary`, `tags`, `volatility`, `superseded_by`) — plus, once for the whole call, the vault's tag vocabulary with usage counts, for the tag-minting judgment in step 4. The hint is a starting point, not the final word — confirm or override it against the candidate's own `summary`:
+3. **Draft the plan, then discover, then classify.** Write `<plan.json>` now — the same file step 4 finishes and step 5 runs, so nothing gets written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, and `body` filled in (the full shape is in step 4); leave `edges` and any not-yet-judged frontmatter for step 4. Then run `python "${CLAUDE_PLUGIN_ROOT}/scripts/discover.py" --plan <plan.json>` once against the whole draft — no per-chunk calls, no body scratch files. It fronts the same BM25-ranked lexical index `search.py` uses, and for every page in the plan returns candidates classified `duplicate`/`refines`/`related`/`distinct`, each carrying everything you'd otherwise open the page to read (`summary`, `tags`, `volatility`, `superseded_by`) — plus, once for the whole call, the vault's tag vocabulary with usage counts, for the tag-minting judgment in step 4.
+
+   The hint is a starting point, not the final word — confirm or override it against the candidate's own `summary`, and record only which **op** each plan entry gets. Step 4 owns every write; nothing here calls `Edit` or `wikipage.py` directly.
    - **`distinct` (or no candidates at all).** The candidate is a new subject. Keep it as `op: "create"` in the plan; still consider any surfaced page(s) as typed-edge targets in step 4.
    - **`related`.** Worth a typed edge (usually `related`, sometimes `example-of`) from the new page in step 4, but not the same subject — keep it as `op: "create"`.
-   - **`duplicate` or `refines`, no conflict.** The candidate adds to, refines, or restates knowledge the existing page already carries, without contradicting it. **Update that page in place** rather than creating a duplicate: `Edit` its body and, via `wikipage.py set`, whichever of `summary`/`tags`/`source_date`/`volatility` the new material actually changes. Record it as `updated`, not `created`, in the manifest and commit.
-     - `wikipage.py set` **overwrites** the key's whole value — it does not append. Use `wikipage.py merge <page> <key> <json-list>` instead of `set` for `tags` or any edge-list key (`refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) on a page that already has one — it unions the existing entries with the new ones internally, so nothing has to get-then-set by hand.
+   - **`duplicate` or `refines`, no conflict.** The candidate adds to, refines, or restates knowledge the existing page already carries, without contradicting it. Set the plan entry to `op: "update"` targeting that page's `rel` — step 4 fills in whichever of `summary`/`tags`/`source_date`/`volatility`/`body` the new material actually changes. Record it as `updated`, not `created`, in the manifest and commit.
+     - A list-valued key (`tags`, or any edge-list key: `refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) is **unioned** with what the page already has when `ingest.py` applies the plan — never hand it a diff, always the full new membership you intend.
    - **Contradiction.** The candidate's claim conflicts with an existing page's claim — a semantic judgment the hint can't make (it only measures lexical overlap), so check this regardless of hint. **Never overwrite the existing page.** Keep the new page as `op: "create"`, and on it set `contradicts` (and, since this same ingestion pass resolves the conflict by replacement) `supersedes` — both pointing at the superseded page's `rel`. The superseded page's content is left untouched; only the new page carries these edges.
    - When a candidate touches more than one existing page, judge each pairing independently — a document can update one page while contradicting another.
 4. **Finish the plan.** Fill in the `edges`, and any frontmatter step 3 left open, on the `<plan.json>` you already drafted — placement mechanics, frontmatter writes, body writes, the index, and the commit are all one downstream call: `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` (step 5). The full shape:
@@ -119,23 +104,3 @@ Given one document at `<path>`:
    - **`raw_source: true`** derives its link from the plan's own `raw` field — the raw artifact wherever it sits. **Ingestion never renames a raw file** — a file that came from outside the plugin keeps its name verbatim, forever, so don't add a `YYYY-MM-DD-hhmm-` prefix or expect one to appear (that prefix is bound at creation, and only for files the plugin itself creates). Two footnotes on the mechanics `ingest.py` handles for you: a literal `#` always separates an anchor from the path, so a `#` inside a *filename* must be written `%23`; an unbalanced `)` inside a filename must likewise be encoded, since a destination ends at the first unbalanced `)`.
 5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates the whole plan up front (every required field, every `update`'s `rel` exists, every `create`'s target doesn't yet, every edge/`raw_source` link resolves to a real page — including a sibling page this same plan is about to create — and, when `raw` is set, the chain of evidence: the stub exists and every other page links back to it) before writing anything, then executes place → frontmatter → body → index → commit in one pass and prints the commit SHA. If it raises, nothing was committed but any pages it did get to are left on disk uncommitted (writes are idempotent, so fix the plan and rerun rather than hand-repairing).
 6. **Report.** Reply with only a short manifest — pages created vs. updated, edges added, any `supersedes` pairs recorded — never page-content dumps.
-
-## Sweep procedure
-
-`<path>` may be a **folder** (under `raw/`, with or without the `raw/` prefix), or absent to mean *all of `raw/`*. In that case the work is not a single plan, but a sweep over every eligible file in scope, asked for and delegated one at a time.
-
-1. **Run the scan.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest_scan.py" <folder-or-empty>` (or `--json` for machine-readable output) walks `raw/`, applies each folder's own `.ingestignore` (no ancestor walk), and prints every file that needs ingestion with its reason:
-   - `never-ingested` — no page's `raw_source` points at it (a fresh file).
-   - `changed-since-ingestion` — at least one page already points at it, but the raw file is strictly newer than that page's `git_date` *or* `git status --porcelain` reports it modified/untracked. The candidate's `back_pointers` carry the vault-relative paths of the pages that already point at it; pass those through to the `wiki-ingest` agent as a reconciliation hint so it doesn't rediscover them via search.
-2. **Print the list, then ask.** A miscount — a file that should have been on the list, or one that shouldn't — is much easier to notice before anything is written. Offer **all / none / choose**:
-   - `all` — ingest every eligible file in one go.
-   - `none` — bail out without writing anything.
-   - `choose` — drop into the literal per-file ask, where each eligible file gets one of **yes / skip / never**:
-     - `yes` — ingest it (proceed to step 3 for this file).
-     - `skip` — this run only; the file will be offered again on the next sweep.
-     - `never` — append the file's basename to that folder's `.ingestignore` (use `ingest_scan.Sweep(vault).append_ignore_entry(folder, basename, comment=None)` from the in-process path, or shell out and append manually otherwise). The file is never offered again on this vault unless the policy is edited. For a file that the scanner offers only because it was ingested before [#34]'s `source/` stub-and-back-edge rule landed, append the line with a trailing `# ingested before back-pointers were mandatory` comment so a human reading the file later can tell cleanup from policy.
-3. **Delegate one accepted file at a time.** For each file the user accepted (`yes`), call the `wiki-ingest` agent with the file's path and — for a `changed-since-ingestion` file — the back-pointer paths as context. The agent runs steps 1-6 above and returns the manifest. **One subagent, one `IngestPlan`, one commit per file.** Twenty-six conversation transcripts do not fit one context, and per-file commits keep the "what changed" story readable. For a `changed-since-ingestion` file, the agent should treat the back-pointers as a step-3 hint (a known starting set of candidates for the overlap check), not as a closed list.
-4. **On failure, move to the next file.** A failed plan leaves whatever was already written on disk uncommitted, consistent with `ingest.py`'s no-rollback stance; rerun is always safe once the cause is fixed. Don't abort the sweep on a single failure — surface it in the final summary and keep going.
-5. **Report a summary at the end.** Per file: yes / no / skip / never, the manifest returned (for `yes`), or a one-line error (for `yes` that failed). Never a page-content dump — the `wiki-ingest` agent's own step 6 already returned the manifest; this is the sweep-level roll-up.
-
-The same control files govern the sweep as govern a single ingestion: a folder's `INGESTION.md` (read by each `wiki-ingest` subagent when it processes a file from that folder) steers *how* to ingest its files; a folder's `.ingestignore` (applied by the scan itself, before the per-file ask) steers *which* files to offer. Neither file is itself an ingestion target, and a parent's policy never bleeds into a child folder.
