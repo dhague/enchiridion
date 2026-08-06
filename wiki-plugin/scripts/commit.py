@@ -62,9 +62,6 @@ class Manifest:
     #: automatically, so the source document always lands in the same commit
     #: as the pages it produced.
     raw_source: str | None = None
-    #: Extra paths to stage that aren't a page edit — e.g. the regenerated index.
-    #: (``raw_source`` is staged automatically; it needn't be repeated here.)
-    extra_paths: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Manifest":
@@ -76,7 +73,6 @@ class Manifest:
             superseded=[tuple(pair) for pair in d.get("superseded", [])],
             source_date=d.get("source_date"),
             raw_source=d.get("raw_source"),
-            extra_paths=list(d.get("extra_paths", [])),
         )
 
     def staged_paths(self) -> list[str]:
@@ -91,7 +87,6 @@ class Manifest:
             paths.append(new)
         if self.raw_source:
             paths.append(self.raw_source)
-        paths.extend(self.extra_paths)
         seen: set[str] = set()
         ordered: list[str] = []
         for rel in paths:

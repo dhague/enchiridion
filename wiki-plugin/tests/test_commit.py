@@ -70,24 +70,20 @@ def test_commit_writes_structured_message_and_stages_files(git_repo):
     (git_repo / "wiki" / "concepts").mkdir()
     a = git_repo / "wiki" / "concepts" / "a.md"
     a.write_text("# A\n", encoding="utf-8")
-    idx = git_repo / "wiki" / "_index.md"
-    idx.write_text("index\n", encoding="utf-8")
 
     m = commit.Manifest(
         action="ingest",
         title="Seed A",
         created=["wiki/concepts/a.md"],
-        extra_paths=["wiki/_index.md"],
     )
     sha = commit.commit(git_repo, m)
 
     assert sha
     body = _git(git_repo, "log", "-1", "--pretty=%B")
     assert body.strip() == commit.build_message(m).strip()
-    # Both the page and the index were committed; nothing left staged/dirty.
+    # The page was committed; nothing left staged/dirty.
     tracked = _git(git_repo, "ls-files")
     assert "wiki/concepts/a.md" in tracked
-    assert "wiki/_index.md" in tracked
     assert _git(git_repo, "status", "--porcelain") == ""
 
 

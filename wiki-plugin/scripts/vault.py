@@ -114,19 +114,12 @@ class Vault:
         if self._index is not None:
             self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
 
-    def load_wiki_pages(self, *, include_index: bool = False) -> dict[str, str]:
-        """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``.
-
-        ``_index.md`` is a generated file, not a page, so it's excluded by
-        default. The rare caller that wants it too (a page-move rewriting
-        the index's own links, say) opts in with ``include_index=True``.
-        """
+    def load_wiki_pages(self) -> dict[str, str]:
+        """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
         wiki_root = self.root / "wiki"
         pages: dict[str, str] = {}
         for path in wiki_root.rglob("*.md"):
             rel = path.relative_to(self.root).as_posix()
-            if not include_index and rel == "wiki/_index.md":
-                continue
             pages[rel] = path.read_text(encoding="utf-8")
         return pages
 
@@ -152,7 +145,7 @@ class Vault:
 
         ``rel`` is always vault-relative (e.g. ``"wiki/concepts/a.md"``) — the
         one convention every :class:`Vault` enumeration method uses.
-        ``_index.md`` is never a page; ``raw/`` is never walked.
+        ``raw/`` is never walked.
         """
         return {rel: rec for rel, (rec, _text) in self.pages_with_text().items()}
 
@@ -195,7 +188,7 @@ class Vault:
         next :meth:`search`'s staleness scan reconcile the whole move is
         cheaper than a per-file upsert.
         """
-        files = self.load_wiki_pages(include_index=True)
+        files = self.load_wiki_pages()
         if old_rel not in files:
             raise FileNotFoundError(f"{old_rel} not found under {self.root}")
 
@@ -216,14 +209,14 @@ class Vault:
         or written; only *other* pages' inbound links are fixed. Returns the
         changed vault-relative paths, sorted.
         """
-        pages = self.load_wiki_pages(include_index=True)
+        pages = self.load_wiki_pages()
         return sorted(self._write_changed(plan_move(pages, old_rel, new_rel), pages))
 
     # --- search / index facade -------------------------------------------
 
     def search(self, *args, **kwargs) -> list[SearchHit]:
         """Proxy to the search index, verbatim. Rels in the returned hits stay
-        **wiki-relative** (``concepts/foo.md``), matching ``wiki/_index.md`` and
+        **wiki-relative** (``concepts/foo.md``), matching
         :mod:`page_record` — not the vault-relative rels the rest of this class
         returns."""
         return self._get_index().search(*args, **kwargs)

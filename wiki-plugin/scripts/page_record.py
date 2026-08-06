@@ -1,9 +1,8 @@
 """PageRecord — the one module that reads the frontmatter schema.
 
 Frontmatter text in, one typed record out. Every caller that needs a page's
-frontmatter (``build_index.py``, ``Vault.pages()``,
-``search_index.upsert_page``) goes through here rather than re-parsing keys,
-so the schema changes in exactly one place.
+frontmatter (``Vault.pages()``, ``search_index.upsert_page``) goes through
+here rather than re-parsing keys, so the schema changes in exactly one place.
 
 ``rel`` is wiki/-relative throughout this module. ``kind`` is derived from the
 page's folder via :data:`place.FOLDER_KINDS` (kind-folders pluralize, kind
@@ -102,10 +101,9 @@ def page_record(rel: str, text: str) -> PageRecord:
 def load_records(pages: dict[str, str]) -> dict[str, PageRecord]:
     """Decode every page in ``pages`` (``{rel: text}``, rel wiki/-relative),
     filling in ``superseded_by`` by inverting the ``supersedes`` edges.
-    ``_index.md`` is never a page.
     """
     records = {
-        rel: page_record(rel, text) for rel, text in pages.items() if rel != "_index.md"
+        rel: page_record(rel, text) for rel, text in pages.items()
     }
 
     superseded_by: dict[str, list[str]] = {}

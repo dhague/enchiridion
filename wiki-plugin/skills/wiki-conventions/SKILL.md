@@ -20,7 +20,6 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
 ```
 <vault root>/
 ├── wiki/                     ← pages; the vault marker
-│   ├── _index.md             ← generated (build_index.py); indexes wiki/** only, never raw/
 │   ├── concepts/             ← an idea / technique / pattern / principle / how-it-works (the default; kind value `concept`)
 │   ├── entities/             ← a named thing linked repeatedly (person / team / product / tool / service / project / org; kind value `entity`)
 │   ├── sources/              ← a stand-in for a raw artifact; one per ingested raw file, REQUIRES `raw_source:` → ../../raw/… (kind value `source`)
@@ -30,8 +29,8 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
 ```
 
 - The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. Kind-folders pluralize (`concepts/`, `entities/`, `sources/`); the kind **value** stored in frontmatter stays singular (`concept`, `entity`, `source`) — see [ADR-0008](../../../docs/adr/0008-kind-folders-plural-kind-values-singular.md).
-- **Multi-membership never spawns a second folder.** A page that touches several subjects is filed once, by primary function; every other facet rides on **tags + typed edges**. The `_index.md` of summaries and the typed-edge graph are the real retrieval surface — the folder tree is only a thin, decidable filing handle.
-- `raw/` is a **sibling** of `wiki/`, not a child — the immutable-originals-vs-generated split. `_index.md` indexes `wiki/**` only; it never lists `raw/`.
+- **Multi-membership never spawns a second folder.** A page that touches several subjects is filed once, by primary function; every other facet rides on **tags + typed edges**. The summaries in the search index and the typed-edge graph are the real retrieval surface — the folder tree is only a thin, decidable filing handle.
+- `raw/` is a **sibling** of `wiki/`, not a child — the immutable-originals-vs-generated split. The search index walks `wiki/**` only; it never lists `raw/`.
 - `raw/` is an **inbox** that a deterministic script scans for new files, so its subfolders are **user-extensible** — the five above are typical defaults, not a closed set, and there is no mandated catch-all.
 
 ### Placement algorithm
@@ -98,7 +97,7 @@ related:
 Field notes:
 
 - **`title`** — the human-readable name; the filename is its kebab-slug.
-- **`summary`** — the single most important field. Retrieval judges a candidate page by its `summary` before ever reading the body, and `build_index.py` lifts it verbatim into `_index.md`. One line, ≤ ~20 words, written well at ingestion.
+- **`summary`** — the single most important field. Retrieval judges a candidate page by its `summary` before ever reading the body, and the search index matches it. One line, ≤ ~20 words, written well at ingestion.
 - **`tags`** — emergent, not controlled. See [Tags](#tags).
 - **`source_date`** — the **valid time**: when the knowledge is *from* (the document's own date, the meeting's date). This is a judgment git cannot reconstruct, and it is what temporal queries key off. Distinct from when the page was committed.
 - **`raw_source`** — a **single markdown link into `raw/`** (title = the artifact's literal filename, destination = the percent-encoded path), **required on `sources/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for — one link, not a list, since a `sources/` page stands in for exactly one artifact. Distinct from the `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; the edge points at another `wiki/` page. The two were split onto different keys (`raw_source:` vs `source:`) precisely so nothing has to guess which is meant. Example: `"[my file.txt](../../raw/notes/my%20file.txt)"`.
@@ -165,15 +164,14 @@ Everything an agent invokes, plus the two libraries this file's own contracts na
 |---|---|---|
 | `discover.py` | Discovery before ingesting — BM25 overlap classification for every page a draft plan proposes, plus the vault's tag vocabulary. Call during ingestion step 3, before writing the real `IngestPlan`. | `discover.py --plan <draft-plan.json> [--limit N] [--duplicate-threshold F] [--related-threshold F]` → `{"pages": [{"title", "candidates": [{rel, title, score, hint, summary, tags, volatility, superseded_by}]}], "vocabulary": [{"tag", "count"}]}`. A single-page mode (`--title`/`--summary`/`--body-file`, same candidate shape) remains for ad-hoc checks outside a plan. |
 | `search.py` | Any vault search. | `search.py "<terms>" [--tag T] [--tag-any T] [--kind K] [--since DATE] [--until DATE] [--date-field FIELD] [--volatility V] [--limit N] [--include-superseded] [--raw] [--json]`. Also `--reindex [--full]` and `--status`. |
-| `ingest.py` | Executing an `IngestPlan` — validate, place, write, reindex, commit — after the agent assembles a plan (ingestion or synthesis save). | `ingest.py --plan <path>`. `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to that file's folder's `.ingestignore` instead — the sweep's `never` answer, mutually exclusive with `--plan`. |
+| `ingest.py` | Executing an `IngestPlan` — validate, place, write, commit — after the agent assembles a plan (ingestion or synthesis save). | `ingest.py --plan <path>`. `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to that file's folder's `.ingestignore` instead — the sweep's `never` answer, mutually exclusive with `--plan`. |
 | `ingest_scan.py` | Sweeping `raw/` for files needing ingestion (never-ingested, changed-since-ingestion) — `/wiki-ingest` sweep mode or `/wiki-watch` startup. | `ingest_scan.py [folder] --json`. |
 | `watch_raw.py` | Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, and queue file — launched in the background by `/wiki-watch`. | `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. |
 | `vault.py` | Resolving the vault root, or moving a page (rewrites all inbound links across the vault and outbound links inside the page). Imported by most other scripts. | Bare invocation (or `vault.py root`) prints the resolved root. `vault.py move <old-rel> <new-rel>`. |
-| `init_wiki.py` | Scaffolding a new empty vault: folders, empty index, `.gitignore`, git init, optional `settings.json`. Called from `/wiki-init`. | `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. |
+| `init_wiki.py` | Scaffolding a new empty vault: folders, `.gitignore`, git init, optional `settings.json`. Called from `/wiki-init`. | `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. |
 | `save-session-to-vault.py` | Capturing the current session's transcript as a raw file in the vault. Called from `/save-conversation`. | `save-session-to-vault.py [--slug "<phrase>"]`. |
 | `wikipage.py` | Frontmatter edits during ingestion (discovery-driven updates, edge refinement). Pure-functional page model: get/set/merge, body access, link iteration. Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`, `ingest_scan.py`, `search_index.py`. | `wikipage.py get <file> <key>` · `set <file> <key> <value> [--json]` (overwrite any field) · `merge <file> <key> <json-list>` (unions list-valued keys — `tags`, edge keys — no read-then-write needed). |
-| `page_record.py` | (library only) The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Imported by `build_index.py`, `Vault.pages()`, `ingest_scan.py`, `search_index.py`. | No CLI. |
+| `page_record.py` | (library only) The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Imported by `Vault.pages()`, `ingest_scan.py`, `search_index.py`. | No CLI. |
 | `place.py` | Computing a new page's vault-relative path from kind and title. Used by `ingest.py`; call directly to preview a planned path. | `place.py <kind> "<title>"`. |
 | `commit.py` | Writing one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns the SHA. Called by `ingest.py`; call directly for hand-assembled commits. | `commit.py --manifest <path>`. |
 | `chain_of_evidence.py` | (library only) Enforcing the page → source stub → raw file chain. Imported by `ingest.py` (pre-flight validation) and `commit.py` (commit-time gate). | No CLI. `check(staged, raw)` → list of errors. |
-| `build_index.py` | Regenerating `wiki/_index.md` from every page's frontmatter as a GFM table. Called by `init_wiki.py`, `ingest.py`, and directly on demand. | `build_index.py` (no arguments). |

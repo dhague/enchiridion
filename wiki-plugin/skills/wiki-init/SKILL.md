@@ -1,13 +1,13 @@
 ---
 name: wiki-init
-description: Scaffold a brand-new wiki vault — folder structure, empty index, git repo, and (optionally) query-from-anywhere plugin registration. Invoke via /wiki-init [path] when standing up a vault that doesn't exist yet, as opposed to ingesting into one that already does.
+description: Scaffold a brand-new wiki vault — folder structure, git repo, and (optionally) query-from-anywhere plugin registration. Invoke via /wiki-init [path] when standing up a vault that doesn't exist yet, as opposed to ingesting into one that already does.
 ---
 
 # Wiki Init
 
 Creates a new, empty vault at the target directory. This is a one-time scaffolding step, distinct from `wiki-ingest` (which fills an existing vault) — do not run it against a directory that is already a vault.
 
-All the mechanics — folder layout, empty index, `.gitignore`, git init, `settings.json`, the scaffold commit — are handled by `scripts/init_wiki.py` (see its docstring / `tests/test_init_wiki.py` for exact behavior). The only judgment call left to this procedure is picking a deployment mode.
+All the mechanics — folder layout, `.gitignore`, git init, `settings.json`, the scaffold commit — are handled by `scripts/init_wiki.py` (see its docstring / `tests/test_init_wiki.py` for exact behavior). The only judgment call left to this procedure is picking a deployment mode.
 
 ## Procedure
 

@@ -53,7 +53,7 @@ Given a question:
 
    `source` is excluded from that fallback because it belongs to the provenance path, not general expansion — it names the raw artifact a page distilled, not another concept to fan out into. Only follow it when the question matches the provenance row below.
 
-4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Build a `superseded_by` map for the candidate set: for every page P, if any other page Q in the vault has `supersedes: [P]` in its frontmatter, then P is replaced by Q. With the agent's tools, one pass is `Grep` for the frontmatter pattern `^\s*supersedes:` plus each seed's filename in the body of any `wiki/**/*.md` — `page_record.py` derives the same map in-process for `build_index.py` and the upcoming `Vault.search()` under the name `superseded_by`.
+4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Build a `superseded_by` map for the candidate set: for every page P, if any other page Q in the vault has `supersedes: [P]` in its frontmatter, then P is replaced by Q. With the agent's tools, one pass is `Grep` for the frontmatter pattern `^\s*supersedes:` plus each seed's filename in the body of any `wiki/**/*.md` — `search_index.py` derives the same map in-process under the name `superseded_by`.
 
    **Three rules for the filter pass:**
 
@@ -182,6 +182,6 @@ This section is for **the session that holds the conversation** — the one that
    python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>
    ```
 
-   It validates the whole plan before touching disk, then writes the page, regenerates `_index.md`, and makes one structured commit — printing the SHA. Report the path and the SHA in one line. If it raises, nothing was committed; fix the plan and rerun (writes are idempotent).
+   It validates the whole plan before touching disk, then writes the page and makes one structured commit — printing the SHA. Report the path and the SHA in one line. If it raises, nothing was committed; fix the plan and rerun (writes are idempotent).
 
    If the title collides with an existing `synthesis/` page, validation fails with *create target … already exists*. Don't work around it by renaming to a near-duplicate — that existing page is either the answer already (cite it instead) or genuinely superseded, which is an ingestion decision, not a retrieval one.
