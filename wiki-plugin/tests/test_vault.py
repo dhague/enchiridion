@@ -81,6 +81,39 @@ def test_empty_wiki_root_env_is_ignored(tmp_path):
     assert root == tmp_path.resolve()
 
 
+# --- Vault: auto-migrates leftover singular kind-folders (#119) ------------
+
+
+def test_vault_init_auto_migrates_singular_kind_folders(tmp_path):
+    (tmp_path / "wiki/concept").mkdir(parents=True)
+    (tmp_path / "wiki/concept/a.md").write_text("---\ntitle: A\n---\n", encoding="utf-8")
+
+    Vault(tmp_path)
+
+    assert (tmp_path / "wiki/concepts/a.md").exists()
+    assert not (tmp_path / "wiki/concept").exists()
+
+
+def test_vault_init_is_a_noop_when_already_plural(small_vault):
+    before = (small_vault / "wiki/concepts/a.md").read_text(encoding="utf-8")
+
+    Vault(small_vault)
+
+    assert (small_vault / "wiki/concepts/a.md").read_text(encoding="utf-8") == before
+
+
+def test_vault_init_raises_on_migration_collision(tmp_path):
+    (tmp_path / "wiki/concept").mkdir(parents=True)
+    (tmp_path / "wiki/concepts").mkdir(parents=True)
+    (tmp_path / "wiki/concept/a.md").write_text("---\ntitle: A\n---\n", encoding="utf-8")
+    (tmp_path / "wiki/concepts/a.md").write_text("---\ntitle: A2\n---\n", encoding="utf-8")
+
+    import migrate_kind_folders_0114
+
+    with pytest.raises(migrate_kind_folders_0114.MigrationError):
+        Vault(tmp_path)
+
+
 # --- Vault: I/O + cross-page move -----------------------------------------------
 
 

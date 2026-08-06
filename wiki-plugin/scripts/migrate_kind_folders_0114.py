@@ -7,8 +7,14 @@ Scope is plugin-managed vaults only — a vault this plugin created and has
 always owned the folder structure of. Not a general importer for arbitrary
 external vault layouts.
 
-Not a permanent ``vault.py`` subcommand: run once against a vault, then
-delete this file.
+Not a permanent ``vault.py`` subcommand — but ``Vault.__init__`` calls
+:func:`plan`/:func:`migrate` on every vault it opens, so an unmigrated vault
+self-heals on first touch rather than needing a human to know to run this by
+hand (#119). That wiring lives in ``vault.py``, keyed to this module's
+existence: when this file is deleted, delete the call to it too.
+
+This CLI is still useful standalone — ``--dry-run`` to preview, or to
+migrate a vault without otherwise touching it.
 
 CLI::
 
@@ -72,10 +78,12 @@ def migrate(root: Path, *, dry_run: bool = False) -> list[tuple[str, str]]:
     the plan. Empties old singular folders are removed once drained.
     """
     moves = plan(root)
-    if dry_run:
+    if dry_run or not moves:
         return []
 
-    v = Vault(root)
+    # `_auto_migrate=False`: this Vault *is* the migration Vault.__init__
+    # triggers, so it must not trigger itself again.
+    v = Vault(root, _auto_migrate=False)
     for old_rel, new_rel in moves:
         v.move_page(old_rel, new_rel)
 
