@@ -1,9 +1,8 @@
 """TDD for page_record.py — the one module that reads the frontmatter schema.
 
-Lifted out of build_index._page_record (#40) so a page's frontmatter is
-decoded into a :class:`PageRecord` exactly once, with every other caller
-(``build_index.py`` today; ``Vault.pages()`` in #41; ``Vault.search()`` in
-#39) reading the record instead of re-parsing YAML keys itself.
+Decoded once into a :class:`PageRecord` so every other caller
+(``Vault.pages()``, ``search_index.upsert_page``) reads the record instead
+of re-parsing YAML keys itself.
 """
 import pytest
 
@@ -111,13 +110,3 @@ def test_superseded_by_empty_when_no_page_supersedes_it():
     }
     records = page_record.load_records(pages)
     assert records["concepts/a.md"].superseded_by == []
-
-
-def test_load_records_skips_index_md():
-    pages = {
-        "_index.md": "stale content\n",
-        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
-    }
-    records = page_record.load_records(pages)
-    assert "_index.md" not in records
-    assert "concepts/a.md" in records

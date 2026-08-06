@@ -40,13 +40,12 @@ def _git(root, *args):
 
 
 def _seed_vault(root: Path) -> None:
-    """A vault with wiki/{concept,entity,source,synthesis}, raw/, and an _index.md."""
+    """A vault with wiki/{concept,entity,source,synthesis} and raw/."""
     (root / "wiki" / "concepts").mkdir(parents=True)
     (root / "wiki" / "entities").mkdir(parents=True)
     (root / "wiki" / "sources").mkdir(parents=True)
     (root / "wiki" / "synthesis").mkdir(parents=True)
     (root / "raw").mkdir()
-    (root / "wiki" / "_index.md").write_text("stub\n", encoding="utf-8")
 
 
 # --- parse_ingestignore ---------------------------------------------------
@@ -289,6 +288,10 @@ class TestScanEligibility:
 def git_vault(tmp_path):
     """A vault initialised as a git repo with the kind-folders + raw/."""
     _seed_vault(tmp_path)
+    (tmp_path / "wiki" / "concepts" / "seed.md").write_text(
+        "---\ntitle: Seed\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     _git(tmp_path, "config", "user.email", "test@example.com")
     _git(tmp_path, "config", "user.name", "Test")

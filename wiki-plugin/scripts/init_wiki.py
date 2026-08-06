@@ -1,4 +1,4 @@
-"""Scaffold a brand-new, empty wiki vault: folders, index, git repo, .gitignore,
+"""Scaffold a brand-new, empty wiki vault: folders, git repo, .gitignore,
 and (for query-from-anywhere mode) the plugin-registration ``settings.json``.
 
 One-time setup, distinct from ``wiki-ingest``, which fills a vault that
@@ -24,7 +24,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import build_index
 import place
 
 #: A directory is already a vault if either marker is present.
@@ -88,7 +87,7 @@ def init_wiki(
     mode: str,
     plugin_root: str | None = None,
 ) -> Path:
-    """Scaffold ``vault_root`` as a new vault. Returns the written index path.
+    """Scaffold ``vault_root`` as a new vault. Returns the vault root.
 
     ``mode`` is ``"query-from-anywhere"`` (requires ``plugin_root``, the
     plugin's install directory) or ``"dedicated"`` (no ``settings.json``;
@@ -115,8 +114,6 @@ def init_wiki(
     raw_dir.mkdir(parents=True, exist_ok=True)
     (raw_dir / ".gitkeep").touch()
 
-    index_path = build_index.write_index(root)
-
     (root / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
 
     wrote_settings = False
@@ -137,7 +134,7 @@ def init_wiki(
     _run_git(root, "add", "--", *add_paths)
     _run_git(root, "commit", "-m", "Initialize wiki vault")
 
-    return index_path
+    return root
 
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
@@ -154,13 +151,12 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     args = parser.parse_args(argv)
 
     try:
-        index_path = init_wiki(args.path, args.mode, args.plugin_root)
+        init_wiki(args.path, args.mode, args.plugin_root)
     except InitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     print(Path(args.path).resolve())
-    print(index_path)
     return 0
 
 

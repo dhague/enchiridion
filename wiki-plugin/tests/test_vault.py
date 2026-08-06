@@ -229,7 +229,7 @@ def test_vault_pages_kind_derived_from_folder(small_vault):
 
 def test_vault_pages_edges_stay_wiki_relative(small_vault):
     # a.md's link to b.md is page-relative ("../entities/b.md"); the resulting
-    # edge target is wiki/-relative like build_index's rendering expects --
+    # edge target is wiki/-relative like page_record's rendering expects --
     # only rec.rel itself is vault-relative.
     (small_vault / "wiki/concepts/a.md").write_text(
         '---\ntitle: A\nrelated:\n  - "[B](../entities/b.md)"\n---\nsee b\n',
@@ -238,12 +238,6 @@ def test_vault_pages_edges_stay_wiki_relative(small_vault):
     v = Vault(small_vault)
     records = v.pages()
     assert records["wiki/concepts/a.md"].edges == [("related", ["entities/b.md"])]
-
-
-def test_vault_pages_excludes_index_md(small_vault):
-    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert "wiki/_index.md" not in v.pages()
 
 
 def test_vault_pages_never_walks_raw(small_vault):
@@ -257,30 +251,12 @@ def test_vault_pages_never_walks_raw(small_vault):
 # --- Vault.load_wiki_pages()/pages_with_text(): the #41 boundary (#59) ------
 
 
-def test_vault_load_wiki_pages_excludes_index_md_by_default(small_vault):
-    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert "wiki/_index.md" not in v.load_wiki_pages()
-
-
-def test_vault_load_wiki_pages_includes_index_md_when_asked(small_vault):
-    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert "wiki/_index.md" in v.load_wiki_pages(include_index=True)
-
-
 def test_vault_pages_with_text_round_trips_the_same_text_on_disk(small_vault):
     v = Vault(small_vault)
     pages = v.pages_with_text()
     rec, text = pages["wiki/entities/b.md"]
     assert rec.rel == "wiki/entities/b.md"
     assert text == (small_vault / "wiki/entities/b.md").read_text(encoding="utf-8")
-
-
-def test_vault_pages_with_text_excludes_index_md(small_vault):
-    (small_vault / "wiki/_index.md").write_text("stale\n", encoding="utf-8")
-    v = Vault(small_vault)
-    assert "wiki/_index.md" not in v.pages_with_text()
 
 
 def test_vault_pages_derived_from_pages_with_text(small_vault):
@@ -317,9 +293,8 @@ def test_vault_search_finds_written_page(small_vault):
 
 
 def test_vault_search_returns_wiki_relative_rels(small_vault):
-    """The convention here is wiki-relative (matches ``_index.md`` and
-    ``page_record``); agents reading a hit's rel prepend ``wiki/`` to
-    open the file."""
+    """The convention here is wiki-relative (matches ``page_record``);
+    agents reading a hit's rel prepend ``wiki/`` to open the file."""
     v = Vault(small_vault)
     v.set("wiki/entities/b.md", "summary", "connection pooling in postgres")
     (hit,) = v.search("postgres")

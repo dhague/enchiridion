@@ -285,8 +285,6 @@ class SearchIndex:
         stats = IndexStats()
         for path in (self.root / "wiki").rglob("*.md"):
             rel = path.relative_to(self.root / "wiki").as_posix()
-            if rel == "_index.md":
-                continue
             seen.add(rel)
             st = path.stat()
             mtime_ns, size = st.st_mtime_ns, st.st_size
@@ -314,8 +312,6 @@ class SearchIndex:
         stats = IndexStats()
         for path in (self.root / "wiki").rglob("*.md"):
             rel = path.relative_to(self.root / "wiki").as_posix()
-            if rel == "_index.md":
-                continue
             self.upsert_page(rel, path.read_text(encoding="utf-8"))
             stats.inserted += 1
         self._recompute_superseded_by()

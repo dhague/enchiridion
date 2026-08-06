@@ -15,8 +15,8 @@ marks the page as the stub for `plan.raw`, and the link is composed from
 that. Body links are re-encoded on write by
 :func:`wikipage.normalize_body_links`.
 
-Pipeline: validate -> per page (place -> frontmatter -> body) -> regenerate
-the index -> derive a `commit.Manifest` -> commit. Validation runs entirely
+Pipeline: validate -> per page (place -> frontmatter -> body) -> derive a
+`commit.Manifest` -> commit. Validation runs entirely
 before any write, shape (required fields, valid op) then semantic (an
 update's `rel` exists, a create's target doesn't yet, every edge target
 resolves to a page already on disk *or* created by this same plan, and
@@ -350,10 +350,6 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
             v.write(rel, page)
             updated.append(rel)
 
-    from build_index import write_index
-
-    write_index(root)
-
     manifest = commit.Manifest(
         title=plan.title,
         action=plan.action,
@@ -362,7 +358,6 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
         superseded=superseded,
         source_date=plan.source_date,
         raw_source=plan.raw,
-        extra_paths=["wiki/_index.md"],
     )
     return commit.commit(root, manifest)
 

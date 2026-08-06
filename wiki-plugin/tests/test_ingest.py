@@ -42,7 +42,7 @@ def vault_root(tmp_path):
         '---\ntitle: Existing\nsummary: an existing page\ntags:\n    - db\nsource_date: "2026-01-01"\nvolatility: stable\n---\n# Existing\n\nSome body.\n',
         encoding="utf-8",
     )
-    (tmp_path / "wiki" / "_index.md").write_text("stub\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".wiki-knowledge/\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
     subprocess.run(
         ["git", "-C", str(tmp_path), "commit", "-q", "-m", "seed"], check=True
@@ -544,11 +544,11 @@ def test_execute_normalizes_an_unencoded_body_link_on_update(vault_root):
     assert "[notes](../../raw/My%20Notes%20%28draft%29.md)" in page.body
 
 
-def test_execute_regenerates_index(vault_root):
+def test_execute_page_findable_via_search(vault_root):
     plan = ingest.IngestPlan.from_dict(_plan_dict())
     ingest.execute(vault_root, plan)
-    index = (vault_root / "wiki" / "_index.md").read_text(encoding="utf-8")
-    assert "prepared-statements.md" in index
+    hits = Vault(vault_root).search("prepared")
+    assert "concepts/prepared-statements.md" in [h.rel for h in hits]
 
 
 def test_execute_commits_with_structured_message(vault_root):
@@ -866,8 +866,8 @@ def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
     assert page.get("source") == ["[Existing](../concepts/existing.md)"]
     assert page.get("volatility") == "evolving"
 
-    index = (vault_root / "wiki" / "_index.md").read_text(encoding="utf-8")
-    assert "how-connection-pooling-is-configured.md" in index
+    hits = Vault(vault_root).search("connection pooling")
+    assert "synthesis/how-connection-pooling-is-configured.md" in [h.rel for h in hits]
     assert _git(vault_root, "status", "--porcelain") == ""
 
 
