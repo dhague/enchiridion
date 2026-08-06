@@ -126,6 +126,37 @@ class TestBackend:
         assert [h.rel for h in hits] == ["concept/a.md"]
 
 
+# --- tag_counts (#102) -----------------------------------------------------
+
+
+class TestTagCounts:
+    """The vault's whole tag vocabulary with usage counts (#102) -- discovery's
+    reuse-first hand-off, so an agent never greps pages for existing tags."""
+
+    def test_empty_vault_returns_empty(self, tmp_path):
+        idx = SearchIndex(_vault(tmp_path, {}))
+        assert idx.tag_counts() == []
+
+    def test_counts_and_orders_most_used_first(self, tmp_path):
+        pages = {
+            "concept/a.md": _page(rel="concept/a.md", tags=["python", "testing"]),
+            "concept/b.md": _page(rel="concept/b.md", tags=["python"]),
+            "concept/c.md": _page(rel="concept/c.md", tags=["zeta"]),
+        }
+        idx = SearchIndex(_vault(tmp_path, pages))
+        idx.reindex()
+        assert idx.tag_counts() == [("python", 2), ("testing", 1), ("zeta", 1)]
+
+    def test_scans_before_counting(self, tmp_path):
+        idx = SearchIndex(_vault(tmp_path, {}))
+        assert idx.tag_counts() == []
+        (tmp_path / "wiki" / "concept").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "wiki" / "concept" / "a.md").write_text(
+            _page(rel="concept/a.md", tags=["fresh"]), encoding="utf-8"
+        )
+        assert idx.tag_counts() == [("fresh", 1)]
+
+
 # --- lifecycle / status --------------------------------------------------
 
 

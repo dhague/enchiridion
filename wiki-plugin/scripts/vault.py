@@ -232,6 +232,10 @@ class Vault:
         """Page count, db size, backend (``fts5`` or ``re``), schema version."""
         return self._get_index().status()
 
+    def tag_vocabulary(self) -> list[tuple[str, int]]:
+        """Every tag in the vault with its usage count, most-used first."""
+        return self._get_index().tag_counts()
+
 
 # --- CLI ---------------------------------------------------------------------
 

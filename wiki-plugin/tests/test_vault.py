@@ -339,6 +339,13 @@ def test_vault_reindex_full_returns_stats(small_vault):
     assert stats.inserted == 2
 
 
+def test_vault_tag_vocabulary_counts_across_pages(small_vault):
+    v = Vault(small_vault)
+    v.merge("wiki/concept/a.md", "tags", ["python", "testing"])
+    v.merge("wiki/entity/b.md", "tags", ["python"])
+    assert v.tag_vocabulary() == [("python", 2), ("testing", 1)]
+
+
 # --- CLI ------------------------------------------------------------------
 
 

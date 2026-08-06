@@ -1,8 +1,10 @@
-"""TDD for overlap.py -- the mechanical half of wiki-ingest's duplicate-
-detection step (issue #60). ``Vault.search`` itself is covered by
-test_vault.py / test_search_index.py; this file pins ``overlap.check``'s
-query construction and hint classification, plus the four properties named
-in #60's Notes.
+"""TDD for discover.py -- the mechanical half of wiki-ingest's duplicate-
+detection step (issue #60), extended (#102) to return the full discovery
+payload (summary/tags/volatility/superseded_by per candidate, plus the
+vault's tag vocabulary) off a draft ``IngestPlan``. ``Vault.search`` itself
+is covered by test_vault.py / test_search_index.py; this file pins
+``discover.check``'s query construction and hint classification, plus the
+four properties named in #60's Notes.
 
 Thresholds under test are the #63 calibration defaults (duplicate >=15,
 related >=5), passed explicitly where a test's whole point is the boundary,
@@ -10,11 +12,13 @@ so a future threshold retune doesn't silently break an unrelated test.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from overlap import OverlapCandidate, _classify, check
+from discover import DiscoveryCandidate, _classify, check, discover_plan
+from ingest import PagePlan
 
 
 # --- _classify: pure boundary logic ----------------------------------------
@@ -156,10 +160,76 @@ class TestCheckHintsOnRealHits:
         (top,) = [c for c in candidates if c.rel == "concept/connection-pooling.md"]
         assert top.hint == "duplicate"
 
-    def test_returns_overlap_candidate_instances(self, vault_root):
+    def test_returns_discovery_candidate_instances(self, vault_root):
         candidates = check(vault_root, title="Connection Pooling", summary="", body="")
-        assert all(isinstance(c, OverlapCandidate) for c in candidates)
+        assert all(isinstance(c, DiscoveryCandidate) for c in candidates)
 
     def test_limit_is_respected(self, vault_root):
         candidates = check(vault_root, title="Connection Pooling", summary="", body="", limit=1)
         assert len(candidates) <= 1
+
+
+class TestCheckReturnsFullPayload:
+    """#102: the fields the agent used to open a page to recover -- summary
+    for edge-typing, tags/volatility/superseded_by -- come back on every
+    candidate, not just rel/title/score/hint."""
+
+    def test_candidate_carries_summary_tags_volatility(self, vault_root):
+        candidates = check(
+            vault_root,
+            title="Connection Pooling in Postgres",
+            summary="",
+            body="",
+        )
+        (top,) = [c for c in candidates if c.rel == "concept/connection-pooling.md"]
+        assert top.summary == "Reuse connections instead of opening a new one per request."
+        assert isinstance(top.tags, list)
+        assert isinstance(top.volatility, str)
+        assert top.superseded_by is None
+
+
+class TestDiscoverPlan:
+    """#102: one call per draft plan, not one call per candidate chunk."""
+
+    def test_runs_check_for_every_page_in_the_plan(self, vault_root):
+        pages = [
+            PagePlan(op="create", title="Connection Pooling in Postgres", body="", frontmatter={"summary": ""}),
+            PagePlan(op="create", title="Feeding a Sourdough Starter", body="", frontmatter={"summary": "Daily flour-and-water feeding keeps a starter active."}),
+        ]
+        results = discover_plan(vault_root, pages)
+        titles = [title for title, _ in results]
+        assert titles == ["Connection Pooling in Postgres", "Feeding a Sourdough Starter"]
+        pooling_candidates = dict(results)["Connection Pooling in Postgres"]
+        assert any(c.rel == "concept/connection-pooling.md" for c in pooling_candidates)
+
+    def test_update_page_with_no_body_does_not_crash(self, vault_root):
+        pages = [PagePlan(op="update", title="Connection Pooling in Postgres", rel="wiki/concept/connection-pooling.md", frontmatter={})]
+        results = discover_plan(vault_root, pages)
+        assert len(results) == 1
+
+
+class TestVocabularyCLI:
+    """#102: --plan mode's JSON payload carries the vault's tag vocabulary
+    alongside per-page candidates."""
+
+    def test_plan_cli_output_carries_pages_and_vocabulary(self, vault_root, monkeypatch, capsys):
+        import discover as discover_mod
+
+        plan_path = vault_root / "draft-plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "title": "test plan",
+                    "pages": [
+                        {"op": "create", "title": "Connection Pooling in Postgres", "body": "", "frontmatter": {"summary": ""}},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(discover_mod.vault_mod, "resolve_vault_root", lambda: vault_root)
+        discover_mod._main(["--plan", str(plan_path)])
+        payload = json.loads(capsys.readouterr().out)
+        assert "pages" in payload and "vocabulary" in payload
+        assert payload["pages"][0]["title"] == "Connection Pooling in Postgres"
+        assert any(c["rel"] == "concept/connection-pooling.md" for c in payload["pages"][0]["candidates"])
