@@ -1,25 +1,23 @@
 """WikiPage — the page model, pure-functional.
 
-This module does no I/O at all: :class:`WikiPage` is frontmatter
-get/set/merge, body access, and outbound-link move-planning — text in, a new
-:class:`WikiPage` out, never a mutation in place. :func:`plan_move` is the
-same thing over a whole ``{rel: text}`` vault.
+No I/O at all: frontmatter get/set/merge, body access, and outbound-link
+move-planning. Text in, a new :class:`WikiPage` out, never a mutation in
+place. :func:`plan_move` is the same over a whole ``{rel: text}`` vault.
 
-Its counterpart :class:`vault.Vault` owns every read and write, including the
-cross-page operations (``move_page``) that need other pages' text. This module
-imports nothing from it — the dependency runs one way, ``vault -> wikipage``,
-with no deferred import on either side. That holds for the CLI below too:
-every subcommand here takes a *file path* and does pure text work, so none of
-them resolves a vault root. Moving a page is ``vault.py move`` for that
-reason — it's the one operation that needs the whole vault.
+:class:`vault.Vault` owns every read and write. The dependency runs one way,
+``vault -> wikipage``, with no deferred import on either side — and that
+holds for the CLI below, whose subcommands all take a *file path* and never
+resolve a vault root. Moving a page is ``vault.py move`` for exactly that
+reason: it's the one operation needing the whole vault.
 
-Only the frontmatter block is ever re-serialised (ruamel round-trip, pinned
-``indent(mapping=2, sequence=4, offset=2)`` so the spec's edge-list
-indentation round-trips byte-for-byte) — the body is spliced back verbatim.
-Link rewriting on move never round-trips the document through a stringifier
-either: destinations are spliced into the raw text back-to-front by exact
-source offset, so every untouched byte — including frontmatter links, since
-they're found by the same whole-document scan — survives byte-for-byte.
+**Two byte-preservation contracts, both property-tested — don't break
+either.** (1) Only the frontmatter block is re-serialised, via a ruamel
+round-trip pinned to ``indent(mapping=2, sequence=4, offset=2)`` so the
+spec's edge-list indentation survives; the body is spliced back verbatim.
+(2) Link rewriting never round-trips the document through a stringifier:
+destinations are spliced into the raw text back-to-front by exact source
+offset, so every untouched byte survives — including frontmatter links,
+which the same whole-document scan finds.
 
 CLI::
 
@@ -47,17 +45,13 @@ _MD = MarkdownIt("commonmark")
 # line. Anything else (a `---` mid-document) is a thematic break, not metadata.
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.DOTALL)
 
-# Percent-encoding charset: these chars must be encoded so raw/ filenames with
-# special chars are linkable. Encode: %, space, (, ), #, <, >. Everything else
-# (unicode, &, ', ,, +) stays literal.
+# The minimal charset that makes a raw/ filename linkable. Everything else —
+# unicode, &, ', ,, + — stays literal, deliberately.
 _ENCODE_CHARS = {" ", "#", "%", "(", ")", "<", ">"}
 
 
 def percent_encode(path: str) -> str:
-    """Percent-encode special characters in a path.
-
-    Encodes: space, #, %, (, ), <, >. Everything else stays literal.
-    """
+    """Percent-encode :data:`_ENCODE_CHARS` in a path; all else stays literal."""
     return "".join(f"%{ord(c):02X}" if c in _ENCODE_CHARS else c for c in path)
 
 
@@ -69,11 +63,10 @@ def percent_decode(path: str) -> str:
 def split_dest(dest: str) -> tuple[str, str]:
     """Split an encoded link destination into ``(decoded_path, decoded_anchor)``.
 
-    Splits on the **literal** ``#`` first, then decodes each half — an
-    encoded ``#`` in a filename (``%23``) must never be mistaken for an
-    anchor separator, which decoding the whole string up front would cause.
-    This is the single decode boundary: callers get fully decoded strings
-    back and never re-derive this split themselves.
+    **Order matters:** split on the literal ``#`` first, decode each half
+    after. Decoding up front would turn an encoded ``#`` in a filename
+    (``%23``) into a false anchor separator. This is the single decode
+    boundary — callers get decoded strings and never redo the split.
     """
     encoded_path, sep, encoded_anchor = dest.partition("#")
     path = percent_decode(encoded_path)
@@ -84,11 +77,9 @@ def _nested_paren_dest(depth: int) -> str:
     """Build a regex fragment for an unbracketed link destination.
 
     Per CommonMark, a destination without `<>` ends at the first
-    *unbalanced* `)` — `(draft)` inside a destination doesn't terminate it,
-    only a `)` with no matching `(` does. `re` has no true recursion, so
-    this bounds the nesting at ``depth`` levels (plenty for any real
-    filename or URL) rather than reaching for the third-party `regex`
-    package for genuinely unbounded nesting.
+    *unbalanced* `)` — `(draft)` inside one doesn't terminate it. `re` has no
+    recursion, so nesting is bounded at ``depth`` levels: plenty for a real
+    filename or URL, and cheaper than a `regex` package dependency.
     """
     frag = r"[^()\s]*"
     for _ in range(depth):
@@ -118,13 +109,11 @@ _LINK_RE = re.compile(
 
 @dataclass(frozen=True)
 class LinkMatch:
-    """One link/image occurrence, positioned in the source body.
+    """One link/image occurrence, positioned in the source text.
 
-    ``start``/``end`` bracket the *encoded* destination path only (angle
-    brackets and any title excluded), so ``text[start:end] == dest``. ``dest``
-    is the raw (possibly percent-encoded) bytes from disk; ``decoded_path``/
-    ``decoded_anchor`` are :func:`split_dest`'s decoded halves, for logic.
-    ``line`` is the 0-based line the destination sits on.
+    ``start``/``end`` bracket the *encoded* destination only — angle brackets
+    and any title excluded — so ``text[start:end] == dest`` always holds.
+    ``line`` is 0-based.
     """
 
     start: int
@@ -169,13 +158,9 @@ def iter_links(text: str):
     """Yield a :class:`LinkMatch` for every link/image in ``text``, in order.
 
     Occurrences inside fenced/indented code blocks are skipped. Offsets are
-    absolute into ``text`` and point at the destination path itself. Scans the
-    *whole* document — including any YAML frontmatter block — so per-key
-    frontmatter links (typed edges, ``supersedes``, ``raw_source``) are found
-    by the same rule as body links.
-
-    LinkMatch.dest is the encoded (raw) destination; LinkMatch.decoded_path /
-    LinkMatch.decoded_anchor are :func:`split_dest`'s decoded halves.
+    absolute into ``text``. Scans the *whole* document, frontmatter included,
+    so typed edges, ``supersedes`` and ``raw_source`` are found by the same
+    rule as body links.
     """
     code_lines = _code_line_ranges(text)
     for m in _LINK_RE.finditer(text):
@@ -210,27 +195,24 @@ def link_dest(link: str) -> str | None:
 def resolve_link_dest(dest: str, page_dir: str, prefix: str = "wiki") -> str:
     """Resolve an already-decoded link destination to a normalized path.
 
-    ``page_dir`` is the directory the link lives in. ``prefix`` is joined in
-    front when truthy (default ``"wiki"`` — for a ``page_dir`` that is
-    wiki-root-relative, as `page_record.py`'s ``rel`` convention is); pass
-    ``prefix=""`` when ``page_dir`` is already fully vault-relative (already
-    starts with ``"wiki/"``). One place owns the ``normpath``/``join``
-    quirks that used to be reimplemented at every call site.
+    ``page_dir`` is the directory the link lives in. Default
+    ``prefix="wiki"`` suits a wiki-root-relative ``page_dir``
+    (``page_record.py``'s ``rel`` convention); pass ``prefix=""`` when
+    ``page_dir`` is already vault-relative. The one place that owns these
+    ``normpath``/``join`` quirks — don't reimplement it at a call site.
     """
     base = posixpath.join(prefix, page_dir) if prefix else (page_dir or ".")
     return posixpath.normpath(posixpath.join(base or ".", dest))
 
 
 def compose_link(title: str, target_rel: str, page_dir: str) -> str:
-    """Compose a markdown link to ``target_rel`` from a page living in ``page_dir``.
+    """Compose a markdown link to ``target_rel`` from a page in ``page_dir``.
 
-    Both ``target_rel`` and ``page_dir`` are vault-relative (e.g.
-    ``"wiki/concept/foo.md"`` / ``"wiki/synthesis"``); ``page_dir`` may be
-    ``""`` for a page at the vault root. Handles the three mechanics a
-    caller previously had to do by hand: relativise the target against the
-    page's own location, percent-encode the destination (never the label),
-    and quote-if-needed is left to :meth:`WikiPage.set`/``merge``, which
-    already wrap a fresh ``[...]`` scalar in double quotes.
+    Both are vault-relative (``"wiki/concept/foo.md"`` /
+    ``"wiki/synthesis"``); ``page_dir`` may be ``""`` for a page at the vault
+    root. Relativises the target and percent-encodes the destination — never
+    the label. YAML quoting is not done here: :meth:`WikiPage.set`/``merge``
+    already double-quote a fresh ``[...]`` scalar.
     """
     dest = posixpath.relpath(posixpath.normpath(target_rel), page_dir or ".")
     return f"[{title}]({percent_encode(dest)})"
@@ -285,13 +267,11 @@ def _rewrite_text(text: str, file_rel: str, old_rel: str, new_rel: str) -> str:
 def normalize_body_links(text: str) -> str:
     """Re-encode every relative link/image destination in ``text``.
 
-    An author (human or agent) may write a body link with an unencoded
-    destination — a raw filename with a space or paren in it, taken
-    verbatim. This re-encodes each one to this module's canonical
-    percent-encoding, via the same offset-based splice :func:`_rewrite_text`
-    uses, so untouched bytes survive byte-for-byte. Idempotent: an
-    already-encoded destination round-trips unchanged. Absolute paths,
-    scheme-qualified URLs, and bare anchors are left alone.
+    An author (human or agent) may write a destination unencoded — a raw
+    filename with a space or paren, taken verbatim. This normalises each one,
+    via the same offset-based splice :func:`_rewrite_text` uses, so untouched
+    bytes survive. Idempotent. Absolute paths, scheme-qualified URLs, and
+    bare anchors are left alone.
     """
     edits: list[tuple[int, int, str]] = []
     for lk in iter_links(text):
@@ -329,13 +309,13 @@ def _dump_yaml(data) -> str:
 
 
 def _quote_links(value):
-    """Wrap a fresh markdown-link scalar (or each item of a list of them) in
-    :class:`DoubleQuotedScalarString`, so a value set for the first time —
-    with no prior double-quoted style to round-trip from — still renders
-    double-quoted per the conventions spec, not ruamel's default single-quote.
-    Only strings that look like a link (``[label](dest)``) are touched —
-    image embeds (``![…]``) never appear in frontmatter per the conventions
-    spec, so that form isn't handled here.
+    """Wrap a fresh markdown-link scalar (or each item of a list) in
+    :class:`DoubleQuotedScalarString`.
+
+    A first-time value has no prior style for ruamel to round-trip from, and
+    would otherwise render single-quoted against the conventions spec. Only
+    strings starting ``[`` are touched; image embeds (``![…]``) never appear
+    in frontmatter, so that form isn't handled.
     """
     if isinstance(value, str):
         if value.startswith("["):
@@ -396,12 +376,10 @@ class WikiPage:
     def merge(self, key: str, values: list) -> "WikiPage":
         """Return a new page with ``values`` unioned into ``key``'s existing list.
 
-        Order-preserving: existing entries keep their position, new ones are
-        appended, duplicates dropped. Equivalent to :meth:`set` when ``key``
-        is absent. This replaces the get-then-union-then-set procedure a
-        caller would otherwise have to perform by hand to avoid clobbering a
-        list-valued key (``tags``, the typed-edge keys) that already has
-        entries.
+        Order-preserving: existing entries hold their position, new ones
+        append, duplicates drop. Equivalent to :meth:`set` when ``key`` is
+        absent. Use this, not get-union-set by hand, for any list-valued key
+        (``tags``, the typed-edge keys) that may already have entries.
         """
         existing = self.get(key)
         merged = list(existing) if existing else []
@@ -427,11 +405,11 @@ class WikiPage:
 def plan_move(pages: dict[str, str], old_rel: str, new_rel: str) -> dict[str, str]:
     """Compute the post-move vault from ``pages`` (a ``{rel: text}`` mapping).
 
-    Pure — no disk I/O. The moved page appears under ``new_rel`` in the
-    result; every other page keeps its key. Both inbound and outbound links
-    are fixed. ``old_rel`` need not be a key of ``pages`` — a caller
-    retargeting links at a non-page file (e.g. a plugin-authored ``raw/``
-    artifact) can pass a ``pages`` map that only contains the markdown pages
+    Pure. The moved page appears under ``new_rel``; every other page keeps
+    its key. Inbound and outbound links are both fixed.
+
+    ``old_rel`` need not be a key of ``pages``: a caller retargeting links at
+    a non-page file (a ``raw/`` artifact, say) passes only the markdown pages
     whose *inbound* links should follow the rename.
     """
     return {

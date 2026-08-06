@@ -1,10 +1,9 @@
 """Compute a new page's vault-relative path: kind-folder + kebab-slug of title.
 
-*Which* kind a page belongs to is judgment (the placement algorithm in
-wiki-conventions) and stays with the ingesting agent. Once a kind is chosen,
-turning a title into `wiki/<kind>/<slug>.md` is pure mechanics — this module
-makes it a deterministic function instead of prose the agent executes by hand,
-so filenames are consistent regardless of who (or what model) is ingesting.
+*Which* kind a page belongs to is judgment (wiki-conventions' placement
+algorithm) and stays with the ingesting agent. Turning a chosen kind + title
+into `wiki/<kind>/<slug>.md` is mechanics, and lives here so filenames are
+consistent regardless of who — or which model — is ingesting.
 
 CLI::
 
@@ -15,11 +14,11 @@ from __future__ import annotations
 import re
 import sys
 
-#: The fixed kind-folder set (wiki-conventions §Folder structure).
+#: The fixed kind-folder set (wiki-conventions, "Vault structure").
 KINDS = ("source", "synthesis", "entity", "concept")
 
-#: Maximum length for generated kebab-slug filenames, to stay readable and
-#: leave headroom under the Windows 255-char path limit (#70).
+#: Cap on generated kebab-slug filenames — readability, plus headroom under
+#: the Windows 255-char path limit (#70).
 MAX_SLUG_LENGTH = 64
 
 _APOSTROPHE = re.compile(r"['’]")
@@ -28,9 +27,8 @@ _MIN_WORD_CUT = 8
 
 
 def _truncate_slug(slug: str, max_length: int) -> str:
-    """Truncate *slug* to *max_length*, cutting at the last hyphen boundary
-    when there is a reasonable word break (≥ *min_cut* chars). Falls back to a
-    hard cut at *max_length*."""
+    """Truncate *slug* to *max_length* at the last hyphen boundary, when that
+    leaves at least ``_MIN_WORD_CUT`` chars. Otherwise a hard cut."""
     if len(slug) <= max_length:
         return slug
     cut = slug.rfind("-", 0, max_length)
@@ -40,12 +38,10 @@ def _truncate_slug(slug: str, max_length: int) -> str:
 
 
 def slugify(title: str, max_length: int | None = None) -> str:
-    """Return ``title`` as a lowercase kebab-slug: apostrophes dropped (so
-    "What's" -> "whats", not "what-s"), other punctuation and runs of
-    whitespace/symbols collapsed to one hyphen, no leading/trailing hyphen.
-
-    When *max_length* is given, the slug is truncated to at most that many
-    characters, at a hyphen boundary when possible (see :func:`_truncate_slug`).
+    """Return ``title`` as a lowercase kebab-slug. Apostrophes are dropped
+    rather than hyphenated ("What's" -> "whats", not "what-s"); every other
+    run of non-alphanumerics collapses to one hyphen; ends are stripped.
+    *max_length*, if given, truncates via :func:`_truncate_slug`.
     """
     slug = _APOSTROPHE.sub("", title.lower())
     slug = _NON_ALNUM.sub("-", slug)

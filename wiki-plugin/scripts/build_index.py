@@ -3,15 +3,12 @@
 Derived data — always regenerated, never hand-edited or trusted as a cache.
 Indexes ``wiki/**`` only; ``raw/`` is never walked or listed.
 
-Each page becomes one row of a GFM table: path, title, summary, tags,
-source_date, volatility, and its outgoing edges (``raw_source``,
-``supersedes``, and the five typed-edge keys). Each of those holds quoted
-markdown links rather than a flat ``links:`` list, so recovering a target
-means stripping the markdown — reusing ``wikipage.iter_links``, which
-already parses this shape — and then re-basing the path from the *page's*
-directory to be relative to ``wiki/`` (the directory ``_index.md`` itself
-lives in), since a flat index can't otherwise say what a page-relative
-link resolves to.
+A pure renderer over :func:`page_record.load_records`. Each page becomes one
+row of a GFM table: path, title, summary, tags, source_date, volatility, and
+its outgoing edges. The edge targets arrive already stripped of their markdown
+and rebased to be relative to ``wiki/`` — where ``_index.md`` itself lives —
+which is the whole reason a flat index can say what a page-relative link
+resolves to. That rebasing is ``page_record``'s job, not this module's.
 
 CLI::
 
@@ -71,11 +68,9 @@ def build_index(pages: dict[str, str]) -> str:
 def write_index(vault_root: Path | str) -> Path:
     """(Re)write ``wiki/_index.md`` from the on-disk vault's pages.
 
-    Enumeration is Vault's job: pages come from
-    ``Vault.load_wiki_pages()`` (vault-relative ``rel``, never ``raw/``).
-    This function only rebases each ``rel`` back to wiki/-relative — since
-    ``_index.md`` itself lives in ``wiki/`` — before handing off to
-    :func:`build_index`, which excludes ``_index.md`` from the render.
+    Enumeration is ``Vault.load_wiki_pages()``'s job. All this adds is
+    rebasing each vault-relative ``rel`` to wiki/-relative, the convention
+    :func:`build_index` and :mod:`page_record` use.
     """
     wiki_root = Path(vault_root) / "wiki"
     pages = {

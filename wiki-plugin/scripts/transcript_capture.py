@@ -1,14 +1,13 @@
 """Transcript capture: JSONL session transcript -> vault-ready raw markdown.
 
-The reusable capability behind the /save-conversation skill: parsing a
-Claude Code transcript, filtering it down to the real user/assistant
-back-and-forth, rendering it to markdown, sanitising an agent-authored
-slug, and binding a stable filename in the vault's raw inbox. All pure or
-filesystem-local - no CLI concerns live here (see save-session-to-vault.py
-for the argv-parsing adapter).
+The capability behind the /save-conversation skill — parse a Claude Code
+transcript, filter to the real user/assistant back-and-forth, render to
+markdown, sanitise an agent-authored slug, bind a filename in the vault's raw
+inbox. Pure or filesystem-local only; argv parsing lives in
+save-session-to-vault.py.
 
-The name is bound once at first save: a re-save finds the existing file by
-its short session id and rewrites it in place rather than renaming it, so
+**The name is bound once, at first save.** A re-save finds the existing file
+by its short session id and rewrites it in place rather than renaming, so
 inbound raw_source links never break.
 """
 import glob
@@ -33,15 +32,15 @@ SLUG_MAX_LENGTH = 60
 def sanitize_slug(phrase, *, max_length: int = SLUG_MAX_LENGTH) -> str:
     """Reduce a free-text phrase to a filesystem-safe kebab-case slug.
 
-    The phrase is authored by a language model, so this sanitizes rather
-    than trusts: NFKD-fold to ASCII, lowercase, collapse everything
-    outside ``[a-z0-9]`` to a single ``-``, strip the ends, and cap the
-    length on a word boundary where there is one.
+    The phrase is model-authored, so this sanitizes rather than trusts:
+    NFKD-fold to ASCII, lowercase, collapse non-``[a-z0-9]`` runs to one
+    ``-``, strip the ends, cap on a word boundary where there is one. The
+    result is ``[a-z0-9-]`` only, so it never needs percent-encoding in a
+    link destination.
 
-    Returns ``""`` when nothing survives (empty input, pure punctuation,
-    non-transliterable script) - the caller falls back to the bare
-    ``<date>-<short_id>`` name. The result is ``[a-z0-9-]`` only, so it
-    needs no percent-encoding when it appears in a link destination.
+    ``""`` when nothing survives (empty, pure punctuation,
+    non-transliterable script) — the caller then falls back to the bare
+    ``<date>-<short_id>`` name.
     """
     if not phrase:
         return ""
@@ -60,12 +59,11 @@ def sanitize_slug(phrase, *, max_length: int = SLUG_MAX_LENGTH) -> str:
 
 
 def _extract_text(content):
-    """Pull the user's prose out of a transcript entry's ``content`` field.
+    """Pull the prose out of a transcript entry's ``content`` field.
 
-    Two shapes: a plain string, or a list of content blocks. Only
-    ``text`` blocks count; tool_use / tool_result / image blocks are
-    dropped, since they are not part of the conversation the user
-    re-reads later.
+    Two shapes: a plain string, or a list of blocks. Only ``text`` blocks
+    count — tool_use / tool_result / image aren't part of the conversation
+    anyone re-reads later.
     """
     if isinstance(content, str):
         return content.strip()
@@ -100,12 +98,8 @@ def transcript_to_page(
     sanitized here, not trusted, and a phrase that sanitizes to nothing
     degrades to the bare ``<date>-<short_id>`` name.
 
-    The pure form is what the /save-conversation script tests against; the
-    same function is also reachable from a future ad-hoc REPL use, so the
-    user / assistant speaker labels are parameters rather than baked in.
-    The defaults are deliberately neutral - the calling code is free to
-    pass ``user_label="Darren"`` to match the dogfooding vault's existing
-    captures.
+    Speaker labels are parameters, not baked in, so a caller can match an
+    existing vault's captures.
 
     Raises ``ValueError`` when the transcript yields fewer than
     ``min_turns`` non-empty exchanges - the calling script translates
@@ -120,8 +114,8 @@ def transcript_to_page(
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        # Skip synthetic entries (skill/tool-injected content, sub-agent
-        # sidechains) - only keep the real back-and-forth.
+        # Drop synthetic entries (skill/tool-injected content, sub-agent
+        # sidechains); keep only the real back-and-forth.
         if entry.get("type") not in ("user", "assistant"):
             continue
         if entry.get("isMeta") or entry.get("isSidechain"):
@@ -137,9 +131,8 @@ def transcript_to_page(
             f"Transcript has {len(turns)} non-empty turn(s); need at least {min_turns}."
         )
 
-    # The short id goes last: it is the session's identity, and putting
-    # it at the end is what lets a re-save find the already-bound file
-    # with a single '*-<short_id>.md' glob whether or not a slug is set.
+    # The short id goes last so a re-save can find the already-bound file
+    # with one '*-<short_id>.md' glob, slug present or not.
     short_id = session_id.split("-")[0]
     safe_slug = sanitize_slug(slug)
     middle = f"{safe_slug}-" if safe_slug else ""
@@ -176,19 +169,14 @@ class CaptureError(Exception):
 def find_transcript_path(env=None, cwd=None):
     """Return ``(transcript_path, error_message)``; exactly one is ``None``.
 
-    Error messages are deliberately distinct so the user can tell apart:
-
-    - ``$CLAUDE_CODE_SESSION_ID`` not set in env
-    - state directory not located (no ``$CLAUDE_PROJECT_DIR`` and no
-      ``.claude/`` ancestor of cwd) - the *resolution* failed
-    - state directory located, but no entry for this session - the
-      *SessionStart hook* didn't record this one
-    - entry points to a transcript file that no longer exists
+    Four distinct failures, kept distinct so the user can tell them apart:
+    no ``$CLAUDE_CODE_SESSION_ID``; state directory not located (resolution
+    failed); located but no entry for this session (the SessionStart hook
+    never ran); entry pointing at a transcript that no longer exists.
     """
     env = env if env is not None else os.environ
-    # `cwd` is only used for the error message; the actual resolution
-    # delegates to sessions_dir so the walk-up / $CLAUDE_PROJECT_DIR order
-    # applies. Tests monkeypatch chdir, so Path.cwd() picks up the change.
+    # `cwd` only feeds the error message — resolution delegates to
+    # sessions_dir for the walk-up / $CLAUDE_PROJECT_DIR order.
     cwd_path = Path(cwd) if cwd is not None else Path.cwd()
 
     session_id = env.get("CLAUDE_CODE_SESSION_ID")
@@ -223,15 +211,11 @@ def find_transcript_path(env=None, cwd=None):
 def write_capture(wiki_root, filename: str, markdown: str, *, short_id: str) -> str:
     """Write the capture into ``raw/conversations/``; return its vault-relative path.
 
-    One file per session, and **the name is bound at first save**. An
-    earlier capture of the same session is found by globbing
-    ``*-<short_id>.md`` and its path is reused *verbatim* - same
-    timestamp, same slug - with the contents rewritten in place. A fresh
-    name is composed only when nothing is found.
-
-    So no raw file is ever renamed: the no-raw-renames rule holds, and
-    inbound ``raw_source`` links to an already-ingested capture stay
-    valid without any link rewriting.
+    One file per session. An earlier capture is found by globbing
+    ``*-<short_id>.md`` and its path reused *verbatim* — same timestamp, same
+    slug — with contents rewritten in place; ``filename`` is used only when
+    nothing is found. So no raw file is ever renamed, and inbound
+    ``raw_source`` links stay valid with no link rewriting.
     """
     conversations_dir = os.path.join(str(wiki_root), "raw", "conversations")
     os.makedirs(conversations_dir, exist_ok=True)
@@ -253,10 +237,8 @@ def capture_session(*, wiki_root, slug=None, env=None, cwd=None, now=None) -> st
     """Find, render, and write this session's transcript; return its vault-relative path.
 
     The whole pipeline (find_transcript_path -> transcript_to_page ->
-    write_capture) as one call, for a caller that just wants "save the
-    current session" - the CLI adapter, and any future auto-save hook or
-    batch importer. Raises CaptureError with a user-facing message on any
-    failure; callers that want the individual steps still have them.
+    write_capture) in one call. Raises CaptureError with a user-facing
+    message on any failure; the individual steps remain available.
     """
     transcript_path, error = find_transcript_path(env=env, cwd=cwd)
     if error:

@@ -2,31 +2,22 @@
 vocabulary, driven off a draft ``IngestPlan``.
 
 Fronts ``Vault.search`` with hint classification, so wiki-ingest's
-duplicate-detection step -- the one where a miss creates a duplicate page --
-is deterministic mechanics, testable in pytest, rather than an agent
-re-parsing ``search.py --json`` and re-deriving "too similar" from prose
-each run. See issue #60.
+duplicate-detection step — the one where a miss creates a duplicate page — is
+deterministic mechanics rather than an agent re-deriving "too similar" from
+prose each run. Each candidate carries back everything the agent would
+otherwise open the page to read (summary, tags, volatility, supersession), so
+the cite / edge-type / tag-reuse steps collapse into one call instead of N
+page reads.
 
-The query is deliberately **OR of the candidate's own words**, not
-``search_index.tokenize_query``'s default AND-across-terms: an AND query
-built from a whole title+summary+body needs literally every one of those
-words present in a candidate page, so appending the planned page's own
-(necessarily novel) summary/body text to the query silently drops real
-duplicates from the result set -- measured directly: adding an unrelated
-sentence of new summary text to an otherwise-exact-title query zeroed out
-a hit that scored 18 on title alone. BM25's IDF weighting is what keeps an
-OR query precise -- common words contribute little to the score -- so it is
-the ranking, not query strictness, that separates ``distinct`` from the rest.
+**The query is OR of the candidate's own words** (``raw=True``), never
+``tokenize_query``'s default AND-across-terms. An AND query built from a
+whole title+summary+body demands every one of those words be present in the
+candidate page — so the planned page's necessarily-novel summary and body
+text silently zero out real duplicates that title alone would have found.
+Precision comes instead from BM25's IDF weighting, where common words
+contribute almost nothing to the score.
 
-Thresholds are calibrated against the live dogfooding vault (issue #63).
-
-Formerly ``overlap.py`` (issue #102): every field the agent used to open a
-page to recover -- the link title, the summary retrieval reads first, the
-target's tags/volatility/supersession state -- was already sitting in the
-``SearchHit`` one function call earlier and simply wasn't returned. This
-module returns it, plus the vault's whole tag vocabulary with usage counts,
-so `wiki-ingest`'s cite/edge-type/tag-reuse steps collapse into one call
-against a draft plan instead of N page reads.
+Thresholds are calibrated against the live dogfooding vault (#63).
 """
 from __future__ import annotations
 
@@ -45,15 +36,13 @@ from vault import Vault
 
 Hint = Literal["duplicate", "refines", "related", "distinct"]
 
-#: Calibrated against the dogfooding vault (#63). Parameters on ``check``,
-#: not buried in this module, so the eval harness can tune them.
+#: Calibrated against the dogfooding vault (#63). Also parameters on
+#: ``check``, so the eval harness can tune them without editing this module.
 DUPLICATE_THRESHOLD = 15.0
 RELATED_THRESHOLD = 5.0
 
-#: Deliberately generous, not 20 (#102): the point of a single discovery
-#: call is to hand back everything the agent would otherwise open pages to
-#: find, and a narrow cap silently hides exactly the near-duplicates that
-#: matter most.
+#: Deliberately generous: a narrow cap hides exactly the near-duplicates
+#: this call exists to surface.
 DEFAULT_LIMIT = 200
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -76,9 +65,8 @@ def _title_tokens(title: str) -> set[str]:
 
 
 def _or_query(*texts: str) -> str:
-    """Unique words across ``texts``, phrase-quoted and OR-joined -- an FTS5
-    ``raw=True`` expression, deliberately not the default AND-across-terms
-    (see module docstring)."""
+    """Unique words across ``texts``, phrase-quoted and OR-joined — an FTS5
+    ``raw=True`` expression. OR, not AND; see the module docstring."""
     seen: dict[str, None] = {}
     for text in texts:
         for word in _WORD_RE.findall(text.lower()):
@@ -88,11 +76,10 @@ def _or_query(*texts: str) -> str:
 
 @lru_cache(maxsize=None)
 def _vault_for(vault_root: Path) -> Vault:
-    """One ``Vault``/index connection per root per process. A plan-driven
-    discovery call runs :func:`check` once per planned page against the
-    same vault; a fresh ``Vault`` per call would open a fresh sqlite
-    connection per page and race against its own uncommitted transaction
-    (``database is locked``) rather than reusing one."""
+    """One ``Vault``/index connection per root per process. A plan-driven run
+    calls :func:`check` once per planned page; a fresh ``Vault`` each time
+    would open a new sqlite connection per page and race its own uncommitted
+    transaction (``database is locked``)."""
     return Vault(vault_root)
 
 
@@ -120,15 +107,13 @@ def check(
     duplicate_threshold: float = DUPLICATE_THRESHOLD,
     related_threshold: float = RELATED_THRESHOLD,
 ) -> list[DiscoveryCandidate]:
-    """Search the vault for pages overlapping a planned page, classifying
-    each hit's relationship to it and carrying back everything the agent
-    would otherwise open the page to read: its summary, tags, volatility,
-    and whether it's already superseded.
+    """Search for pages overlapping a planned page, classifying each hit's
+    relationship to it.
 
-    ``title``/``summary``/``body`` are the planned page's own drafted text
-    -- the query is built from exactly what the candidate says, never a
-    paraphrase, so the vocabulary-mismatch trap that undermines retrieval's
-    query expansion doesn't apply here the same way.
+    ``title``/``summary``/``body`` must be the planned page's own drafted
+    text: the query is built from exactly what the candidate says, never a
+    paraphrase, which is why retrieval's vocabulary-mismatch problem doesn't
+    bite here.
     """
     vault = _vault_for(vault_root)
     query = _or_query(title, summary, body)
@@ -162,8 +147,8 @@ def discover_plan(
     duplicate_threshold: float = DUPLICATE_THRESHOLD,
     related_threshold: float = RELATED_THRESHOLD,
 ) -> list[tuple[str, list[DiscoveryCandidate]]]:
-    """Run :func:`check` for every page a draft plan proposes, one call
-    regardless of how many pages/chunks the plan carries."""
+    """Run :func:`check` for every page a draft plan proposes — one call
+    however many chunks the plan carries."""
     return [
         (
             page.title,

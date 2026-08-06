@@ -1,16 +1,15 @@
 """Scaffold a brand-new, empty wiki vault: folders, index, git repo, .gitignore,
 and (for query-from-anywhere mode) the plugin-registration ``settings.json``.
 
-This is a one-time setup step, distinct from ``wiki-ingest`` (which fills a
-vault that already exists) — :func:`init_wiki` refuses to run against a
-directory that already looks like a vault (see :func:`is_vault`).
+One-time setup, distinct from ``wiki-ingest``, which fills a vault that
+already exists — :func:`init_wiki` refuses to run against a directory that
+already looks like one (:func:`is_vault`).
 
-Deployment mode (per ``docs/adr/0004-deployment-modes-and-vault-root-resolution.md``)
-is a judgment call the caller makes, not something this script infers:
-``query-from-anywhere`` writes ``.claude/settings.json`` registering the
-plugin's own checkout (``plugin_root``, required for this mode) as a
-local-directory marketplace; ``dedicated`` skips that write, since installing
-a plugin project-scope into someone else's directory isn't this script's job.
+Deployment mode (ADR-0004) is the caller's judgment call, never inferred
+here: ``query-from-anywhere`` writes ``.claude/settings.json`` registering
+``plugin_root`` as a local-directory marketplace; ``dedicated`` skips that
+write, since installing a plugin project-scope into someone else's directory
+isn't this script's job.
 
 CLI::
 
@@ -27,7 +26,7 @@ from pathlib import Path
 
 import build_index
 
-#: The plugin-fixed kind-folder set (wiki-conventions §Folder structure).
+#: The plugin-fixed kind-folder set (wiki-conventions, "Vault structure").
 KIND_FOLDERS = ("concept", "entity", "source", "synthesis")
 
 #: A directory is already a vault if either marker is present.
@@ -36,9 +35,9 @@ _MARKERS = ("wiki", ".wiki-root")
 _GITIGNORE = (
     "*.rsls\n"
     ".claude/wiki-knowledge/sessions/\n"
-    # Search index, gitignored per ADR-0006. The .wiki-knowledge/ directory
-    # must also be added to Resilio Sync's ignore list (the gitignore does
-    # not propagate to the syncer).
+    # Search index, gitignored per ADR-0006. Must ALSO be added to Resilio
+    # Sync's own ignore list — a gitignore doesn't propagate to the syncer,
+    # and a synced SQLite sidecar corrupts.
     ".wiki-knowledge/\n"
 )
 
@@ -94,9 +93,8 @@ def init_wiki(
     """Scaffold ``vault_root`` as a new vault. Returns the written index path.
 
     ``mode`` is ``"query-from-anywhere"`` (requires ``plugin_root``, the
-    plugin's own install directory) or ``"dedicated"`` (writes no
-    ``settings.json`` — the caller installs the plugin into the vault
-    themselves).
+    plugin's install directory) or ``"dedicated"`` (no ``settings.json``;
+    the caller installs the plugin themselves).
     """
     if mode not in ("query-from-anywhere", "dedicated"):
         raise InitError(f"unknown mode {mode!r}")

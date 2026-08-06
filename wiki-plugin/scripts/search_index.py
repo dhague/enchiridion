@@ -8,16 +8,18 @@ title/summary/body. The composite query shape — *"pages updated in the last
 week, tagged `foo`, containing `bar`"* — is one SQL statement with text as
 ``MATCH`` and metadata as ``WHERE`` predicates.
 
-Correctness lives in an unconditional ``(mtime_ns, size)`` staleness scan on
-every search call, not in ``Vault.write``'s inline update — the inline
-update is a latency optimisation only. A capability probe at open time
-falls back to a Python ``re`` backend when FTS5 isn't compiled into the
-platform's SQLite.
+**Where correctness lives** (the design decision the rest of the code assumes):
+an unconditional ``(mtime_ns, size)`` staleness scan runs on every search
+call. ``Vault.write``'s inline update is a latency optimisation only, so the
+index cannot go wrong because a caller forgot to update it — including for
+edits made outside the plugin entirely (git pull, Obsidian). A capability
+probe at open time falls back to a Python ``re`` backend when FTS5 isn't
+compiled into the platform's SQLite.
 
-This module knows about ``page_record`` (decoding frontmatter) and ``vault``
-(``load_wiki_pages`` for the re-fallback's body read). It does not know about
-``Vault`` itself — the index is a stand-alone object that ``Vault`` owns and
-proxies ``.search()``/``.reindex()``/``.index_status()`` through.
+Depends only on ``page_record`` (frontmatter decoding) and ``wikipage`` (body
+split); the ``re`` fallback reads page text off disk itself. Nothing here
+imports ``vault`` — the index is a stand-alone object ``Vault`` owns and
+proxies through, and the reverse dependency would be a cycle.
 """
 from __future__ import annotations
 
@@ -51,8 +53,8 @@ _FTS5_WEIGHTS = (0.0, 10.0, 5.0, 1.0)
 
 @dataclass(frozen=True)
 class SearchHit:
-    """One search result. ``score`` is higher-is-better (we negate ``bm25()``,
-    which returns negative values)."""
+    """One search result. ``score`` is higher-is-better — ``bm25()`` returns
+    negative values, so it is negated on the way out."""
 
     rel: str
     score: float
@@ -82,6 +84,8 @@ class IndexStatus:
     db_size_bytes: int
     backend: str
     schema_version: str
+    #: Unpopulated placeholders — :meth:`SearchIndex.status` always passes 0.
+    #: ``status()`` doesn't scan, so it has no scan figures to report.
     last_scan_duration_ms: float
     pages_scanned: int
     pages_stale: int
@@ -94,11 +98,10 @@ def tokenize_query(text: str) -> str:
     """Split ``text`` on whitespace and phrase-quote each term.
 
     FTS5's ``MATCH`` is a query language, not a string, and ordinary vault
-    vocabulary is a syntax error in it: a hyphenated tag like
-    ``wiki-knowledge`` raises ``no such column:
-    knowledge``. The default path of :meth:`SearchIndex.search` must
-    split-and-quote, with ``raw=True`` as the escape hatch for callers who
-    really want ``NEAR()``, ``OR``, and prefix operators.
+    vocabulary is a syntax error in it — a hyphenated tag like
+    ``wiki-knowledge`` raises ``no such column: knowledge``. Hence quoting by
+    default, with ``raw=True`` the escape hatch for callers who actually want
+    ``NEAR()``, ``OR``, and prefix operators.
     """
     if not text:
         return ""
@@ -112,8 +115,8 @@ def tokenize_query(text: str) -> str:
 
 
 def _probe_fts5(conn: sqlite3.Connection) -> bool:
-    """Return ``True`` iff this SQLite can ``CREATE VIRTUAL TABLE … USING
-    fts5``. Anything else means a Python-substring fallback."""
+    """``True`` iff this SQLite can ``CREATE VIRTUAL TABLE … USING fts5``.
+    Otherwise the ``re`` fallback backend is used."""
     try:
         conn.execute("CREATE VIRTUAL TABLE _fts5_probe USING fts5(x)")
         conn.execute("DROP TABLE _fts5_probe")
@@ -126,11 +129,9 @@ def _probe_fts5(conn: sqlite3.Connection) -> bool:
 
 
 def _compute_git_dates(vault_root: Path) -> dict[str, str]:
-    """One ``git log`` pass → ``{wiki-relative-rel: YYYY-MM-DD}``.
-
-    The most recent commit date for each file wins. Returns an empty dict
-    when git is unavailable or the directory isn't a git work tree — callers
-    treat a missing date as "git_date is None", not as a failure.
+    """One ``git log`` pass → ``{wiki-relative-rel: YYYY-MM-DD}``, most recent
+    commit per file. Empty dict when git is unavailable or this isn't a work
+    tree — a missing date means ``git_date is None``, never a failure.
     """
     if shutil.which("git") is None:
         return {}
@@ -162,13 +163,14 @@ def _compute_git_dates(vault_root: Path) -> dict[str, str]:
 
 
 class SearchIndex:
-    """The lexical index for one vault. Opens the db lazily; one
-    ``SearchIndex`` per vault, lifetime of the process.
+    """The lexical index for one vault. One ``SearchIndex`` per vault,
+    lifetime of the process.
 
-    The unit of address is a wiki-relative rel (e.g. ``concept/foo.md``)
-    throughout — the search results, the inline-update API, and the schema
-    all use it. ``Vault.search`` re-labels to vault-relative on the way out
-    so the agent layer doesn't have to think about either convention.
+    The unit of address is a wiki-relative rel (``concept/foo.md``)
+    throughout — schema, inline-update API, and search results alike. It is
+    *not* re-labelled on the way out: ``Vault.search`` proxies these rels
+    unchanged, so callers mixing them with ``Vault.pages()``' vault-relative
+    rels must add the ``wiki/`` prefix themselves.
     """
 
     def __init__(self, root: Path | str):
@@ -236,8 +238,8 @@ class SearchIndex:
         return bool(row and row[0] == SCHEMA_VERSION)
 
     def _full_rebuild(self) -> IndexStats:
-        """Wipe and re-index. Delete-and-rebuild *is* the migration strategy
-        — no incremental migrations, ever."""
+        """Wipe and re-index. Delete-and-rebuild *is* the migration strategy —
+        no incremental migrations, ever."""
         c = self._conn
         for table in ("page_tag", "page"):
             c.execute(f"DELETE FROM {table}")
@@ -264,15 +266,13 @@ class SearchIndex:
         return stats
 
     def _scan(self) -> IndexStats:
-        """Staleness scan: walk ``wiki/**``; upsert diffs. This is the
-        *correctness* path — every search call runs it before querying.
+        """Staleness scan: walk ``wiki/**``, upsert diffs. The correctness
+        path — every search runs it before querying.
 
-        Each upsert commits immediately (its own implicit transaction);
-        a mid-scan crash leaves the index partially updated, and the next
-        scan reconciles. This is fine because the file system is the
-        source of truth — there is no "all-or-nothing" semantic the index
-        needs to preserve against a crash, only a "the next scan will fix
-        it" semantic, which is exactly what partial commits give us.
+        Each upsert commits immediately, so a mid-scan crash leaves the index
+        partially updated. That's acceptable: the filesystem is the source of
+        truth and the next scan reconciles, so the index needs no
+        all-or-nothing semantic to protect.
         """
         start = time.monotonic()
         rows = self._conn.execute(
@@ -308,9 +308,8 @@ class SearchIndex:
         return stats
 
     def _reindex_walk(self) -> IndexStats:
-        """Full walk, no diff — every file is upserted. Used by the schema-
-        version-mismatch rebuild path. Per-page commits, same rationale as
-        :meth:`_scan`."""
+        """Full walk, no diff — every file upserted. The schema-mismatch
+        rebuild path."""
         start = time.monotonic()
         stats = IndexStats()
         for path in (self.root / "wiki").rglob("*.md"):
@@ -334,9 +333,9 @@ class SearchIndex:
 
     def upsert_page(self, rel: str, text: str) -> None:
         """Index/replace one page. ``rel`` is wiki-relative. The file at
-        ``self.root / "wiki" / rel`` must exist — the inline update needs
-        ``(mtime_ns, size)`` for the next scan to recognise this row as
-        fresh, and the staleness check uses those stat values verbatim."""
+        ``self.root / "wiki" / rel`` must already exist — its
+        ``(mtime_ns, size)`` is stored verbatim, and is what the next
+        staleness scan compares against to call this row fresh."""
         rec = page_record.page_record(rel, text)
         path = self.root / "wiki" / rel
         st = path.stat()
@@ -386,8 +385,8 @@ class SearchIndex:
         self._conn.commit()
 
     def _recompute_superseded_by(self) -> None:
-        """Invert every page's ``supersedes`` into the targets'
-        ``superseded_by`` (one per target — the immediate superseder)."""
+        """Invert every ``supersedes`` into the targets' ``superseded_by``
+        (one per target — the immediate superseder)."""
         c = self._conn
         c.execute("UPDATE page SET superseded_by = NULL")
         for rel, raw in c.execute("SELECT rel, supersedes FROM page WHERE supersedes IS NOT NULL").fetchall():
@@ -420,9 +419,9 @@ class SearchIndex:
         )
 
     def tag_counts(self) -> list[tuple[str, int]]:
-        """Every tag in the vault with its usage count, most-used first
-        (ties broken alphabetically). Staleness-scans first, like ``search``,
-        so a tag minted by an external edit is visible immediately."""
+        """Every tag with its usage count, most-used first, ties alphabetical.
+        Staleness-scans first, like ``search``, so a tag minted by an external
+        edit is visible immediately."""
         self._scan()
         return [
             (row[0], row[1])
@@ -451,10 +450,7 @@ class SearchIndex:
         """The headline API. Staleness-scans, then queries. ``text`` is
         tokenized-and-quoted by default — pass ``raw=True`` to use FTS5's
         own operators (``NEAR``, ``OR``, ``"…"`` etc.)."""
-        # Correctness: scan first so external edits / git pull / Obsidian
-        # are caught. Inline updates (Vault.write et al.) are a latency
-        # optimisation, never the path that keeps the index right.
-        self._scan()
+        self._scan()  # correctness path; see module docstring
 
         if self.backend == "fts5":
             return self._search_fts5(
@@ -582,8 +578,8 @@ class SearchIndex:
         return hits[:limit]
 
     def _load_pages_text(self, rels) -> dict[str, str]:
-        """Read each page's full text off disk for the re-fallback search.
-        I/O is the cost; the trade is no FTS5 dependency."""
+        """Read each candidate page's full text off disk, for the ``re``
+        fallback. The I/O is the price of not requiring FTS5."""
         out: dict[str, str] = {}
         for rel in rels:
             path = self.root / "wiki" / rel
@@ -595,17 +591,14 @@ class SearchIndex:
     def _compile_re_pattern(text: str | None, raw: bool) -> re.Pattern[str] | None:
         if not text:
             return None
-        # In ``raw`` mode the caller is asking for the literal pattern; in
-        # default mode we phrase-quote the same way FTS5 would, so a
-        # hyphenated term doesn't compile to a regex character class.
+        # ``raw`` means the caller wants the literal pattern.
         if raw:
             return re.compile(text, re.IGNORECASE | re.DOTALL)
         terms = text.split()
         if not terms:
             return None
-        # Each quoted term is treated as a literal phrase. We compile one
-        # alternation and score by hit count; close enough to the FTS5
-        # ranking for the fallback to be useful rather than great.
+        # Otherwise escape each term to a literal, alternate them, and score
+        # by hit count — a rough stand-in for BM25, adequate for a fallback.
         alts = [re.escape(t).replace(r"\"", '"') for t in terms]
         return re.compile("|".join(alts), re.IGNORECASE | re.DOTALL)
 
@@ -682,11 +675,8 @@ class SearchIndex:
 
 
 def _body_text(text: str) -> str:
-    """The body of a page — everything after the frontmatter block, verbatim.
-
-    The FTS5 body column wants the prose, not the YAML. ``wikipage.split_frontmatter``
-    already gives us (frontmatter, body, offset); we just take the body.
-    """
+    """Everything after the frontmatter block, verbatim — the FTS5 body column
+    indexes the prose, not the YAML."""
     _fm, body, _offset = wikipage.split_frontmatter(text)
     return body
 

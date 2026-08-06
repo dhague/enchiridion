@@ -1,54 +1,42 @@
-"""IngestPlan schema + single-call executor.
+"""IngestPlan schema + single-call executor. Plan in, commit SHA out.
 
-An :class:`IngestPlan` describes the decided outcome of an ingestion (pages
-to create/update, their frontmatter and typed edges) in, a commit SHA out.
-Semantic chunking and overlap classification stay judgment and stay with the
-ingesting agent; everything downstream of that decision is mechanics, and
-mechanics belongs in a tested script, not prose an agent re-derives every run.
+An :class:`IngestPlan` is the decided outcome of an ingestion: which pages to
+create/update, with what frontmatter and typed edges. Semantic chunking and
+overlap classification are judgment and stay with the ingesting agent;
+everything downstream of that decision is mechanics and lives here.
 
-A plan names link targets by **vault-relative rel only** — `edges` and
-`supersedes` values are paths like `"wiki/concept/foo.md"`, never composed
-`"[Title](../dest.md)"` strings. Composing the actual link — title (read
-from the target, on disk or elsewhere in this same plan), `../`
-relativisation, percent-encoding, and YAML quoting — is this module's job
-(:func:`_compose_edges`/:func:`wikipage.compose_link`), not the authoring
-agent's. `raw_source` follows the same rule via a boolean sentinel:
-`frontmatter: {"raw_source": true}` marks the page as the plan's `raw`
-artifact's stub, and the real link is composed from `plan.raw`. Body links
-are normalised (re-encoded) the same way on write, via
+**A plan names link targets by vault-relative rel only** — `edges` and
+`supersedes` hold paths like `"wiki/concept/foo.md"`, never composed
+`"[Title](../dest.md)"` strings. Composing the link (title lookup, `../`
+relativisation, percent-encoding, YAML quoting) is this module's job, via
+:func:`_compose_edges` / :func:`wikipage.compose_link`. `raw_source` uses a
+boolean sentinel for the same reason: `frontmatter: {"raw_source": true}`
+marks the page as the stub for `plan.raw`, and the link is composed from
+that. Body links are re-encoded on write by
 :func:`wikipage.normalize_body_links`.
 
-The pipeline, in order: validate -> per page (place -> frontmatter -> body) ->
-regenerate the index -> derive a commit.Manifest from the plan -> commit.
-Validation is two-phase and runs entirely before any write: shape (required
-fields, valid op) then semantic (an update's `rel` exists, a create's target
-doesn't yet, every edge/raw_source link resolves to a real page — either
-already on disk or another page this same plan creates — and, for a plan
-naming a raw artifact, the chain of evidence: a `source/` stub for that
-artifact plus a `source` edge to it from every other page in the plan). This
-is the agent-time layer of the chain-of-evidence check (#34 point 4): it
-catches a violating plan at the agent's working point, before any write.
-The real hard block lives in :mod:`commit` — every manifest that names a
-`raw_source` is re-checked at commit time, so a hand-built manifest or a
-future caller cannot slip a violation past :func:`validate` and into
-history.
+Pipeline: validate -> per page (place -> frontmatter -> body) -> regenerate
+the index -> derive a `commit.Manifest` -> commit. Validation runs entirely
+before any write, shape (required fields, valid op) then semantic (an
+update's `rel` exists, a create's target doesn't yet, every edge target
+resolves to a page already on disk *or* created by this same plan, and
+:mod:`chain_of_evidence` holds). That last check is a courtesy to the agent —
+:mod:`commit` re-runs it as the hard gate, so a hand-built manifest can't
+route around :func:`validate` into history.
 
-Ingestion is not the only caller: `wiki-retrieval`'s confirmed synthesis-page
-save is the same shape — one `create` page of kind `synthesis`, `source`
-edges to what it drew on, no raw artifact — and runs through this same
-executor with `action: "synthesize"` so the commit history distinguishes the
-two without reading the diff.
+Ingestion isn't the only caller: `wiki-retrieval`'s confirmed synthesis-page
+save is the same shape (one `create` of kind `synthesis`, `source` edges, no
+raw artifact) and passes `action: "synthesize"` so the history distinguishes
+the two without reading the diff.
 
-The raw artifact named by `plan.raw` is never renamed or moved: a file with
-external identity keeps its name verbatim, forever. Ingestion only reads it
-and stages it into the commit; `raw_source` links point at it where it
-already sits, percent-encoded by the link machinery rather than sanitized on
-disk.
+`plan.raw` is never renamed or moved — a file with external identity keeps
+its name forever. Ingestion reads it and stages it; `raw_source` links point
+at it where it sits, percent-encoded by the link machinery rather than
+sanitized on disk.
 
-There is deliberately no rollback on failure: a page written before a later
-step raises is left on disk, uncommitted. Every write here is idempotent
-(`WikiPage.set`/`merge` overwrite or union, `Vault.write` overwrites), so
-re-running the same plan after fixing whatever failed is always safe.
+**No rollback on failure, deliberately.** A page written before a later step
+raises stays on disk, uncommitted. Every write here is idempotent, so
+re-running the plan after fixing the cause is always safe.
 
 CLI::
 
@@ -68,8 +56,8 @@ import wikipage
 from vault import Vault
 from wikipage import WikiPage
 
-#: Maximum full-path length (vault root + vault-relative path) in characters,
-#: to stay under Windows' 255-char path limit (#70).
+#: Cap on full-path length (vault root + vault-relative path), for Windows'
+#: 255-char limit (#70).
 MAX_PATH_LENGTH = 255
 
 
@@ -107,10 +95,8 @@ class IngestPlan:
     """The deterministic description of one ingestion's decided outcome."""
 
     title: str
-    #: The structured commit's verb (`commit.Manifest.action`). Defaults to
-    #: `ingest`; `wiki-retrieval`'s confirmed synthesis-page save passes
-    #: `synthesize`, so the history can tell a researcher-saved page from an
-    #: ingested one without reading the diff.
+    #: The structured commit's verb (`commit.Manifest.action`): `ingest`, or
+    #: `synthesize` for a wiki-retrieval synthesis save.
     action: str = "ingest"
     source_date: str | None = None
     raw: str | None = None
@@ -147,11 +133,10 @@ def _page_dir(page: PagePlan) -> str | None:
 def _resolve_title(target_rel: str, plan: IngestPlan, v: Vault) -> str:
     """The title a link to ``target_rel`` should carry.
 
-    Prefers this same plan's own page for that rel — an update that
-    corrects a title makes every link written by the same plan reflect the
-    correction — then falls back to the on-disk page's own title, then the
-    rel's basename as a last resort (only reachable when validation didn't
-    already reject an unresolvable target).
+    This plan's own page for that rel wins, so an update that corrects a
+    title propagates to every link the same plan writes. Then the on-disk
+    title; then the basename, reachable only if validation let an
+    unresolvable target through.
     """
     target_rel = posixpath.normpath(target_rel)
     for p in plan.pages:
@@ -180,9 +165,9 @@ def _compose_edges(
 
 
 def _page_link_targets(page: PagePlan, plan: IngestPlan) -> list[tuple[str, str]]:
-    """``(key, normalized target rel)`` pairs this page's edges/``raw_source``
-    name, for existence validation. Plans name targets by vault-relative rel
-    only, so this is a direct normalize — no markdown-link parsing.
+    """``(key, normalized target rel)`` pairs for existence validation. Plans
+    name targets by vault-relative rel only, so this is a plain normalize —
+    no markdown-link parsing.
     """
     targets: list[tuple[str, str]] = []
     if page.frontmatter.get("raw_source") is True and plan.raw:
@@ -194,14 +179,12 @@ def _page_link_targets(page: PagePlan, plan: IngestPlan) -> list[tuple[str, str]
 
 
 def _projected_page(page: PagePlan, plan: IngestPlan, v: Vault) -> WikiPage | None:
-    """The frontmatter this page will carry once ``plan`` is executed, without
-    writing anything.
+    """The frontmatter this page will carry post-execution, without writing.
 
-    A create page starts blank; an update page starts from its on-disk copy
-    (or blank, for an update naming a page the plan itself hasn't written
-    yet — the shape error that's caught elsewhere), so a re-ingest's on-disk
-    edges and a fresh plan's edges are both visible to the same check.
-    ``None`` when the page's rel can't yet be resolved (its own shape error).
+    A create starts blank, an update from its on-disk copy, so a re-ingest's
+    existing edges and the fresh plan's edges are both visible to the same
+    check. ``None`` when the rel can't be resolved — its own shape error,
+    reported elsewhere.
     """
     rel = _page_rel(page)
     if rel is None:
@@ -214,12 +197,11 @@ def _projected_page(page: PagePlan, plan: IngestPlan, v: Vault) -> WikiPage | No
 
 
 def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
-    """Check the page -> stub -> raw file chain every raw ingestion must leave
-    (#34 point 4), via the shared :func:`chain_of_evidence.check`.
+    """Run :func:`chain_of_evidence.check` over the plan.
 
-    ``staged`` projects each page in the plan to the frontmatter it will
-    carry post-write — an update merges onto its on-disk copy, so a page
-    already carrying the edge on disk need not restate it in the plan.
+    ``staged`` projects each page to the frontmatter it will carry
+    post-write, so an update whose on-disk copy already has the edge needn't
+    restate it in the plan.
     """
     v = Vault(root)
     staged: dict[str, WikiPage] = {}
@@ -340,11 +322,8 @@ def _apply_body(page: WikiPage, new_body: str | None) -> WikiPage:
 
 
 def execute(vault_root: Path | str, plan: IngestPlan) -> str:
-    """Execute ``plan`` against the vault at ``vault_root``. Returns the commit SHA.
-
-    No rollback on failure: whatever was already written stays on disk,
-    uncommitted, and rerunning the same plan is safe once the cause is fixed.
-    """
+    """Execute ``plan`` against the vault at ``vault_root``. Returns the commit
+    SHA. No rollback on failure — see the module docstring."""
     root = Path(vault_root)
     validate(plan, root)
     v = Vault(root)
@@ -392,9 +371,8 @@ def _ignore_raw_file(root: Path, raw_rel: str, comment: str | None) -> None:
     """Append ``raw_rel`` to its own folder's ``.ingestignore``.
 
     ``raw_rel`` is vault-relative, exactly as `ingest_scan.py` prints it
-    (``raw/emails/foo.eml``, or ``raw/foo.eml`` at the top level) — the
-    agent never has to reason about `.ingestignore`'s own folder/pattern
-    split, or reach for :class:`ingest_scan.Sweep` directly.
+    (``raw/emails/foo.eml``), so the agent never has to split it into
+    ``.ingestignore``'s folder/pattern form itself.
     """
     import ingest_scan
     import vault as vault_mod
