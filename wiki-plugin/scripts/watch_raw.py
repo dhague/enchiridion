@@ -1,20 +1,16 @@
-"""The raw/ watcher — event-driven detection + debounce + queue (#62, per #37).
+"""The raw/ watcher — event-driven detection + debounce + queue.
 
-The `/wiki-watch` skill *is* the watcher's orchestrator; this module is the
-substantive half it launches in the background and polls. Three pieces:
+The `/wiki-watch` skill orchestrates; this is the half it launches in the
+background and polls. Three pieces:
 
-* :class:`Debouncer` — per-file debounce logic, pure (an injectable clock,
-  no threads, no filesystem) so the 30s-default timing is testable without
-  real sleeps.
-* The lock file (:func:`acquire_lock`/:func:`remove_lock`) at
-  ``.wiki-knowledge/watch.lock`` — one watcher per vault, with stale-lock
-  recovery for a hard-killed previous instance (crash, ``kill -9``, VS Code
-  window closed mid-session).
-* The queue file (:func:`append_queue`/:func:`read_queue`/
-  :func:`remove_from_queue`) at ``.wiki-knowledge/watch-queue.jsonl`` — a
-  wake-up signal with a file path, nothing more. The SKILL.md re-checks via
-  ``ingest_scan.py`` if it cares about the reason; this queue doesn't carry
-  one.
+* :class:`Debouncer` — per-file debounce, pure (injectable clock, no threads,
+  no filesystem) so the timing is testable without real sleeps.
+* The lock file at ``.wiki-knowledge/watch.lock`` — one watcher per vault,
+  with stale-lock recovery for a hard-killed predecessor.
+* The queue file at ``.wiki-knowledge/watch-queue.jsonl`` — one
+  vault-relative path per line (despite the extension, not JSON). A wake-up
+  signal and nothing more: SKILL.md re-checks ``ingest_scan.py`` when it
+  needs the reason.
 
 CLI::
 
@@ -46,10 +42,9 @@ DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
 # --- cross-platform exclusive file lock ---------------------------------------
 #
-# ``fcntl.flock`` doesn't exist on Windows; ``msvcrt.locking`` is its closest
-# equivalent there (whole-file advisory lock, one byte is enough — we only
-# ever hold it for the duration of a read-modify-write, never for actual
-# file content).
+# ``fcntl.flock`` doesn't exist on Windows; ``msvcrt.locking`` is the closest
+# equivalent. One byte suffices — the lock is only ever held across a
+# read-modify-write, never over file content.
 
 if sys.platform == "win32":
     import msvcrt
@@ -85,11 +80,9 @@ else:
 
 
 class Debouncer:
-    """Tracks the most recent event time per (vault-relative) file path.
-
-    ``clock`` defaults to :func:`time.monotonic` but is injectable so tests
-    can drive settling with fake timestamps instead of real sleeps.
-    """
+    """Tracks the most recent event time per vault-relative file path.
+    ``clock`` defaults to :func:`time.monotonic`, injectable so tests can
+    drive settling with fake timestamps."""
 
     def __init__(self, debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS, clock: Callable[[], float] | None = None):
         import time as _time
@@ -123,10 +116,9 @@ if sys.platform == "win32":
     _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
     def _pid_alive(pid: int) -> bool:
-        # ``os.kill(pid, 0)`` isn't a liveness probe on Windows — for signal
-        # values other than CTRL_C_EVENT/CTRL_BREAK_EVENT it calls
-        # TerminateProcess(handle, sig), so ``os.kill(pid, 0)`` would actually
-        # kill a live process (with exit code 0) instead of just checking it.
+        # NOT ``os.kill(pid, 0)``: on Windows, for any signal other than
+        # CTRL_C_EVENT/CTRL_BREAK_EVENT, that calls TerminateProcess — it
+        # would kill the live process it is supposed to be probing.
         handle = ctypes.windll.kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             return False
@@ -187,17 +179,15 @@ def acquire_lock(
     now: datetime | None = None,
     pid_alive: Callable[[int], bool] | None = None,
 ) -> bool:
-    """Try to acquire the watch lock. Returns ``True`` iff acquired.
+    """Try to acquire the watch lock. ``True`` iff acquired.
 
-    A live lock (PID alive, timestamp within :data:`STALE_LOCK_SECONDS`)
-    means another watcher is already running — this call returns ``False``
-    without touching the lock file. A stale lock is logged, removed, and
-    replaced with this process's own lock.
+    A live lock (PID alive, within :data:`STALE_LOCK_SECONDS`) means another
+    watcher is running: returns ``False``, lock untouched. A stale one is
+    logged, removed, and replaced.
 
-    The stale check, unlink, and write happen under a companion
-    ``.mutex`` file held with an exclusive ``flock`` for the whole
-    sequence, so two processes racing a stale takeover can't both pass
-    the staleness check before either has written its own lock (#67).
+    Check, unlink and write all happen under a companion ``.mutex`` file
+    held with an exclusive ``flock``, so two processes racing a stale
+    takeover can't both pass the staleness check before either writes.
     """
     now = now or datetime.now(timezone.utc)
     pid_alive = pid_alive or _pid_alive
@@ -226,10 +216,9 @@ def _queue_writelock_path(queue_path: Path) -> Path:
 def _with_queue_lock(queue_path: Path, fn: Callable[[list[str]], list[str]]) -> None:
     """Run ``fn(current_lines) -> new_lines`` under an exclusive file lock.
 
-    Serializes concurrent writers (threads or processes) so a
-    read-modify-write cycle can't lose an update; the new content is then
-    written to a ``.tmp`` sibling and renamed into place so a concurrent
-    reader never observes a partial write.
+    The lock serializes concurrent writers so a read-modify-write can't lose
+    an update; writing to a ``.tmp`` sibling and renaming means a concurrent
+    reader never sees a partial write.
     """
     queue_path.parent.mkdir(parents=True, exist_ok=True)
     writelock_path = _queue_writelock_path(queue_path)
@@ -263,8 +252,8 @@ def remove_from_queue(queue_path: Path, rel: str) -> None:
 def read_queue(queue_path: Path) -> list[str]:
     if not queue_path.exists():
         return []
-    # ``str.split("\n")``, not ``splitlines()`` — splitlines() also breaks on
-    # \x0b/\x0c/\x1c-\x1e, any of which could legitimately appear in a path.
+    # ``split("\n")``, never ``splitlines()``: the latter also breaks on
+    # \x0b/\x0c/\x1c-\x1e, any of which can legitimately appear in a path.
     return [line for line in queue_path.read_text(encoding="utf-8").split("\n") if line]
 
 
@@ -274,11 +263,10 @@ def read_queue(queue_path: Path) -> list[str]:
 def check_and_enqueue(eligible_rels: set[str], settled_rel: str, queue_path: Path) -> bool:
     """Enqueue ``settled_rel`` iff it's in ``eligible_rels``.
 
-    A settled filesystem event doesn't automatically mean "ingest this" — a
-    file matching its folder's ``.ingestignore``, or one whose back-pointer
-    page is already up to date, settles too. ``eligible_rels`` comes from one
-    ``ingest_scan.scan`` per poll tick (not per file, see caller), keeping
-    eligibility semantics identical to the manual sweep.
+    A settled event doesn't mean "ingest this" — an ``.ingestignore`` match,
+    or a file whose back-pointer page is already current, settles too.
+    ``eligible_rels`` comes from one ``ingest_scan.scan`` per poll tick, not
+    per file, so eligibility matches the manual sweep exactly.
     """
     if settled_rel in eligible_rels:
         append_queue(queue_path, settled_rel)
@@ -297,9 +285,9 @@ class _RawEventHandler(FileSystemEventHandler):
     def on_any_event(self, event) -> None:
         if event.is_directory:
             return
-        # Atomic saves (vim, VSCode, Obsidian: write-temp-then-rename) surface
-        # as a single moved event whose *dest_path* is the file that matters —
-        # src_path is the temp file, already gone by the time we'd re-check it.
+        # Atomic saves (vim, VSCode, Obsidian write-temp-then-rename) arrive
+        # as one moved event: dest_path is the real file, src_path the temp
+        # one, already gone by the time we'd re-check it.
         path = getattr(event, "dest_path", "") or event.src_path
         try:
             rel = Path(path).relative_to(self.root).as_posix()

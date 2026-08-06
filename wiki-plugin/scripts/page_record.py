@@ -1,18 +1,15 @@
 """PageRecord — the one module that reads the frontmatter schema.
 
-Every caller that needs a page's frontmatter (``build_index.py``,
-``Vault.pages()``, ``Vault.search()``) reads a :class:`PageRecord` instead
-of re-parsing frontmatter keys itself, so the schema changes in exactly one
-place. Frontmatter text in, one typed record out — this module owns
-decoding it; nothing downstream re-derives a field from raw YAML.
+Frontmatter text in, one typed record out. Every caller that needs a page's
+frontmatter (``build_index.py``, ``Vault.pages()``,
+``search_index.upsert_page``) goes through here rather than re-parsing keys,
+so the schema changes in exactly one place.
 
-``kind`` is derived from the page's folder (``wiki/<kind>/...``). ``edges``
-recovers each of the seven link-valued keys' targets, rebased from the
-page's own directory to be relative to ``wiki/`` (matching
-``build_index.py``'s convention, since ``rel`` here is wiki/-relative).
-``superseded_by`` is derived, not read from frontmatter: it is the inverse
-of every other page's ``supersedes`` edge, so callers stop re-deriving it
-themselves.
+``rel`` is wiki/-relative throughout this module. ``kind`` is derived from the
+page's folder (``wiki/<kind>/...``); ``edges`` recovers each of
+:data:`EDGE_KEYS`' targets, rebased from the page's own directory to be
+relative to ``wiki/``; ``superseded_by`` is derived by inverting every other
+page's ``supersedes`` edge, never read from frontmatter.
 """
 from __future__ import annotations
 
@@ -49,18 +46,17 @@ class PageRecord:
 
 
 def _rebase_to_wiki_root(markdown_link: str, page_dir: str) -> str:
-    """Resolve a quoted markdown link (``[title](path)``) to a decoded path
-    relative to ``wiki/`` — ``page_dir`` is wiki-root-relative, matching this
-    module's ``rel`` convention, so no ``wiki/`` prefix is added here.
+    """Resolve a markdown link (``[title](path)``) to a decoded path relative
+    to ``wiki/``. ``page_dir`` is wiki-root-relative, so no ``wiki/`` prefix
+    is added here.
 
-    The result is one ``..`` short of true vault-relative (e.g. a
+    **Trap:** the result is one ``..`` short of true vault-relative — a
     ``raw_source`` link from ``source/foo.md`` decodes to ``raw/foo.md``, not
-    ``../raw/foo.md``). This is intentional and only safe because every
-    consumer of these edges re-resolves them through
+    ``../raw/foo.md``. That's only safe because consumers re-resolve through
     :func:`wikipage.resolve_link_dest` with ``prefix="wiki"`` (see
-    ``ingest_scan._back_pointers_by_raw``) — the omitted prefix there cancels
-    the missing ``..`` here. Don't add the prefix on this side without also
-    dropping it on the consumer side, or paths will double up.
+    ``ingest_scan._back_pointers_by_raw``), and the prefix they add cancels the
+    ``..`` missing here. Adding the prefix on this side without dropping it on
+    the consumer side doubles the path up.
     """
     dest = wikipage.link_dest(markdown_link)
     if dest is None:
@@ -70,8 +66,7 @@ def _rebase_to_wiki_root(markdown_link: str, page_dir: str) -> str:
 
 def page_record(rel: str, text: str) -> PageRecord:
     """Decode one page's frontmatter. ``superseded_by`` is always empty here —
-    it needs every other page in the vault, so it's only ever filled in by
-    :func:`load_records`.
+    it needs every other page, so only :func:`load_records` fills it in.
     """
     data = wikipage.WikiPage(text).frontmatter or {}
     page_dir = posixpath.dirname(rel)
@@ -100,9 +95,9 @@ def page_record(rel: str, text: str) -> PageRecord:
 
 
 def load_records(pages: dict[str, str]) -> dict[str, PageRecord]:
-    """Decode every page in ``pages`` (a ``{rel: text}`` map, rel relative to
-    ``wiki/``) and fill in each record's ``superseded_by`` by inverting every
-    other page's ``supersedes`` edge. ``_index.md`` is never a page.
+    """Decode every page in ``pages`` (``{rel: text}``, rel wiki/-relative),
+    filling in ``superseded_by`` by inverting the ``supersedes`` edges.
+    ``_index.md`` is never a page.
     """
     records = {
         rel: page_record(rel, text) for rel, text in pages.items() if rel != "_index.md"

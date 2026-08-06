@@ -18,13 +18,11 @@ Two things live here:
   links pointing at the moved page. Its counterpart :class:`wikipage.WikiPage`
   is pure-functional and does no I/O at all.
 
-The vault is also the entry point for the lexical search index: the
-:class:`SearchIndex` lives at ``.wiki-knowledge/index.db`` inside the vault,
-and :meth:`Vault.search`/``reindex``/``index_status`` proxy through. Inline
-updates fire from :meth:`Vault.write` (and the methods built on it: ``set``,
-``merge``) — the staleness scan inside ``search()`` is the correctness path,
-the inline update is a latency optimisation (so a write→search round-trip
-doesn't re-read the file).
+The vault also fronts the lexical index at ``.wiki-knowledge/index.db``:
+:meth:`Vault.search`/``reindex``/``index_status`` proxy to
+:class:`search_index.SearchIndex`, and :meth:`Vault.write` inline-updates it.
+That inline update is a latency optimisation only — see :mod:`search_index`
+for why correctness lives in the staleness scan instead.
 
 ``commit.py`` (git orchestration) stays separate — this module doesn't talk to
 git itself.
@@ -51,11 +49,11 @@ def _has_marker(directory: Path) -> bool:
 
 
 def resolve_vault_root(start: Path | str | None = None, env: dict | None = None) -> Path:
-    """Return the resolved vault root per the §1 order.
+    """Return the resolved vault root, per the order in the module docstring.
 
-    ``start`` defaults to the current working directory and ``env`` to
-    ``os.environ``; both are injectable so the resolution logic is trivial to
-    test without touching the real process environment.
+    ``start`` defaults to cwd and ``env`` to ``os.environ``; both are
+    injectable so the resolution logic is testable without touching the real
+    process environment.
     """
     if env is None:
         env = os.environ
@@ -78,9 +76,8 @@ class Vault:
 
     def __init__(self, root: Path | str):
         self.root = Path(root)
-        # Lazy: the search index is opened on first use. Code paths that
-        # never search (``load``, ``move_page``) don't pay the FTS5 probe
-        # or schema-check cost. ``Vault.__init__`` stays cheap.
+        # Lazy, so paths that never search (`load`, `move_page`) don't pay
+        # the FTS5 probe and schema check.
         self._index: search_index.SearchIndex | None = None
 
     def _get_index(self) -> search_index.SearchIndex:
@@ -95,10 +92,8 @@ class Vault:
     def write(self, rel: str, page: WikiPage) -> None:
         """Write ``page`` to ``rel`` (vault-relative), creating parents as needed.
 
-        Inline-updates the search index if it's been opened (latency
-        optimisation — the next search won't have to re-stat this file).
-        The staleness scan inside :meth:`search` is the correctness path,
-        so the inline update is safe to skip.
+        Inline-updates the search index if it's already open. Safe to skip —
+        :meth:`search`'s staleness scan is the correctness path.
         """
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,10 +120,9 @@ class Vault:
     def pages_with_text(self) -> dict[str, tuple[PageRecord, str]]:
         """Every ``wiki/**`` page as a ``{rel: (PageRecord, text)}`` map.
 
-        Same ``rel`` convention as :meth:`pages` (vault-relative,
-        ``_index.md`` excluded, ``raw/`` never walked) — but keeps the raw
-        text alongside the record, for callers (the raw/ sweep's
-        back-pointer resolution) that need both without re-reading the file.
+        Same ``rel`` convention as :meth:`pages`, but keeps the raw text
+        alongside the record for callers (the raw/ sweep's back-pointer
+        resolution) that need both without re-reading the file.
         """
         wiki_relative = {
             rel.removeprefix("wiki/"): text
@@ -182,13 +176,11 @@ class Vault:
         Reads every ``wiki/**`` page (never ``raw/`` — its files aren't
         rewritten by a page move), plans the move, writes back only the pages
         whose text changed, then removes the original. Returns the changed
-        vault-relative paths, sorted — which for a move that rewrites nothing
-        at all (``old_rel == new_rel``) is empty.
+        vault-relative paths, sorted; empty for ``old_rel == new_rel``.
 
-        The search index is **not** inline-updated here — the next
-        :meth:`search` call's staleness scan reconciles the move (inserting
-        the new rel, removing the old, re-upserting the changed files),
-        which is correct and cheaper than a per-file upsert.
+        The index is deliberately **not** inline-updated here: letting the
+        next :meth:`search`'s staleness scan reconcile the whole move is
+        cheaper than a per-file upsert.
         """
         files = self.load_wiki_pages(include_index=True)
         if old_rel not in files:
@@ -217,15 +209,15 @@ class Vault:
     # --- search / index facade -------------------------------------------
 
     def search(self, *args, **kwargs) -> list[SearchHit]:
-        """Proxy to the search index. Rels in the returned hits are
-        wiki-relative (``concept/foo.md``) so they match the convention in
-        ``wiki/_index.md`` and :mod:`page_record` — read them as relative
-        to ``wiki/``."""
+        """Proxy to the search index, verbatim. Rels in the returned hits stay
+        **wiki-relative** (``concept/foo.md``), matching ``wiki/_index.md`` and
+        :mod:`page_record` — not the vault-relative rels the rest of this class
+        returns."""
         return self._get_index().search(*args, **kwargs)
 
     def reindex(self, *, full: bool = False) -> IndexStats:
         """Force a re-index. ``full=True`` wipes the db first; ``full=False``
-        runs the staleness scan (the same scan a normal ``search`` runs)."""
+        runs the same staleness scan a normal ``search`` runs."""
         return self._get_index().reindex(full=full)
 
     def index_status(self) -> IndexStatus:
@@ -240,10 +232,9 @@ class Vault:
 # --- CLI ---------------------------------------------------------------------
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
-    """``vault.py`` with no arguments prints the resolved root; that bare form
-    is a documented surface (wiki-retrieval's SKILL.md calls it to resolve its
-    own Read paths), so it is dispatched before argparse ever sees ``argv``
-    rather than being made a subcommand with a default.
+    """Bare ``vault.py`` prints the resolved root. That form is a documented
+    surface (wiki-retrieval's SKILL.md calls it), so it is dispatched before
+    argparse sees ``argv`` rather than being a subcommand with a default.
     """
     import argparse
 

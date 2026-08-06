@@ -1,22 +1,17 @@
-"""Summarise the tool-call log written by hooks/log_tool_calls.py (#100).
+"""Summarise the tool-call log written by hooks/log_tool_calls.py.
 
-Makes the cost of a run visible: total tool calls, a per-tool histogram,
-and (as a proxy — see below) how many user-prompt turns those calls fell
-into and the calls-per-turn ratio.
+Makes a run's cost visible: total tool calls, a per-tool histogram, and a
+prompt count with calls-per-prompt.
 
-Per #99's spike, the PostToolUse payload carries no per-assistant-message
-identifier and no timestamp, so exact assistant-turn count is not
-recoverable from the log. ``prompt_id`` is the closest available grouping
-key, but it's scoped to a whole user-prompt turn (which may itself span
-several assistant turns), so "prompts" here is a coarser, honestly-labelled
-proxy — not an exact turn count.
+**"Prompts" is a proxy, not a turn count** (#99). The PostToolUse payload
+carries no per-assistant-message identifier and no timestamp, so exact
+assistant turns aren't recoverable. ``prompt_id`` is the closest grouping
+key available, but it spans a whole user-prompt turn — which may itself
+cover several assistant turns. Labelled honestly wherever it's printed.
 
 CLI::
 
-    python tool_call_stats.py [--session-id <id>]
-
-Defaults ``--session-id`` to ``$CLAUDE_CODE_SESSION_ID``, which Claude Code
-exports to every Bash tool call it makes.
+    python tool_call_stats.py [--session-id <id>]   # defaults to $CLAUDE_CODE_SESSION_ID
 """
 from __future__ import annotations
 
@@ -53,7 +48,8 @@ def read_log(session_id: str, state_dir: Path | None = None) -> list[dict]:
 
 
 def summarize(events: list[dict]) -> dict:
-    """Aggregate ``events`` into totals, a per-tool histogram, and the prompt-count proxy."""
+    """Aggregate ``events`` into totals, a per-tool histogram, and the
+    prompt-count proxy (see module docstring)."""
     total = len(events)
     by_tool = Counter(e.get("tool") or "?" for e in events)
     prompt_ids = {e.get("prompt_id") for e in events if e.get("prompt_id")}

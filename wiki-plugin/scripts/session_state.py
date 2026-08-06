@@ -1,14 +1,13 @@
 """Per-session state: maps a Claude Code session_id to its transcript_path.
 
-The `SessionStart` hook (``hooks/store_transcript_path.py``) writes here;
-``skills/save-conversation`` reads by ``$CLAUDE_CODE_SESSION_ID`` so it never
-has to guess which of several concurrently running sessions' transcripts is
-"current".
+The `SessionStart` hook (``hooks/store_transcript_path.py``) writes;
+``skills/save-conversation`` reads by ``$CLAUDE_CODE_SESSION_ID``, so it never
+guesses which concurrently running session is "current".
 
-State lives under the current project's ``.claude/wiki-knowledge/sessions/``
-(gitignored), not the vault — the vault may live somewhere else entirely
-under query-from-anywhere deployment mode. One JSON file per session_id so
-parallel sessions sharing a project don't clobber each other.
+State lives under the *project's* ``.claude/wiki-knowledge/sessions/``
+(gitignored), not the vault — in query-from-anywhere mode the vault is
+somewhere else entirely. One JSON file per session_id, so parallel sessions
+sharing a project don't clobber each other.
 """
 from __future__ import annotations
 
@@ -23,14 +22,11 @@ def sessions_dir(root: Path | str | None = None, env: dict | None = None) -> Pat
     Resolution order, highest priority first:
 
     1. ``root`` if given — caller-injected (tests, the hook).
-    2. ``$CLAUDE_PROJECT_DIR`` if set — Claude Code exports this to every
-       process it launches, so it's the most reliable statement of which
-       project the current session belongs to.
-    3. The nearest ancestor of cwd containing a ``.claude/`` directory —
-       the writer (the hook) and the reader (this module's callers) need
-       to agree on a root even when cwd is a subdirectory.
-    4. cwd — a last resort so the function always returns a path (the
-       directory may not exist yet).
+    2. ``$CLAUDE_PROJECT_DIR`` — exported to every process Claude Code
+       launches, so the most reliable statement of the current project.
+    3. The nearest ancestor of cwd containing ``.claude/`` — writer and
+       reader must agree on a root even when cwd is a subdirectory.
+    4. cwd, so a path is always returned. It may not exist yet.
     """
     if root is not None:
         base = Path(root)

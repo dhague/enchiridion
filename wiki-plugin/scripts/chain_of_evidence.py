@@ -1,17 +1,15 @@
-"""The page -> stub -> raw file chain every raw ingestion must leave (#34 point 4).
+"""The page -> stub -> raw file chain every raw ingestion must leave.
 
-A raw file that produces pages at all must produce a ``wiki/source/`` stand-in
-for itself (a stub, whose ``raw_source`` points back at the file), and every
-other page produced from it must carry a ``source`` edge back to that stub —
-so a reader can always walk from a claim to the artifact it came from.
+**The rule** (stated here once; :mod:`ingest` and :mod:`commit` only point at
+it): a raw file that produces pages at all must also produce a ``wiki/source/``
+stand-in for itself — a stub whose ``raw_source`` points back at the file — and
+every other page produced from it must carry a ``source`` edge back to that
+stub. So a reader can always walk from a claim to the artifact it came from.
 
-One :func:`check` is called from both the agent-time layer (:mod:`ingest`,
-which validates a plan before any write — its ``staged`` pages are projected
-from the plan, merged with on-disk state for updates) and the commit-time
-hard gate (:mod:`commit`, whose ``staged`` pages are read straight from
-disk). Both callers assemble the same ``{vault-rel: WikiPage}`` shape and
-call this one function, so a divergence between the two checks is impossible
-by construction — nothing here knows or cares which caller it's serving.
+Two callers, one function, so the two checks cannot diverge: :mod:`ingest`
+validates a plan before any write (``staged`` projected from the plan, merged
+with on-disk state for updates); :mod:`commit` is the hard gate (``staged``
+read straight from disk). Neither knows which one this is serving.
 """
 from __future__ import annotations
 
@@ -24,10 +22,9 @@ def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
     """Check that ``staged`` leaves a valid page -> stub -> ``raw`` chain.
 
     ``staged`` is every page one ingestion/commit touches, keyed by its
-    (post-write) vault-relative path. Returns human-readable error strings;
-    empty when the chain holds. Order-independent over ``staged``'s
-    iteration order — the stub found and the violations reported don't
-    depend on dict order, only on the paths and frontmatter themselves.
+    (post-write) vault-relative path. Returns human-readable error strings,
+    empty when the chain holds. Both loops iterate ``sorted(staged)``, so the
+    result never depends on dict order.
     """
     raw = posixpath.normpath(raw)
 

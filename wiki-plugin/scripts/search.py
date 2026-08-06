@@ -1,13 +1,9 @@
 """Search the wiki vault via the lexical index.
 
-The default mode is a query: positional ``text`` plus any of the metadata
-filters. With ``--reindex`` or ``--status`` the CLI switches to index
-management. ``--json`` emits :class:`search_index.SearchHit` records as
-JSON Lines for programmatic use; the default is a compact one-line-per-hit
-table a Haiku agent can read directly.
-
-The vault root is resolved by ``vault.resolve_vault_root()``, so both
-deployment modes work unchanged.
+Default mode is a query: positional ``text`` plus any metadata filter.
+``--reindex`` / ``--status`` switch to index management. ``--json`` emits
+:class:`search_index.SearchHit` records as JSON Lines; the default is a
+compact one-line-per-hit table a Haiku agent can read directly.
 
 CLI::
 
@@ -28,12 +24,11 @@ import vault as vault_mod
 
 
 def _render_hit(rel_width: int, hit) -> str:
-    """A compact one-line-per-hit table for an agent reader.
+    """One hit as a compact table line, for an agent reader.
 
-    Path is right-padded to a fixed width so the title column aligns.
-    Tags are joined with ``,``; dates are kept short. Volatility is
-    shown in brackets — it is the second piece of the trust signal
-    (after age) the agent must convey in any answer.
+    Path is right-padded so the title column aligns. Volatility is bracketed
+    and both dates are shown: with age, they are the trust signal the agent
+    has to carry into any answer. Tags and summary are ``--json`` only.
     """
     rel = hit.rel.ljust(rel_width)
     score = f"{hit.score:.2f}"

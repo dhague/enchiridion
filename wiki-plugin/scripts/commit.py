@@ -1,8 +1,8 @@
-"""Write one structured git commit per ingestion/edit (§4).
+"""Write one structured git commit per ingestion/edit.
 
-The commit message is a compounding asset — the audit log, the "what changed
-this week" feed and the manager-report source — so it is emitted by this script
-(never freehand by the agent) in a single parseable format::
+The commit message is a compounding asset — audit log, "what changed this
+week" feed, manager-report source — so it is emitted here, never freehand by
+the agent. This docstring is the format's only specification::
 
     ingest: <source doc title>
 
@@ -11,18 +11,14 @@ this week" feed and the manager-report source — so it is emitted by this scrip
     superseded: wiki/source/deploy-capistrano.md -> wiki/source/deploy-github-actions.md
     source-date: 2026-03-01
 
-Git is a **hard dependency**: if ``git`` is absent or the target isn't a git
-work tree, :func:`commit` raises :class:`GitError` rather than silently
-skipping — the time model and the roadmap features depend on the history being
-complete.
+Git is a **hard dependency**: absent ``git``, or a target that isn't a work
+tree, raises :class:`GitError` rather than silently skipping — the time model
+depends on the history being complete.
 
-A manifest that names a ``raw_source`` is also gated on the page -> stub ->
-raw file chain: there must be a ``wiki/source/`` page whose ``raw_source``
-points at that file, and every other page the commit stages must carry a
-``source`` edge back to that stub. This is the hard block — the validate-time
-check in :mod:`ingest` is the agent-time layer, but this is what stops a
-violating commit from ever landing in history (#34 point 4). A violation
-raises :class:`CommitGateError` before any file is staged.
+A manifest naming a ``raw_source`` is additionally gated on
+:func:`chain_of_evidence.check`, raising :class:`CommitGateError` before
+anything is staged. This is the hard block; :mod:`ingest` runs the same check
+earlier, at plan-validation time, as a courtesy to the agent.
 
 CLI::
 
@@ -45,11 +41,10 @@ class GitError(RuntimeError):
 
 
 class CommitGateError(RuntimeError):
-    """Raised when a manifest fails the chain-of-evidence gate (#34 point 4).
+    """Raised when a manifest fails the chain-of-evidence gate.
 
-    Distinct from :class:`GitError` so a caller can tell "the gate rejected
-    this manifest" from "git itself failed" — the former is a planning bug
-    to fix, the latter is an environment failure to investigate.
+    Distinct from :class:`GitError`: a rejected manifest is a planning bug,
+    a git failure is an environment problem.
     """
 
 
@@ -63,12 +58,12 @@ class Manifest:
     updated: list[str] = field(default_factory=list)
     superseded: list[tuple[str, str]] = field(default_factory=list)
     source_date: str | None = None
-    #: The raw/ artifact this ingestion is sourced from, if any —
-    #: staged automatically so the source document always lands in the same
-    #: commit as the pages it produced, without the caller having to remember
-    #: to fold it into extra_paths by hand.
+    #: The raw/ artifact this ingestion is sourced from, if any. Staged
+    #: automatically, so the source document always lands in the same commit
+    #: as the pages it produced.
     raw_source: str | None = None
     #: Extra paths to stage that aren't a page edit — e.g. the regenerated index.
+    #: (``raw_source`` is staged automatically; it needn't be repeated here.)
     extra_paths: list[str] = field(default_factory=list)
 
     @classmethod
@@ -107,7 +102,8 @@ class Manifest:
 
 
 def build_message(manifest: Manifest) -> str:
-    """Render ``manifest`` to the §4 structured commit message. Deterministic."""
+    """Render ``manifest`` to the structured commit message (see module
+    docstring for the format). Deterministic."""
     lines = [f"{manifest.action}: {manifest.title}", ""]
     lines += [f"created: {rel}" for rel in manifest.created]
     lines += [f"updated: {rel}" for rel in manifest.updated]
@@ -143,23 +139,13 @@ def _ensure_git(root: Path) -> None:
 
 
 def _check_chain_of_evidence(root: Path, manifest: Manifest) -> None:
-    """Gate the commit on the page -> stub -> raw file chain (#34 point 4),
-    via the shared :func:`chain_of_evidence.check`.
+    """Gate the commit on :func:`chain_of_evidence.check`.
 
-    A commit that stages a raw source must also stage a ``wiki/source/`` page
-    whose ``raw_source`` points at that file, and every other page the commit
-    stages must carry a ``source`` edge back to that stub. This is the hard
-    block — the validate-time check in :mod:`ingest` is the agent-time layer,
-    but this is what stops a violating commit from ever landing in history.
-    Calling the same shared check as :mod:`ingest` (rather than a hand
-    -mirrored copy) is what makes a divergence between the two impossible.
-
-    When ``manifest.raw_source`` is unset (a synthesis save, or any other
-    caller that has no raw artifact to demand a stub for), the gate is a
-    no-op. Pages are read from disk: by the time :func:`commit` runs, the
-    caller has already written them; a staged page missing from disk is
-    silently skipped — the caller set the commit up wrong, and the missing
-    -file signal belongs to the caller, not this gate.
+    No-op when ``manifest.raw_source`` is unset (a synthesis save has no raw
+    artifact to demand a stub for). Pages are read from disk — the caller has
+    already written them by the time :func:`commit` runs. A staged page
+    missing from disk is silently skipped: that's the caller's bug to report,
+    not this gate's.
     """
     if manifest.raw_source is None:
         return
