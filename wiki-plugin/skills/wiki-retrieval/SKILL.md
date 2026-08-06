@@ -111,7 +111,7 @@ Given a question:
    ```
    ````
 
-   Judgment notes for the fields: `summary` is one line, ≤ ~20 words, and is what the *next* retrieval will judge this page by — write it as well as you'd want to find it. `source_date` is **today**, because the synthesis was made today even though its inputs are older. `volatility` is the **most volatile** of the pages you drew on: a synthesis is only as durable as its shakiest input. `source:` lists every page the answer actually cited, as vault-relative paths (the confirming session converts them to relative markdown links) — nothing you merely skimmed.
+   Judgment notes for the fields: `summary` is one line, ≤ ~20 words, and is what the *next* retrieval will judge this page by — write it as well as you'd want to find it. `source_date` is **today**, because the synthesis was made today even though its inputs are older. `volatility` is the **most volatile** of the pages you drew on: a synthesis is only as durable as its shakiest input. `source:` lists every page the answer actually cited, as vault-relative paths (`ingest.py` composes the actual links from these when the plan runs) — nothing you merely skimmed.
 
    If neither bar holds, do not mention saving at all. Offering on every answer trains the user to say no, which is how a confirmation gate stops working.
 
@@ -167,16 +167,17 @@ This section is for **the session that holds the conversation** — the one that
            "volatility": "<the candidate's volatility>"
          },
          "edges": {
-           "source": ["[<page title>](../concept/db-connection-pooling.md)"]   // one per cited page
+           "source": ["wiki/concept/db-connection-pooling.md"]   // one per cited page — the block's vault-relative paths, unchanged; ingest.py composes the actual link
          }
        }
      ]
    }
    ```
 
-   Two conversions the block leaves to you:
-   - **`source` edges** — turn each vault-relative path from the block into a **relative markdown link from the new page's own location**, i.e. `wiki/synthesis/…` → `../concept/…`, `../source/…`. `ingest.py`'s validation rejects a link that doesn't resolve to a real page, so a wrong `../` is caught before anything is written.
+   One conversion the block leaves to you:
    - **`body`** — rewrite the answer as a page, not a transcript: no "you asked", no search-trajectory line, no "per the vault". Keep the citations as inline relative links, keep the temporal framing (a synthesis inherits its inputs' uncertainty and must not launder it into confidence).
+
+   `source:` needs no conversion — the block's paths are already vault-relative, exactly what `edges` takes; `ingest.py` composes the title, `../` relativisation, and encoding, and its validation rejects a target that doesn't resolve to a real page.
 
    No `raw` field and no `raw_source` — a synthesis page has no raw artifact; it stands on `source` edges to other pages. That is exactly the `raw_source:`/`source:` split the schema draws.
 

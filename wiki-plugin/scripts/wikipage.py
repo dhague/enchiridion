@@ -80,17 +80,34 @@ def split_dest(dest: str) -> tuple[str, str]:
     anchor = percent_decode(encoded_anchor) if sep else ""
     return path, anchor
 
+def _nested_paren_dest(depth: int) -> str:
+    """Build a regex fragment for an unbracketed link destination.
+
+    Per CommonMark, a destination without `<>` ends at the first
+    *unbalanced* `)` — `(draft)` inside a destination doesn't terminate it,
+    only a `)` with no matching `(` does. `re` has no true recursion, so
+    this bounds the nesting at ``depth`` levels (plenty for any real
+    filename or URL) rather than reaching for the third-party `regex`
+    package for genuinely unbounded nesting.
+    """
+    frag = r"[^()\s]*"
+    for _ in range(depth):
+        frag = rf"(?:[^()\s]|\({frag}\))*"
+    return frag
+
+
 # A markdown inline link or image: `[label](dest ...)` / `![label](dest ...)`.
 # `label` tolerates one level of nested brackets (e.g. an image inside a link).
-# `dest` is either `<...>` or a run without whitespace/`)`; an optional title
-# (quoted or parenthesised) after the dest is matched but excluded from `dest`.
+# `dest` is either `<...>` or a whitespace-free run that may contain balanced
+# parens (`_nested_paren_dest`); an optional title (quoted or parenthesised)
+# after the dest is matched but excluded from `dest`.
 _LINK_RE = re.compile(
-    r"""
+    rf"""
     (?P<img>!?)
     \[ (?P<label> (?: [^\[\]] | \[[^\[\]]*\] )* ) \]
     \(
         [ \t]*
-        (?P<dest> < [^<>\n]* > | [^)\s]* )
+        (?P<dest> < [^<>\n]* > | {_nested_paren_dest(4)} )
         (?: [ \t]+ (?: "[^"]*" | '[^']*' | \([^)]*\) ) )?
         [ \t]*
     \)
@@ -204,6 +221,21 @@ def resolve_link_dest(dest: str, page_dir: str, prefix: str = "wiki") -> str:
     return posixpath.normpath(posixpath.join(base or ".", dest))
 
 
+def compose_link(title: str, target_rel: str, page_dir: str) -> str:
+    """Compose a markdown link to ``target_rel`` from a page living in ``page_dir``.
+
+    Both ``target_rel`` and ``page_dir`` are vault-relative (e.g.
+    ``"wiki/concept/foo.md"`` / ``"wiki/synthesis"``); ``page_dir`` may be
+    ``""`` for a page at the vault root. Handles the three mechanics a
+    caller previously had to do by hand: relativise the target against the
+    page's own location, percent-encode the destination (never the label),
+    and quote-if-needed is left to :meth:`WikiPage.set`/``merge``, which
+    already wrap a fresh ``[...]`` scalar in double quotes.
+    """
+    dest = posixpath.relpath(posixpath.normpath(target_rel), page_dir or ".")
+    return f"[{title}]({percent_encode(dest)})"
+
+
 def _is_relative_dest(path: str) -> bool:
     """True when ``path`` (the pre-anchor part) is a vault-relative reference.
 
@@ -241,6 +273,32 @@ def _rewrite_text(text: str, file_rel: str, old_rel: str, new_rel: str) -> str:
         # Re-encode before splicing.
         new_encoded_path = percent_encode(new_path)
         new_encoded_anchor = percent_encode(anchor) if anchor else ""
+        new_dest = new_encoded_path + ("#" + new_encoded_anchor if new_encoded_anchor else "")
+        if new_dest != lk.dest:
+            edits.append((lk.start, lk.end, new_dest))
+
+    for start, end, repl in sorted(edits, reverse=True):
+        text = text[:start] + repl + text[end:]
+    return text
+
+
+def normalize_body_links(text: str) -> str:
+    """Re-encode every relative link/image destination in ``text``.
+
+    An author (human or agent) may write a body link with an unencoded
+    destination — a raw filename with a space or paren in it, taken
+    verbatim. This re-encodes each one to this module's canonical
+    percent-encoding, via the same offset-based splice :func:`_rewrite_text`
+    uses, so untouched bytes survive byte-for-byte. Idempotent: an
+    already-encoded destination round-trips unchanged. Absolute paths,
+    scheme-qualified URLs, and bare anchors are left alone.
+    """
+    edits: list[tuple[int, int, str]] = []
+    for lk in iter_links(text):
+        if not _is_relative_dest(lk.decoded_path):
+            continue
+        new_encoded_path = percent_encode(lk.decoded_path)
+        new_encoded_anchor = percent_encode(lk.decoded_anchor) if lk.decoded_anchor else ""
         new_dest = new_encoded_path + ("#" + new_encoded_anchor if new_encoded_anchor else "")
         if new_dest != lk.dest:
             edits.append((lk.start, lk.end, new_dest))
