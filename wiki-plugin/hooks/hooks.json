@@ -1,5 +1,5 @@
 {
-  "description": "Records this session's transcript_path at start so /save-conversation can find it reliably, even with multiple sessions running in parallel (#23)",
+  "description": "Records this session's transcript_path at start so /save-conversation can find it reliably (#23), and logs every tool call so tool_call_stats.py can report the cost of a run (#100)",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,16 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/store_transcript_path.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/log_tool_calls.py\""
           }
         ]
       }

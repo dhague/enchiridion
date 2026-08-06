@@ -807,3 +807,32 @@ def test_cli_prints_commit_sha(vault_root, monkeypatch, capsys, tmp_path):
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert out == _git(vault_root, "rev-parse", "HEAD").strip()
+
+
+def test_cli_prints_tool_call_summary_after_commit_sha(vault_root, monkeypatch, capsys, tmp_path):
+    import json
+
+    import session_state
+    import tool_call_stats
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(_plan_dict()), encoding="utf-8")
+
+    monkeypatch.chdir(vault_root)
+    monkeypatch.delenv("WIKI_ROOT", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-cli")
+
+    log_path = tool_call_stats.log_path("sess-cli", session_state.sessions_dir(vault_root))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        json.dumps({"tool": "Bash", "prompt_id": "p1"}) + "\n"
+        + json.dumps({"tool": "Write", "prompt_id": "p1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    rc = ingest._main(["--plan", str(plan_path)])
+    assert rc == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    assert out[0] == _git(vault_root, "rev-parse", "HEAD").strip()
+    assert out[1] == "Total tool calls: 2"
+    assert "Bash" in out[2] and "Write" in out[3]

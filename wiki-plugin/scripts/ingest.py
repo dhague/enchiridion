@@ -336,7 +336,9 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     import argparse
     import json
+    import os
 
+    import tool_call_stats
     import vault as vault_mod
 
     parser = argparse.ArgumentParser(description="Execute an IngestPlan against the resolved vault.")
@@ -347,6 +349,13 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
     plan = IngestPlan.from_dict(data)
     root = vault_mod.resolve_vault_root()
     print(execute(root, plan))
+
+    session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if session_id:
+        events = tool_call_stats.read_log(session_id)
+        if events:
+            print(tool_call_stats.format_summary(tool_call_stats.summarize(events)))
+
     return 0
 
 
