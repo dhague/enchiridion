@@ -6,7 +6,8 @@ frontmatter (``build_index.py``, ``Vault.pages()``,
 so the schema changes in exactly one place.
 
 ``rel`` is wiki/-relative throughout this module. ``kind`` is derived from the
-page's folder (``wiki/<kind>/...``); ``edges`` recovers each of
+page's folder via :data:`place.FOLDER_KINDS` (kind-folders pluralize, kind
+values stay singular — ADR-0008); ``edges`` recovers each of
 :data:`EDGE_KEYS`' targets, rebased from the page's own directory to be
 relative to ``wiki/``; ``superseded_by`` is derived by inverting every other
 page's ``supersedes`` edge, never read from frontmatter.
@@ -16,6 +17,7 @@ from __future__ import annotations
 import posixpath
 from dataclasses import dataclass, field, replace
 
+import place
 import wikipage
 
 #: Order mirrors the frontmatter schema block in the conventions spec.
@@ -82,9 +84,12 @@ def page_record(rel: str, text: str) -> PageRecord:
             targets = [_rebase_to_wiki_root(item, page_dir) for item in value]
         edges.append((key, targets))
 
+    folder = rel.partition("/")[0]
+    if folder not in place.FOLDER_KINDS:
+        raise ValueError(f"{rel!r}: unknown kind-folder {folder!r}")
     return PageRecord(
         rel=rel,
-        kind=rel.partition("/")[0],
+        kind=place.FOLDER_KINDS[folder],
         title=str(data.get("title", "")),
         summary=str(data.get("summary", "")),
         tags=list(data.get("tags") or []),

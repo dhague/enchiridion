@@ -54,9 +54,9 @@ Follows the [Karpathy LLM-wiki pattern](https://github.com/karpathy/llm-wiki).
 ```
 raw/           # Inbox — drop documents here for ingestion
 wiki/
-  concept/     # Abstract ideas, frameworks, definitions
-  entity/      # Concrete people, tools, projects, organizations
-  source/      # Provenance stubs (one per raw artifact)
+  concepts/    # Abstract ideas, frameworks, definitions
+  entities/    # Concrete people, tools, projects, organizations
+  sources/     # Provenance stubs (one per raw artifact)
   synthesis/   # Cross-cutting analysis and summaries
 ```
 

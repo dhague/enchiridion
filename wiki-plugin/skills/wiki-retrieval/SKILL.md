@@ -76,7 +76,7 @@ Given a question:
 
    For each cited page state its age (`source_date` = valid time, `git_date` = transaction time — see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) and its `volatility` (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)) plainly, so the asker can calibrate their own trust. Sanity-check `git_date` before quoting it: a vault that was bulk-imported gives every page the same commit date, which says nothing about the knowledge — when commit dates are uninformative, frame the answer on `source_date` and say that's what you're using.
 
-   Phrase it in the answer, don't bury it — e.g. *"per [Rate limits](wiki/concept/rate-limits.md), marked `volatile`, from 2025-01-12 and last committed 14 months ago…"*. A `stable` page from three years ago is not stale; a `volatile` page from last quarter may already be wrong. Never present a `volatile` fact with the same confidence as a `stable` one just because it is what you found.
+   Phrase it in the answer, don't bury it — e.g. *"per [Rate limits](wiki/concepts/rate-limits.md), marked `volatile`, from 2025-01-12 and last committed 14 months ago…"*. A `stable` page from three years ago is not stale; a `volatile` page from last quarter may already be wrong. Never present a `volatile` fact with the same confidence as a `stable` one just because it is what you found.
 
    **Recency is never a re-ranking signal.** When the question matches two pages P₁ (older, `stable`) and P₂ (newer, `volatile`), do not promote P₂ above P₁ just because P₂ is newer — present both with their volatilities and let the asker judge. The one exception is a question that is *explicitly* time-anchored ("what's the latest X", "as of YYYY-MM-DD"), where recency IS the signal; even then, a `supersedes` edge still wins, because it is a recorded fact, stronger than any recency guess.
 
@@ -101,8 +101,8 @@ Given a question:
    source_date: 2026-07-28
    volatility: evolving
    source:
-     - wiki/concept/db-connection-pooling.md
-     - wiki/source/deploy-github-actions.md
+     - wiki/concepts/db-connection-pooling.md
+     - wiki/sources/deploy-github-actions.md
    ```
    ````
 
@@ -162,7 +162,7 @@ This section is for **the session that holds the conversation** — the one that
            "volatility": "<the candidate's volatility>"
          },
          "edges": {
-           "source": ["wiki/concept/db-connection-pooling.md"]   // one per cited page — the block's vault-relative paths, unchanged; ingest.py composes the actual link
+           "source": ["wiki/concepts/db-connection-pooling.md"]   // one per cited page — the block's vault-relative paths, unchanged; ingest.py composes the actual link
          }
        }
      ]

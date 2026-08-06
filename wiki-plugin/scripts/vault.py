@@ -137,7 +137,7 @@ class Vault:
     def pages(self) -> dict[str, PageRecord]:
         """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
 
-        ``rel`` is always vault-relative (e.g. ``"wiki/concept/a.md"``) — the
+        ``rel`` is always vault-relative (e.g. ``"wiki/concepts/a.md"``) — the
         one convention every :class:`Vault` enumeration method uses.
         ``_index.md`` is never a page; ``raw/`` is never walked.
         """
@@ -210,7 +210,7 @@ class Vault:
 
     def search(self, *args, **kwargs) -> list[SearchHit]:
         """Proxy to the search index, verbatim. Rels in the returned hits stay
-        **wiki-relative** (``concept/foo.md``), matching ``wiki/_index.md`` and
+        **wiki-relative** (``concepts/foo.md``), matching ``wiki/_index.md`` and
         :mod:`page_record` — not the vault-relative rels the rest of this class
         returns."""
         return self._get_index().search(*args, **kwargs)

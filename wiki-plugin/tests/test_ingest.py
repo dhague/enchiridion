@@ -33,11 +33,11 @@ def vault_root(tmp_path):
     _git(tmp_path, "config", "user.email", "test@example.com")
     _git(tmp_path, "config", "user.name", "Test")
     _git(tmp_path, "config", "commit.gpgsign", "false")
-    (tmp_path / "wiki" / "concept").mkdir(parents=True)
-    (tmp_path / "wiki" / "entity").mkdir(parents=True)
-    (tmp_path / "wiki" / "source").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "wiki" / "entities").mkdir(parents=True)
+    (tmp_path / "wiki" / "sources").mkdir(parents=True)
     (tmp_path / "raw").mkdir()
-    existing = tmp_path / "wiki" / "concept" / "existing.md"
+    existing = tmp_path / "wiki" / "concepts" / "existing.md"
     existing.write_text(
         '---\ntitle: Existing\nsummary: an existing page\ntags:\n    - db\nsource_date: "2026-01-01"\nvolatility: stable\n---\n# Existing\n\nSome body.\n',
         encoding="utf-8",
@@ -66,7 +66,7 @@ def _plan_dict(**overrides):
                     "source_date": "2026-03-01",
                     "volatility": "stable",
                 },
-                "edges": {"related": ["wiki/concept/existing.md"]},
+                "edges": {"related": ["wiki/concepts/existing.md"]},
             }
         ],
     }
@@ -88,7 +88,7 @@ def test_plan_from_dict_roundtrip():
     assert page.kind == "concept"
     assert page.title == "Prepared Statements"
     assert page.frontmatter["tags"] == ["db"]
-    assert page.edges["related"] == ["wiki/concept/existing.md"]
+    assert page.edges["related"] == ["wiki/concepts/existing.md"]
     assert page.rel is None
 
 
@@ -103,13 +103,13 @@ def test_page_from_dict_update_shape():
     d = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concept/existing.md",
+        "rel": "wiki/concepts/existing.md",
         "frontmatter": {"tags": ["db", "sql"]},
         "edges": {},
     }
     page = ingest.PagePlan.from_dict(d)
     assert page.op == "update"
-    assert page.rel == "wiki/concept/existing.md"
+    assert page.rel == "wiki/concepts/existing.md"
     assert page.kind is None
     assert page.body is None
 
@@ -165,7 +165,7 @@ def test_validate_rejects_update_rel_not_found(vault_root):
         {
             "title": "T",
             "pages": [
-                {"op": "update", "title": "X", "rel": "wiki/concept/missing.md"}
+                {"op": "update", "title": "X", "rel": "wiki/concepts/missing.md"}
             ],
         }
     )
@@ -175,7 +175,7 @@ def test_validate_rejects_update_rel_not_found(vault_root):
 
 def test_validate_rejects_dangling_edge_link(vault_root):
     d = _plan_dict()
-    d["pages"][0]["edges"] = {"related": ["wiki/concept/nope.md"]}
+    d["pages"][0]["edges"] = {"related": ["wiki/concepts/nope.md"]}
     plan = ingest.IngestPlan.from_dict(d)
     with pytest.raises(ingest.PlanError, match="does not resolve"):
         ingest.validate(plan, vault_root)
@@ -191,7 +191,7 @@ def test_validate_accepts_edge_link_to_sibling_page_created_in_same_plan(vault_r
                 "title": "Alpha",
                 "body": "# Alpha\n",
                 "frontmatter": {},
-                "edges": {"related": ["wiki/concept/beta.md"]},
+                "edges": {"related": ["wiki/concepts/beta.md"]},
             },
             {
                 "op": "create",
@@ -199,7 +199,7 @@ def test_validate_accepts_edge_link_to_sibling_page_created_in_same_plan(vault_r
                 "title": "Beta",
                 "body": "# Beta\n",
                 "frontmatter": {},
-                "edges": {"related": ["wiki/concept/alpha.md"]},
+                "edges": {"related": ["wiki/concepts/alpha.md"]},
             },
         ],
     }
@@ -227,11 +227,11 @@ def test_validate_rejects_raw_source_true_without_plan_raw(vault_root):
         ingest.validate(plan, vault_root)
 
 
-# --- validation: the mandatory source/ stub + source edges (#34) ----------------
+# --- validation: the mandatory sources/ stub + source edges (#34) ----------------
 
 
 def _raw_plan_dict(**overrides):
-    """A plan sourced from a raw artifact: its `source/` stub plus one distilled page.
+    """A plan sourced from a raw artifact: its `sources/` stub plus one distilled page.
 
     The shape #34 makes mandatory — every page a raw file produces carries a
     `source` edge back to that file's stub, and the stub always exists.
@@ -258,7 +258,7 @@ def _raw_plan_dict(**overrides):
                 "title": "Prepared Statements",
                 "body": "# Prepared Statements\n\nReduce parse overhead.\n",
                 "frontmatter": {"summary": "Reusing a parsed query plan"},
-                "edges": {"source": ["wiki/source/notes.md"]},
+                "edges": {"source": ["wiki/sources/notes.md"]},
             },
         ],
     }
@@ -278,28 +278,28 @@ def test_validate_passes_when_stub_and_every_source_edge_are_present(raw_notes):
 
 
 def test_validate_rejects_a_raw_ingestion_with_no_source_stub(raw_notes):
-    """The case the old 'distil straight into concept/ and skip source/' allowed."""
+    """The case the old 'distil straight into concepts/ and skip sources/' allowed."""
     d = _raw_plan_dict()
     del d["pages"][0]
     d["pages"][0]["edges"] = {}
     plan = ingest.IngestPlan.from_dict(d)
-    with pytest.raises(ingest.PlanError, match="source/ page"):
+    with pytest.raises(ingest.PlanError, match="sources/ page"):
         ingest.validate(plan, raw_notes)
 
 
 def test_validate_rejects_a_raw_source_page_placed_outside_wiki_source(raw_notes):
-    """The stub must actually live under wiki/source/ — carrying raw_source:true
+    """The stub must actually live under wiki/sources/ — carrying raw_source:true
     elsewhere doesn't satisfy the chain, since chain_of_evidence only looks there."""
     d = _raw_plan_dict()
     d["pages"][0]["kind"] = "concept"  # the stub, misplaced
     plan = ingest.IngestPlan.from_dict(d)
-    with pytest.raises(ingest.PlanError, match="source/ page"):
+    with pytest.raises(ingest.PlanError, match="sources/ page"):
         ingest.validate(plan, raw_notes)
 
 
 def test_validate_rejects_a_created_page_missing_the_source_edge(raw_notes):
     d = _raw_plan_dict()
-    d["pages"][1]["edges"] = {"related": ["wiki/concept/existing.md"]}
+    d["pages"][1]["edges"] = {"related": ["wiki/concepts/existing.md"]}
     plan = ingest.IngestPlan.from_dict(d)
     with pytest.raises(ingest.PlanError, match="source edge"):
         ingest.validate(plan, raw_notes)
@@ -318,7 +318,7 @@ def test_validate_rejects_one_missing_source_edge_among_several_pages(raw_notes)
         }
     )
     plan = ingest.IngestPlan.from_dict(d)
-    with pytest.raises(ingest.PlanError, match="wiki/concept/connection-pooling.md"):
+    with pytest.raises(ingest.PlanError, match="wiki/concepts/connection-pooling.md"):
         ingest.validate(plan, raw_notes)
 
 
@@ -347,7 +347,7 @@ def test_validate_requires_the_source_edge_on_an_updated_page_too(raw_notes):
     d["pages"][1] = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concept/existing.md",
+        "rel": "wiki/concepts/existing.md",
         "frontmatter": {"volatility": "evolving"},
         "edges": {},
     }
@@ -361,9 +361,9 @@ def test_validate_accepts_an_updated_page_carrying_the_source_edge(raw_notes):
     d["pages"][1] = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concept/existing.md",
+        "rel": "wiki/concepts/existing.md",
         "frontmatter": {"volatility": "evolving"},
-        "edges": {"source": ["wiki/source/notes.md"]},
+        "edges": {"source": ["wiki/sources/notes.md"]},
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.validate(plan, raw_notes)  # no raise
@@ -371,12 +371,12 @@ def test_validate_accepts_an_updated_page_carrying_the_source_edge(raw_notes):
 
 def test_validate_accepts_a_source_edge_the_page_already_carries_on_disk(raw_notes):
     """A re-ingest need not restate an edge the page already has."""
-    (raw_notes / "wiki" / "source" / "notes.md").write_text(
+    (raw_notes / "wiki" / "sources" / "notes.md").write_text(
         '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
         encoding="utf-8",
     )
     Vault(raw_notes).set(
-        "wiki/concept/existing.md", "source", ["[Notes](../source/notes.md)"]
+        "wiki/concepts/existing.md", "source", ["[Notes](../sources/notes.md)"]
     )
     d = {
         "title": "Second pass over the same notes",
@@ -385,14 +385,14 @@ def test_validate_accepts_a_source_edge_the_page_already_carries_on_disk(raw_not
             {
                 "op": "update",
                 "title": "Notes",
-                "rel": "wiki/source/notes.md",
+                "rel": "wiki/sources/notes.md",
                 "frontmatter": {},
                 "edges": {},
             },
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             },
@@ -404,7 +404,7 @@ def test_validate_accepts_a_source_edge_the_page_already_carries_on_disk(raw_not
 
 def test_validate_recognises_an_existing_stub_updated_in_place(raw_notes):
     """The stub may be an `update` whose raw_source lives on disk, not in the plan."""
-    (raw_notes / "wiki" / "source" / "notes.md").write_text(
+    (raw_notes / "wiki" / "sources" / "notes.md").write_text(
         '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
         encoding="utf-8",
     )
@@ -415,7 +415,7 @@ def test_validate_recognises_an_existing_stub_updated_in_place(raw_notes):
             {
                 "op": "update",
                 "title": "Notes",
-                "rel": "wiki/source/notes.md",
+                "rel": "wiki/sources/notes.md",
                 "frontmatter": {},
                 "edges": {},
             },
@@ -425,7 +425,7 @@ def test_validate_recognises_an_existing_stub_updated_in_place(raw_notes):
                 "title": "Prepared Statements",
                 "body": "# Prepared Statements\n",
                 "frontmatter": {},
-                "edges": {"source": ["wiki/source/notes.md"]},
+                "edges": {"source": ["wiki/sources/notes.md"]},
             },
         ],
     }
@@ -453,10 +453,10 @@ def test_execute_writes_the_source_edge_to_every_page_from_a_raw_file(raw_notes)
     ingest.execute(raw_notes, plan)
 
     v = Vault(raw_notes)
-    stub = v.load("wiki/source/notes.md")
+    stub = v.load("wiki/sources/notes.md")
     assert stub.get("raw_source") == "[notes.md](../../raw/notes.md)"
-    distilled = v.load("wiki/concept/prepared-statements.md")
-    assert distilled.get("source") == ["[Notes](../source/notes.md)"]
+    distilled = v.load("wiki/concepts/prepared-statements.md")
+    assert distilled.get("source") == ["[Notes](../sources/notes.md)"]
     assert _git(raw_notes, "status", "--porcelain") == ""
 
 
@@ -469,12 +469,12 @@ def test_execute_creates_page_writes_frontmatter_and_body(vault_root):
 
     assert sha
     v = Vault(vault_root)
-    page = v.load("wiki/concept/prepared-statements.md")
+    page = v.load("wiki/concepts/prepared-statements.md")
     assert page.get("title") == "Prepared Statements"
     assert page.get("summary") == "Reusing a parsed query plan"
     assert page.get("tags") == ["db"]
     # both pages live in wiki/concept, so the composed link is the minimal
-    # same-directory form — not the "../concept/…" a hand-authored plan used to carry
+    # same-directory form — not the "../concepts/…" a hand-authored plan used to carry
     assert page.get("related") == ["[Existing](existing.md)"]
     assert "Reduce parse overhead." in page.body
 
@@ -491,7 +491,7 @@ def test_execute_composes_edge_title_from_a_sibling_page_created_in_the_same_pla
                 "title": "Alpha",
                 "body": "# Alpha\n",
                 "frontmatter": {},
-                "edges": {"related": ["wiki/concept/beta.md"]},
+                "edges": {"related": ["wiki/concepts/beta.md"]},
             },
             {
                 "op": "create",
@@ -499,7 +499,7 @@ def test_execute_composes_edge_title_from_a_sibling_page_created_in_the_same_pla
                 "title": "Beta",
                 "body": "# Beta\n",
                 "frontmatter": {},
-                "edges": {"related": ["wiki/concept/alpha.md"]},
+                "edges": {"related": ["wiki/concepts/alpha.md"]},
             },
         ],
     }
@@ -507,8 +507,8 @@ def test_execute_composes_edge_title_from_a_sibling_page_created_in_the_same_pla
     ingest.execute(vault_root, plan)
 
     v = Vault(vault_root)
-    assert v.load("wiki/concept/alpha.md").get("related") == ["[Beta](beta.md)"]
-    assert v.load("wiki/concept/beta.md").get("related") == ["[Alpha](alpha.md)"]
+    assert v.load("wiki/concepts/alpha.md").get("related") == ["[Beta](beta.md)"]
+    assert v.load("wiki/concepts/beta.md").get("related") == ["[Alpha](alpha.md)"]
 
 
 def test_execute_normalizes_an_unencoded_body_link_on_create(vault_root):
@@ -519,7 +519,7 @@ def test_execute_normalizes_an_unencoded_body_link_on_create(vault_root):
     )
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/prepared-statements.md")
+    page = Vault(vault_root).load("wiki/concepts/prepared-statements.md")
     assert "[notes](../../raw/My%20Notes%20%28draft%29.md)" in page.body
 
 
@@ -531,7 +531,7 @@ def test_execute_normalizes_an_unencoded_body_link_on_update(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "body": "# Existing\n\nSee [notes](../../raw/My%20Notes%20(draft).md).\n",
                 "frontmatter": {},
                 "edges": {},
@@ -540,7 +540,7 @@ def test_execute_normalizes_an_unencoded_body_link_on_update(vault_root):
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert "[notes](../../raw/My%20Notes%20%28draft%29.md)" in page.body
 
 
@@ -556,7 +556,7 @@ def test_execute_commits_with_structured_message(vault_root):
     sha = ingest.execute(vault_root, plan)
     body = _git(vault_root, "log", "-1", "--pretty=%B")
     assert body.startswith("ingest: Postgres tuning notes\n")
-    assert "created: wiki/concept/prepared-statements.md" in body
+    assert "created: wiki/concepts/prepared-statements.md" in body
     assert "source-date: 2026-03-01" in body
     assert _git(vault_root, "rev-parse", "HEAD").strip() == sha
 
@@ -577,7 +577,7 @@ def test_execute_update_merges_tags(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {"tags": ["sql"]},
                 "edges": {},
             }
@@ -585,7 +585,7 @@ def test_execute_update_merges_tags(vault_root):
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert page.get("tags") == ["db", "sql"]
 
 
@@ -596,7 +596,7 @@ def test_execute_update_overwrites_scalar_frontmatter(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "volatile"},
                 "edges": {},
             }
@@ -604,18 +604,18 @@ def test_execute_update_overwrites_scalar_frontmatter(vault_root):
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert page.get("volatility") == "volatile"
 
 
 def test_execute_update_merges_edge_lists(vault_root):
     Vault(vault_root).set(
-        "wiki/concept/existing.md", "related", ["[Other](../entity/other.md)"]
+        "wiki/concepts/existing.md", "related", ["[Other](../entities/other.md)"]
     )
-    (vault_root / "wiki" / "entity" / "other.md").write_text(
+    (vault_root / "wiki" / "entities" / "other.md").write_text(
         "---\ntitle: Other\n---\n# Other\n", encoding="utf-8"
     )
-    (vault_root / "wiki" / "entity" / "other2.md").write_text(
+    (vault_root / "wiki" / "entities" / "other2.md").write_text(
         "---\ntitle: Other2\n---\n# Other2\n", encoding="utf-8"
     )
     d = {
@@ -624,20 +624,20 @@ def test_execute_update_merges_edge_lists(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {},
                 # a genuinely different target — the composed label always
                 # matches the target's own title, so this can't alias "other.md"
-                "edges": {"related": ["wiki/entity/other2.md"]},
+                "edges": {"related": ["wiki/entities/other2.md"]},
             }
         ],
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert page.get("related") == [
-        "[Other](../entity/other.md)",
-        "[Other2](../entity/other2.md)",
+        "[Other](../entities/other.md)",
+        "[Other2](../entities/other2.md)",
     ]
 
 
@@ -648,7 +648,7 @@ def test_execute_update_replaces_body_when_given(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "body": "# Existing\n\nNew body text.\n",
                 "frontmatter": {},
                 "edges": {},
@@ -657,7 +657,7 @@ def test_execute_update_replaces_body_when_given(vault_root):
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert "New body text." in page.body
     assert "Some body." not in page.body
     assert page.get("title") == "Existing"  # frontmatter untouched by the body swap
@@ -670,7 +670,7 @@ def test_execute_update_leaves_body_untouched_when_omitted(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             }
@@ -678,7 +678,7 @@ def test_execute_update_leaves_body_untouched_when_omitted(vault_root):
     }
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
-    page = Vault(vault_root).load("wiki/concept/existing.md")
+    page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert "Some body." in page.body
 
 
@@ -689,7 +689,7 @@ def test_execute_records_updated_not_created_in_manifest(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concept/existing.md",
+                "rel": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             }
@@ -698,7 +698,7 @@ def test_execute_records_updated_not_created_in_manifest(vault_root):
     plan = ingest.IngestPlan.from_dict(d)
     ingest.execute(vault_root, plan)
     body = _git(vault_root, "log", "-1", "--pretty=%B")
-    assert "updated: wiki/concept/existing.md" in body
+    assert "updated: wiki/concepts/existing.md" in body
     assert "created:" not in body
 
 
@@ -716,8 +716,8 @@ def test_execute_records_supersedes_pair_in_manifest(vault_root):
                 "body": "# New Way\n",
                 "frontmatter": {},
                 "edges": {
-                    "supersedes": ["wiki/concept/existing.md"],
-                    "contradicts": ["wiki/concept/existing.md"],
+                    "supersedes": ["wiki/concepts/existing.md"],
+                    "contradicts": ["wiki/concepts/existing.md"],
                 },
             }
         ],
@@ -726,10 +726,10 @@ def test_execute_records_supersedes_pair_in_manifest(vault_root):
     ingest.execute(vault_root, plan)
     body = _git(vault_root, "log", "-1", "--pretty=%B")
     assert (
-        "superseded: wiki/concept/existing.md -> wiki/concept/new-way.md" in body
+        "superseded: wiki/concepts/existing.md -> wiki/concepts/new-way.md" in body
     )
     # the superseded page's own content is left untouched
-    superseded_page = Vault(vault_root).load("wiki/concept/existing.md")
+    superseded_page = Vault(vault_root).load("wiki/concepts/existing.md")
     assert superseded_page.get("summary") == "an existing page"
 
 
@@ -758,7 +758,7 @@ def test_execute_derives_raw_source_from_plan_raw(vault_root):
     # per #28/#38 the raw file keeps its name verbatim; raw_source is composed
     # from plan.raw, titled by the raw file's own basename
     assert (vault_root / "raw" / "notes.md").read_text(encoding="utf-8") == "raw notes\n"
-    page = Vault(vault_root).load("wiki/source/notes.md")
+    page = Vault(vault_root).load("wiki/sources/notes.md")
     assert page.get("raw_source") == "[notes.md](../../raw/notes.md)"
 
     # the raw artifact landed in the same commit as the page it produced
@@ -786,7 +786,7 @@ def test_execute_percent_encodes_a_raw_filename_needing_it(vault_root):
     ingest.execute(vault_root, plan)  # the raw filename with space+parens validates against the real file
 
     assert (vault_root / "raw" / "My Notes (draft).md").exists()
-    page = Vault(vault_root).load("wiki/source/my-notes.md")
+    page = Vault(vault_root).load("wiki/sources/my-notes.md")
     assert page.get("raw_source") == (
         "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"
     )
@@ -808,7 +808,7 @@ def test_execute_leaves_written_files_uncommitted_on_commit_failure(vault_root, 
         ingest.execute(vault_root, plan)
 
     # the page was written to disk despite the commit failing
-    assert (vault_root / "wiki" / "concept" / "prepared-statements.md").exists()
+    assert (vault_root / "wiki" / "concepts" / "prepared-statements.md").exists()
     status = _git(vault_root, "status", "--porcelain")
     assert "prepared-statements.md" in status
 
@@ -831,7 +831,7 @@ def test_execute_carries_the_plans_action_into_the_commit_subject(vault_root):
     ingest.execute(vault_root, plan)
     body = _git(vault_root, "log", "-1", "--pretty=%B")
     assert body.startswith("synthesize: What we decided about pooling\n")
-    assert "created: wiki/concept/prepared-statements.md" in body
+    assert "created: wiki/concepts/prepared-statements.md" in body
 
 
 def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
@@ -853,7 +853,7 @@ def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
                         "source_date": "2026-07-28",
                         "volatility": "evolving",
                     },
-                    "edges": {"source": ["wiki/concept/existing.md"]},
+                    "edges": {"source": ["wiki/concepts/existing.md"]},
                 }
             ],
         }
@@ -863,7 +863,7 @@ def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
     page = Vault(vault_root).load(
         "wiki/synthesis/how-connection-pooling-is-configured.md"
     )
-    assert page.get("source") == ["[Existing](../concept/existing.md)"]
+    assert page.get("source") == ["[Existing](../concepts/existing.md)"]
     assert page.get("volatility") == "evolving"
 
     index = (vault_root / "wiki" / "_index.md").read_text(encoding="utf-8")

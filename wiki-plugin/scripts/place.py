@@ -2,8 +2,10 @@
 
 *Which* kind a page belongs to is judgment (wiki-conventions' placement
 algorithm) and stays with the ingesting agent. Turning a chosen kind + title
-into `wiki/<kind>/<slug>.md` is mechanics, and lives here so filenames are
-consistent regardless of who — or which model — is ingesting.
+into `wiki/<kind-folder>/<slug>.md` is mechanics, and lives here so filenames
+are consistent regardless of who — or which model — is ingesting. Kind
+*values* stay singular (`concept`); kind *folders* pluralize (`concepts/`),
+except `synthesis` — see :data:`KIND_FOLDERS` (ADR-0008).
 
 CLI::
 
@@ -14,8 +16,23 @@ from __future__ import annotations
 import re
 import sys
 
-#: The fixed kind-folder set (wiki-conventions, "Vault structure").
-KINDS = ("source", "synthesis", "entity", "concept")
+#: Kind value -> its `wiki/` folder name (ADR-0008: folders pluralize, values
+#: stay singular — `synthesis` has no distinct plural, so it's unchanged).
+#: The single source of truth for the mapping; no other module may hardcode
+#: a kind-folder string.
+KIND_FOLDERS = {
+    "source": "sources",
+    "synthesis": "synthesis",
+    "entity": "entities",
+    "concept": "concepts",
+}
+
+#: Folder name -> kind value, for readers going the other direction
+#: (:mod:`page_record` deriving a page's kind from its path).
+FOLDER_KINDS = {folder: kind for kind, folder in KIND_FOLDERS.items()}
+
+#: The fixed kind-value set (wiki-conventions, "Vault structure").
+KINDS = tuple(KIND_FOLDERS)
 
 #: Cap on generated kebab-slug filenames — readability, plus headroom under
 #: the Windows 255-char path limit (#70).
@@ -53,9 +70,9 @@ def slugify(title: str, max_length: int | None = None) -> str:
 
 def path(kind: str, title: str) -> str:
     """Return the vault-relative path for a new page of ``kind`` titled ``title``."""
-    if kind not in KINDS:
+    if kind not in KIND_FOLDERS:
         raise ValueError(f"unknown kind {kind!r}; must be one of {KINDS}")
-    return f"wiki/{kind}/{slugify(title, MAX_SLUG_LENGTH)}.md"
+    return f"wiki/{KIND_FOLDERS[kind]}/{slugify(title, MAX_SLUG_LENGTH)}.md"
 
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper

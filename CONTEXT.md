@@ -13,7 +13,7 @@ One markdown file under `wiki/`, carrying a frontmatter block plus a body. The v
 _Avoid_: Note, document, entry — "note" was the term in early drafts; "page" is the standardized term.
 
 **Kind**:
-The axis that places a page into one of the four `wiki/` folders (`concept`, `entity`, `source`, `synthesis`). The only axis that is both decidable from a page's own content and independent of any particular vault's subject domain — which is why the folder tree is fixed by the plugin rather than configured per vault.
+The axis that places a page into one of the four `wiki/` folders. The only axis that is both decidable from a page's own content and independent of any particular vault's subject domain — which is why the folder tree is fixed by the plugin rather than configured per vault. The kind **value** is singular (`concept`, `entity`, `source`, `synthesis`, as authored/compared in code); the kind **folder** it maps to pluralizes (`concepts/`, `entities/`, `sources/`; `synthesis/` has no distinct plural, so it's unchanged) — the two are deliberately decoupled, not a 1:1 name match ([ADR-0008](docs/adr/0008-kind-folders-plural-kind-values-singular.md)).
 _Avoid_: Category, type (too generic — "kind" names specifically this folder axis).
 
 **Concept**:

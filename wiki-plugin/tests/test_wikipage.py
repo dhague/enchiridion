@@ -63,12 +63,12 @@ def test_empty_frontmatter_block():
 
 
 def test_iter_links_plain_link_offsets():
-    body = "see [the page](concept/foo.md) now\n"
+    body = "see [the page](concepts/foo.md) now\n"
     links = list(wikipage.iter_links(body))
     assert len(links) == 1
     lk = links[0]
-    assert lk.dest == "concept/foo.md"
-    assert body[lk.start:lk.end] == "concept/foo.md"
+    assert lk.dest == "concepts/foo.md"
+    assert body[lk.start:lk.end] == "concepts/foo.md"
     assert lk.is_image is False
 
 
@@ -82,10 +82,10 @@ def test_iter_links_image_embed():
 
 
 def test_iter_links_preserves_anchor_in_dest():
-    body = "jump [here](entity/bar.md#section-2)\n"
+    body = "jump [here](entities/bar.md#section-2)\n"
     (lk,) = list(wikipage.iter_links(body))
-    assert lk.dest == "entity/bar.md#section-2"
-    assert body[lk.start:lk.end] == "entity/bar.md#section-2"
+    assert lk.dest == "entities/bar.md#section-2"
+    assert body[lk.start:lk.end] == "entities/bar.md#section-2"
 
 
 def test_iter_links_skips_code_fence():
@@ -136,15 +136,15 @@ def test_get_per_type_edge_key_returns_link_list():
         "---\n"
         "title: Pooling\n"
         "refines:\n"
-        '  - "[Prepared statements](../concept/prepared-statements.md)"\n'
-        '  - "[Indexing](../concept/indexing.md)"\n'
+        '  - "[Prepared statements](../concepts/prepared-statements.md)"\n'
+        '  - "[Indexing](../concepts/indexing.md)"\n'
         "---\n"
         "# Body\n"
     )
     edges = WikiPage(text).get("refines")
     assert list(edges) == [
-        "[Prepared statements](../concept/prepared-statements.md)",
-        "[Indexing](../concept/indexing.md)",
+        "[Prepared statements](../concepts/prepared-statements.md)",
+        "[Indexing](../concepts/indexing.md)",
     ]
 
 
@@ -208,8 +208,8 @@ def test_set_scalar_leaves_edge_and_raw_source_blocks_byte_identical():
         "summary: old summary\n"
         'raw_source: "[x.md](../../raw/notes/x.md)"\n'
         "source:\n"
-        '  - "[A](../concept/a.md)"\n'
-        '  - "[B](../concept/b.md)"\n'
+        '  - "[A](../concepts/a.md)"\n'
+        '  - "[B](../concepts/b.md)"\n'
         "---\n"
         "# X\n"
     )
@@ -218,8 +218,8 @@ def test_set_scalar_leaves_edge_and_raw_source_blocks_byte_identical():
     assert 'raw_source: "[x.md](../../raw/notes/x.md)"\n' in out.text
     assert (
         "source:\n"
-        '  - "[A](../concept/a.md)"\n'
-        '  - "[B](../concept/b.md)"\n'
+        '  - "[A](../concepts/a.md)"\n'
+        '  - "[B](../concepts/b.md)"\n'
     ) in out.text
 
 
@@ -238,11 +238,11 @@ def test_set_new_raw_source_link_is_double_quoted():
 
 def test_set_new_edge_list_links_are_double_quoted():
     text = "---\ntitle: X\n---\n# X\n"
-    out = WikiPage(text).set("refines", ["[A](../concept/a.md)", "[B](../concept/b.md)"])
+    out = WikiPage(text).set("refines", ["[A](../concepts/a.md)", "[B](../concepts/b.md)"])
     assert (
         "refines:\n"
-        '  - "[A](../concept/a.md)"\n'
-        '  - "[B](../concept/b.md)"\n'
+        '  - "[A](../concepts/a.md)"\n'
+        '  - "[B](../concepts/b.md)"\n'
     ) in out.text
 
 
@@ -257,17 +257,17 @@ def test_merge_unions_with_existing_list():
 
 def test_merge_on_missing_key_behaves_like_set():
     text = "---\ntitle: X\n---\nbody\n"
-    out = WikiPage(text).merge("related", ["[A](../concept/a.md)"])
-    assert list(out.get("related")) == ["[A](../concept/a.md)"]
+    out = WikiPage(text).merge("related", ["[A](../concepts/a.md)"])
+    assert list(out.get("related")) == ["[A](../concepts/a.md)"]
 
 
 def test_merge_new_links_are_double_quoted():
-    text = '---\ntitle: X\nrefines:\n  - "[A](../concept/a.md)"\n---\nbody\n'
-    out = WikiPage(text).merge("refines", ["[B](../concept/b.md)"])
+    text = '---\ntitle: X\nrefines:\n  - "[A](../concepts/a.md)"\n---\nbody\n'
+    out = WikiPage(text).merge("refines", ["[B](../concepts/b.md)"])
     assert (
         "refines:\n"
-        '  - "[A](../concept/a.md)"\n'
-        '  - "[B](../concept/b.md)"\n'
+        '  - "[A](../concepts/a.md)"\n'
+        '  - "[B](../concepts/b.md)"\n'
     ) in out.text
 
 
@@ -287,14 +287,14 @@ def test_frontmatter_returns_full_mapping():
         "title: Pooling\n"
         "tags: [db, perf]\n"
         "related:\n"
-        '  - "[B](../entity/b.md)"\n'
+        '  - "[B](../entities/b.md)"\n'
         "---\n"
         "# Body\n"
     )
     data = WikiPage(text).frontmatter
     assert data["title"] == "Pooling"
     assert list(data["tags"]) == ["db", "perf"]
-    assert list(data["related"]) == ["[B](../entity/b.md)"]
+    assert list(data["related"]) == ["[B](../entities/b.md)"]
 
 
 def test_frontmatter_no_frontmatter_returns_none():
@@ -341,7 +341,7 @@ def test_prop_untouched_key_byte_identical(mapping, body):
 _link = st.builds(
     lambda title, path: f'"[{title}]({path}.md)"',
     st.sampled_from(["A", "B", "C", "Prepared statements"]),
-    st.sampled_from(["../concept/a", "../entity/b", "../../raw/notes/x"]),
+    st.sampled_from(["../concepts/a", "../entities/b", "../../raw/notes/x"]),
 )
 
 _EDGE_KEYS = {"refines", "source", "related", "supersedes"}
@@ -457,7 +457,7 @@ def test_link_dest_returns_decoded_path():
 
 
 def test_link_dest_strips_anchor():
-    assert wikipage.link_dest("[A](../concept/a.md#section)") == "../concept/a.md"
+    assert wikipage.link_dest("[A](../concepts/a.md#section)") == "../concepts/a.md"
 
 
 def test_link_dest_none_for_non_link():
@@ -473,7 +473,7 @@ def test_resolve_link_dest_joins_page_dir_with_default_prefix():
 
 def test_resolve_link_dest_no_prefix_when_page_dir_already_vault_relative():
     assert (
-        wikipage.resolve_link_dest("../../raw/notes.md", "wiki/source", prefix="")
+        wikipage.resolve_link_dest("../../raw/notes.md", "wiki/sources", prefix="")
         == "raw/notes.md"
     )
 
@@ -487,21 +487,21 @@ def test_resolve_link_dest_empty_page_dir():
 
 def test_compose_link_relativises_across_kinds():
     assert (
-        wikipage.compose_link("Notes", "wiki/source/notes.md", "wiki/concept")
-        == "[Notes](../source/notes.md)"
+        wikipage.compose_link("Notes", "wiki/sources/notes.md", "wiki/concepts")
+        == "[Notes](../sources/notes.md)"
     )
 
 
 def test_compose_link_same_directory_is_the_bare_filename():
     assert (
-        wikipage.compose_link("Existing", "wiki/concept/existing.md", "wiki/concept")
+        wikipage.compose_link("Existing", "wiki/concepts/existing.md", "wiki/concepts")
         == "[Existing](existing.md)"
     )
 
 
 def test_compose_link_encodes_the_destination_not_the_label():
     assert (
-        wikipage.compose_link("My Notes (draft).md", "raw/My Notes (draft).md", "wiki/source")
+        wikipage.compose_link("My Notes (draft).md", "raw/My Notes (draft).md", "wiki/sources")
         == "[My Notes (draft).md](../../raw/My%20Notes%20%28draft%29.md)"
     )
 
@@ -587,84 +587,84 @@ def test_prop_resolve_link_dest_stable_under_re_resolution(dest, page_dir):
 
 def test_inbound_link_rewritten_on_move():
     files = {
-        "wiki/concept/a.md": "see [b](../entity/b.md)\n",
-        "wiki/entity/b.md": "# B\n",
+        "wiki/concepts/a.md": "see [b](../entities/b.md)\n",
+        "wiki/entities/b.md": "# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert out["wiki/concept/a.md"] == "see [b](b.md)\n"
-    assert "wiki/concept/b.md" in out
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert out["wiki/concepts/a.md"] == "see [b](b.md)\n"
+    assert "wiki/concepts/b.md" in out
 
 
 def test_outbound_links_recomputed_when_file_moves():
     files = {
-        "wiki/concept/a.md": "see [b](b.md) and [c](../entity/c.md)\n",
-        "wiki/concept/b.md": "# B\n",
-        "wiki/entity/c.md": "# C\n",
+        "wiki/concepts/a.md": "see [b](b.md) and [c](../entities/c.md)\n",
+        "wiki/concepts/b.md": "# B\n",
+        "wiki/entities/c.md": "# C\n",
     }
-    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
-    assert out["wiki/entity/a.md"] == "see [b](../concept/b.md) and [c](c.md)\n"
+    out = wikipage.plan_move(files, "wiki/concepts/a.md", "wiki/entities/a.md")
+    assert out["wiki/entities/a.md"] == "see [b](../concepts/b.md) and [c](c.md)\n"
 
 
 def test_anchor_preserved():
     files = {
-        "wiki/concept/a.md": "jump [x](../entity/b.md#section-2)\n",
-        "wiki/entity/b.md": "# B\n",
+        "wiki/concepts/a.md": "jump [x](../entities/b.md#section-2)\n",
+        "wiki/entities/b.md": "# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert out["wiki/concept/a.md"] == "jump [x](b.md#section-2)\n"
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert out["wiki/concepts/a.md"] == "jump [x](b.md#section-2)\n"
 
 
 def test_image_embed_rewritten():
     files = {
-        "wiki/concept/a.md": "![pic](../raw/img.png)\n",
+        "wiki/concepts/a.md": "![pic](../raw/img.png)\n",
         "raw/img.png": "",
     }
-    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/a.md")
+    out = wikipage.plan_move(files, "wiki/concepts/a.md", "wiki/a.md")
     assert out["wiki/a.md"] == "![pic](raw/img.png)\n"
 
 
 def test_link_inside_list_item():
     files = {
-        "wiki/concept/a.md": "- first\n- see [b](../entity/b.md)\n- last\n",
-        "wiki/entity/b.md": "# B\n",
+        "wiki/concepts/a.md": "- first\n- see [b](../entities/b.md)\n- last\n",
+        "wiki/entities/b.md": "# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert out["wiki/concept/a.md"] == "- first\n- see [b](b.md)\n- last\n"
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert out["wiki/concepts/a.md"] == "- first\n- see [b](b.md)\n- last\n"
 
 
 def test_self_link_follows_the_move():
-    files = {"wiki/concept/a.md": "I link to [myself](a.md) here\n"}
-    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
-    assert out["wiki/entity/a.md"] == "I link to [myself](a.md) here\n"
+    files = {"wiki/concepts/a.md": "I link to [myself](a.md) here\n"}
+    out = wikipage.plan_move(files, "wiki/concepts/a.md", "wiki/entities/a.md")
+    assert out["wiki/entities/a.md"] == "I link to [myself](a.md) here\n"
 
 
 def test_pure_rename_same_dir_updates_inbound_only():
     files = {
-        "wiki/concept/a.md": "see [old](old-name.md)\n",
-        "wiki/concept/old-name.md": "# Old\nlink to [a](a.md)\n",
+        "wiki/concepts/a.md": "see [old](old-name.md)\n",
+        "wiki/concepts/old-name.md": "# Old\nlink to [a](a.md)\n",
     }
-    out = wikipage.plan_move(files, "wiki/concept/old-name.md", "wiki/concept/new-name.md")
-    assert out["wiki/concept/a.md"] == "see [old](new-name.md)\n"
-    assert out["wiki/concept/new-name.md"] == "# Old\nlink to [a](a.md)\n"
+    out = wikipage.plan_move(files, "wiki/concepts/old-name.md", "wiki/concepts/new-name.md")
+    assert out["wiki/concepts/a.md"] == "see [old](new-name.md)\n"
+    assert out["wiki/concepts/new-name.md"] == "# Old\nlink to [a](a.md)\n"
 
 
 def test_external_and_anchor_only_links_untouched():
     files = {
-        "wiki/concept/a.md": "[web](https://example.com/b.md) and [frag](#heading)\n",
-        "wiki/entity/b.md": "# B\n",
+        "wiki/concepts/a.md": "[web](https://example.com/b.md) and [frag](#heading)\n",
+        "wiki/entities/b.md": "# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert out["wiki/concept/a.md"] == files["wiki/concept/a.md"]
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert out["wiki/concepts/a.md"] == files["wiki/concepts/a.md"]
 
 
 def test_unrelated_file_untouched_bytewise():
     files = {
-        "wiki/concept/a.md": "see [b](../entity/b.md)\n",
-        "wiki/entity/b.md": "# B\n",
-        "wiki/concept/unrelated.md": "no links here, just [text] brackets\n",
+        "wiki/concepts/a.md": "see [b](../entities/b.md)\n",
+        "wiki/entities/b.md": "# B\n",
+        "wiki/concepts/unrelated.md": "no links here, just [text] brackets\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert out["wiki/concept/unrelated.md"] == files["wiki/concept/unrelated.md"]
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert out["wiki/concepts/unrelated.md"] == files["wiki/concepts/unrelated.md"]
 
 
 # --- plan_move: frontmatter-link regressions -----------------------------------
@@ -682,51 +682,51 @@ def _resolves(files: dict[str, str]) -> None:
 
 def test_inbound_frontmatter_edge_rewritten_on_move():
     files = {
-        "wiki/concept/pooling.md": (
+        "wiki/concepts/pooling.md": (
             "---\n"
             "title: Connection pooling\n"
             "refines:\n"
-            '  - "[Prepared statements](../concept/prepared-statements.md)"\n'
+            '  - "[Prepared statements](../concepts/prepared-statements.md)"\n'
             "---\n"
             "# Pooling\n"
         ),
-        "wiki/concept/prepared-statements.md": "---\ntitle: PS\n---\n# PS\n",
+        "wiki/concepts/prepared-statements.md": "---\ntitle: PS\n---\n# PS\n",
     }
     out = wikipage.plan_move(
-        files, "wiki/concept/prepared-statements.md", "wiki/entity/prepared-statements.md"
+        files, "wiki/concepts/prepared-statements.md", "wiki/entities/prepared-statements.md"
     )
     assert (
-        '  - "[Prepared statements](../entity/prepared-statements.md)"\n'
-        in out["wiki/concept/pooling.md"]
+        '  - "[Prepared statements](../entities/prepared-statements.md)"\n'
+        in out["wiki/concepts/pooling.md"]
     )
     _resolves(out)
 
 
 def test_outbound_frontmatter_edges_rebased_when_page_moves():
     files = {
-        "wiki/concept/a.md": (
+        "wiki/concepts/a.md": (
             "---\n"
             "title: A\n"
             "related:\n"
-            '  - "[B](../entity/b.md)"\n'
+            '  - "[B](../entities/b.md)"\n'
             "supersedes:\n"
             '  - "[Old A](a-old.md)"\n'
             "---\n"
             "# A\n"
         ),
-        "wiki/entity/b.md": "---\ntitle: B\n---\n# B\n",
-        "wiki/concept/a-old.md": "---\ntitle: Old A\n---\n# old\n",
+        "wiki/entities/b.md": "---\ntitle: B\n---\n# B\n",
+        "wiki/concepts/a-old.md": "---\ntitle: Old A\n---\n# old\n",
     }
-    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/source/a.md")
-    moved = out["wiki/source/a.md"]
-    assert '  - "[B](../entity/b.md)"\n' in moved
-    assert '  - "[Old A](../concept/a-old.md)"\n' in moved
+    out = wikipage.plan_move(files, "wiki/concepts/a.md", "wiki/sources/a.md")
+    moved = out["wiki/sources/a.md"]
+    assert '  - "[B](../entities/b.md)"\n' in moved
+    assert '  - "[Old A](../concepts/a-old.md)"\n' in moved
     _resolves(out)
 
 
 def test_raw_source_survives_cross_dir_move():
     files = {
-        "wiki/source/x.md": (
+        "wiki/sources/x.md": (
             "---\n"
             "title: X source\n"
             'raw_source: "[x.md](../../raw/notes/x.md)"\n'
@@ -735,7 +735,7 @@ def test_raw_source_survives_cross_dir_move():
         ),
         "raw/notes/x.md": "raw bytes\n",
     }
-    out = wikipage.plan_move(files, "wiki/source/x.md", "wiki/x.md")
+    out = wikipage.plan_move(files, "wiki/sources/x.md", "wiki/x.md")
     moved = out["wiki/x.md"]
     assert 'raw_source: "[x.md](../raw/notes/x.md)"\n' in moved
     target = posixpath.normpath(posixpath.join("wiki", "../raw/notes/x.md"))
@@ -744,7 +744,7 @@ def test_raw_source_survives_cross_dir_move():
 
 def test_same_dir_rename_leaves_raw_source_untouched():
     files = {
-        "wiki/source/deploy.md": (
+        "wiki/sources/deploy.md": (
             "---\n"
             "title: Deploy\n"
             'raw_source: "[deploy.md](../../raw/notes/deploy.md)"\n'
@@ -753,10 +753,10 @@ def test_same_dir_rename_leaves_raw_source_untouched():
         ),
         "raw/notes/deploy.md": "raw\n",
     }
-    out = wikipage.plan_move(files, "wiki/source/deploy.md", "wiki/source/deploy-github-actions.md")
+    out = wikipage.plan_move(files, "wiki/sources/deploy.md", "wiki/sources/deploy-github-actions.md")
     assert (
         'raw_source: "[deploy.md](../../raw/notes/deploy.md)"\n'
-        in out["wiki/source/deploy-github-actions.md"]
+        in out["wiki/sources/deploy-github-actions.md"]
     )
 
 
@@ -786,12 +786,12 @@ def test_iter_links_hash_in_filename():
 
 def test_inbound_link_rewritten_with_encoded_raw_filename():
     files = {
-        "wiki/source/a.md": 'see [file](../../raw/my%20file.txt) now\n',
+        "wiki/sources/a.md": 'see [file](../../raw/my%20file.txt) now\n',
         "raw/my file.txt": "content",
     }
     # Rename the raw file in the vault model (encoded in the link)
     out = wikipage.plan_move(files, "raw/my file.txt", "raw/2026-01-01-0000-my file.txt")
-    assert "raw/2026-01-01-0000-my%20file.txt" in out["wiki/source/a.md"]
+    assert "raw/2026-01-01-0000-my%20file.txt" in out["wiki/sources/a.md"]
 
 
 def test_encoded_link_with_anchor():
@@ -817,17 +817,17 @@ def test_encoded_hash_in_filename_not_confused_with_anchor():
 
 def test_inbound_encoded_link_with_anchor_rewritten():
     files = {
-        "wiki/source/a.md": 'see [file](../../raw/my%20file.md#sec) now\n',
+        "wiki/sources/a.md": 'see [file](../../raw/my%20file.md#sec) now\n',
         "raw/my file.md": "content",
     }
     out = wikipage.plan_move(files, "raw/my file.md", "raw/other/my file.md")
     # The link should be rewritten with encoding preserved
-    assert "raw/other/my%20file.md#sec" in out["wiki/source/a.md"]
+    assert "raw/other/my%20file.md#sec" in out["wiki/sources/a.md"]
 
 
 def test_raw_source_with_encoded_filename():
     files = {
-        "wiki/source/x.md": (
+        "wiki/sources/x.md": (
             "---\n"
             "title: X\n"
             'raw_source: "[my file.txt](../../raw/my%20file.txt)"\n'
@@ -837,7 +837,7 @@ def test_raw_source_with_encoded_filename():
         "raw/my file.txt": "content",
     }
     out = wikipage.plan_move(files, "raw/my file.txt", "raw/2026-01-01-0000-my file.txt")
-    assert 'raw_source: "[my file.txt](../../raw/2026-01-01-0000-my%20file.txt)"\n' in out["wiki/source/x.md"]
+    assert 'raw_source: "[my file.txt](../../raw/2026-01-01-0000-my%20file.txt)"\n' in out["wiki/sources/x.md"]
 
 
 def test_synthesis_source_edge_rewritten_others_byte_identical():
@@ -846,24 +846,24 @@ def test_synthesis_source_edge_rewritten_others_byte_identical():
             "---\n"
             "title: S\n"
             "source:\n"
-            '  - "[A](../concept/a.md)"\n'
-            '  - "[B](../concept/b.md)"\n'
+            '  - "[A](../concepts/a.md)"\n'
+            '  - "[B](../concepts/b.md)"\n'
             "---\n"
             "# S\n"
         ),
-        "wiki/concept/a.md": "---\ntitle: A\n---\n# A\n",
-        "wiki/concept/b.md": "---\ntitle: B\n---\n# B\n",
+        "wiki/concepts/a.md": "---\ntitle: A\n---\n# A\n",
+        "wiki/concepts/b.md": "---\ntitle: B\n---\n# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/concept/a.md", "wiki/entity/a.md")
+    out = wikipage.plan_move(files, "wiki/concepts/a.md", "wiki/entities/a.md")
     s = out["wiki/synthesis/s.md"]
-    assert '  - "[A](../entity/a.md)"\n' in s
-    assert '  - "[B](../concept/b.md)"\n' in s
+    assert '  - "[A](../entities/a.md)"\n' in s
+    assert '  - "[B](../concepts/b.md)"\n' in s
     _resolves(out)
 
 
 def test_supersedes_link_rewritten_on_target_move():
     files = {
-        "wiki/source/new.md": (
+        "wiki/sources/new.md": (
             "---\n"
             "title: New deploy\n"
             "supersedes:\n"
@@ -871,29 +871,29 @@ def test_supersedes_link_rewritten_on_target_move():
             "---\n"
             "# New\n"
         ),
-        "wiki/source/old.md": "---\ntitle: Old deploy\n---\n# old\n",
+        "wiki/sources/old.md": "---\ntitle: Old deploy\n---\n# old\n",
     }
-    out = wikipage.plan_move(files, "wiki/source/old.md", "wiki/concept/old.md")
-    assert '  - "[Old deploy](../concept/old.md)"\n' in out["wiki/source/new.md"]
+    out = wikipage.plan_move(files, "wiki/sources/old.md", "wiki/concepts/old.md")
+    assert '  - "[Old deploy](../concepts/old.md)"\n' in out["wiki/sources/new.md"]
     _resolves(out)
 
 
 def test_tags_flow_list_not_mistaken_for_a_link():
     files = {
-        "wiki/concept/a.md": (
+        "wiki/concepts/a.md": (
             "---\ntitle: A\ntags: [db, sql]\n"
-            'related:\n  - "[B](../entity/b.md)"\n---\n# A\n'
+            'related:\n  - "[B](../entities/b.md)"\n---\n# A\n'
         ),
-        "wiki/entity/b.md": "---\ntitle: B\n---\n# B\n",
+        "wiki/entities/b.md": "---\ntitle: B\n---\n# B\n",
     }
-    out = wikipage.plan_move(files, "wiki/entity/b.md", "wiki/concept/b.md")
-    assert "tags: [db, sql]\n" in out["wiki/concept/a.md"]
-    assert '  - "[B](b.md)"\n' in out["wiki/concept/a.md"]
+    out = wikipage.plan_move(files, "wiki/entities/b.md", "wiki/concepts/b.md")
+    assert "tags: [db, sql]\n" in out["wiki/concepts/a.md"]
+    assert '  - "[B](b.md)"\n' in out["wiki/concepts/a.md"]
 
 
 # --- plan_move: property test ---------------------------------------------------
 
-_DIRS = ["wiki/concept", "wiki/entity", "wiki/source", "raw/notes"]
+_DIRS = ["wiki/concepts", "wiki/entities", "wiki/sources", "raw/notes"]
 # Filenames with each char the percent-encoding charset covers, so the
 # property test actually generates the hazard it's meant to guard: a name
 # with `#` exercises the encoded-# vs. anchor-separator distinction.
