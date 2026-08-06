@@ -4,10 +4,6 @@ Read this only when `/wiki-ingest` was invoked with a **folder** (under `raw/`, 
 
 A **sweep** is one of: listing every raw file in scope that the underlying scanner considers eligible, asking per file, and delegating each accepted file to the `wiki-ingest` agent one at a time. Run the sweep in the *invoking* session, not as a subagent — a subagent has no channel to the user (see [#18]'s finding, applied unchanged to this procedure), and the per-file confirmation must be answered by the human, not the agent.
 
-## `.ingestignore`
-
-`raw/<folder>/.ingestignore` is the per-folder policy file for the sweep — which files in that folder to never offer, even if they would otherwise be eligible. Its parsing, lookup, and write rules are implemented in `ingest_scan.py`; this doc doesn't restate them — see step 2 below for the one call site that touches it.
-
 ## Procedure
 
 1. **Run the scan.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest_scan.py" <folder-or-empty>` (or `--json` for machine-readable output) walks `raw/`, applies each folder's own `.ingestignore` (no ancestor walk), and prints every file that needs ingestion with its reason:
