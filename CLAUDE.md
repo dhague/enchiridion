@@ -73,3 +73,4 @@ Rest of `wiki-plugin/scripts/` inventory: `page_record.py` (the one module that 
 ### Misc
 
 - A Python LSP MCP server is configured for the plugin's dev work — `mcp__python-lsp__*` tools (find_definition/find_references/find_symbols) for navigating `wiki-plugin/scripts/`.
+- When running the /handoff or /improve-codebase-architecture skills, store the resulting documents in the repo's temp folder
