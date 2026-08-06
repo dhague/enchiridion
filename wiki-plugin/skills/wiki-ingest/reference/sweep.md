@@ -6,7 +6,7 @@ A **sweep** is one of: listing every raw file in scope that the underlying scann
 
 ## `.ingestignore`
 
-`raw/<folder>/.ingestignore` is the per-folder policy file for the sweep — which files in that folder to never offer, even if they would otherwise be eligible. Its parsing, lookup, and write rules are implemented in `ingest_scan.py` (bare-glob-only `fnmatch` parsing, no ancestor walk, control files never yielded by the scan, `append_ignore_entry(..., comment=)` for `never` answers) — this doc doesn't restate them; see step 2 below for the one call site that touches it.
+`raw/<folder>/.ingestignore` is the per-folder policy file for the sweep — which files in that folder to never offer, even if they would otherwise be eligible. Its parsing, lookup, and write rules are implemented in `ingest_scan.py`; this doc doesn't restate them — see step 2 below for the one call site that touches it.
 
 ## Procedure
 
