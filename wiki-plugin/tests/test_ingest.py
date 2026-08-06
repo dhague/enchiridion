@@ -915,3 +915,28 @@ def test_cli_prints_tool_call_summary_after_commit_sha(vault_root, monkeypatch, 
     assert out[0] == _git(vault_root, "rev-parse", "HEAD").strip()
     assert out[1] == "Total tool calls: 2"
     assert "Bash" in out[2] and "Write" in out[3]
+
+
+def test_cli_ignore_appends_to_folder_ingestignore(vault_root, monkeypatch):
+    (vault_root / "raw" / "emails").mkdir()
+    (vault_root / "raw" / "emails" / "foo.eml").write_text("hi\n", encoding="utf-8")
+
+    monkeypatch.chdir(vault_root)
+    monkeypatch.delenv("WIKI_ROOT", raising=False)
+    rc = ingest._main(["--ignore", "raw/emails/foo.eml"])
+    assert rc == 0
+
+    ignore_path = vault_root / "raw" / "emails" / ".ingestignore"
+    assert ignore_path.read_text(encoding="utf-8") == "foo.eml\n"
+
+
+def test_cli_ignore_at_raw_root_and_with_comment(vault_root, monkeypatch):
+    (vault_root / "raw" / "bar.eml").write_text("hi\n", encoding="utf-8")
+
+    monkeypatch.chdir(vault_root)
+    monkeypatch.delenv("WIKI_ROOT", raising=False)
+    rc = ingest._main(["--ignore", "raw/bar.eml", "--ignore-comment", "legacy"])
+    assert rc == 0
+
+    ignore_path = vault_root / "raw" / ".ingestignore"
+    assert ignore_path.read_text(encoding="utf-8") == "bar.eml  # legacy\n"

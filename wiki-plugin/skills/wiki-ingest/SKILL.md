@@ -11,9 +11,9 @@ Every script invoked below lives in this plugin's install directory and resolves
 
 ## Invocation
 
-- `/wiki-ingest <file>` — ingest one document. This is the procedure below.
 - `/wiki-ingest <folder>` or `/wiki-ingest` (no path) — a **sweep**, not a single ingestion. `Read` [`reference/sweep.md`](reference/sweep.md) now and follow it instead of the rest of this file.
-- **If you are not already running as the `wiki-ingest` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-ingest <path>` in an ordinary session) and `<path>` is a single file, your only action is to delegate: call `Task` with `subagent_type: "wiki-ingest"` and a prompt containing the document path, then relay the manifest it returns back to the user verbatim. This keeps the judgment-heavy steps below running on the `wiki-ingest` agent's Sonnet model regardless of what model the invoking session happens to be running.
+- `/wiki-ingest <file>` — ingest one document. This is the procedure below.
+- **If you are not already running as the `wiki-ingest` agent** (your own system prompt doesn't identify you as it — e.g. you were invoked directly via `/wiki-ingest <path>` in an ordinary session) and `<path>` is a single file, your only action is to delegate: call `Task` with `subagent_type: "wiki-ingest"` and a prompt containing the document path, then relay the manifest it returns back to the user verbatim.
 - **If you are the `wiki-ingest` agent**, continue directly with the procedure below using your own tools. (The agent only ever does single-file work — a sweep delegates to it one file at a time, per [`reference/sweep.md`](reference/sweep.md).)
 
 ## `INGESTION.md` folder hint
