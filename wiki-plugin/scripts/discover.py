@@ -26,7 +26,6 @@ import json
 import re
 import sys
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -74,15 +73,6 @@ def _or_query(*texts: str) -> str:
     return " OR ".join(f'"{word}"' for word in seen)
 
 
-@lru_cache(maxsize=None)
-def _vault_for(vault_root: Path) -> Vault:
-    """One ``Vault``/index connection per root per process. A plan-driven run
-    calls :func:`check` once per planned page; a fresh ``Vault`` each time
-    would open a new sqlite connection per page and race its own uncommitted
-    transaction (``database is locked``)."""
-    return Vault(vault_root)
-
-
 def _classify(
     score: float,
     shares_title_token: bool,
@@ -115,7 +105,7 @@ def check(
     paraphrase, which is why retrieval's vocabulary-mismatch problem doesn't
     bite here.
     """
-    vault = _vault_for(vault_root)
+    vault = Vault(vault_root)
     query = _or_query(title, summary, body)
     hits = vault.search(query, raw=True, limit=limit) if query else []
     planned_tokens = _title_tokens(title)
@@ -218,7 +208,7 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - thin 
                 for title, candidates in per_page
             ],
             "vocabulary": [
-                {"tag": tag, "count": n} for tag, n in _vault_for(root).tag_vocabulary()
+                {"tag": tag, "count": n} for tag, n in Vault(root).tag_vocabulary()
             ],
         }
         print(json.dumps(payload, indent=2))

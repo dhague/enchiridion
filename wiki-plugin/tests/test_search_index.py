@@ -21,7 +21,7 @@ import pytest
 
 import search_index
 from fake_vault_git import FakeVaultGit
-from search_index import SearchHit, SearchIndex, tokenize_query
+from search_index import SearchHit, SearchIndex, for_root, tokenize_query
 
 
 class _CountingGit(FakeVaultGit):
@@ -723,3 +723,34 @@ def test_cli_tag_filter(tmp_path, capsys, monkeypatch):
     _main(["--tag", "db", "--json"])
     page_refs = [json.loads(line)["page_ref"] for line in capsys.readouterr().out.splitlines() if line]
     assert page_refs == ["wiki/concepts/a.md"]
+
+
+# --- for_root: process-lifetime cache (ADR-0010) --------------------------
+
+
+class TestForRoot:
+    """``for_root`` is the one cached entrypoint (ADR-0010) — a per-resolved-root
+    process-lifetime connection cache, so no caller needs to memoize a ``Vault``
+    itself to avoid racing an uncommitted write against a second live
+    connection (``database is locked``)."""
+
+    def test_same_root_returns_same_instance(self, tmp_path):
+        root = _vault(tmp_path, {})
+        assert for_root(root) is for_root(root)
+
+    def test_different_roots_return_different_instances(self, tmp_path):
+        root_a = _vault(tmp_path / "a", {})
+        root_b = _vault(tmp_path / "b", {})
+        assert for_root(root_a) is not for_root(root_b)
+
+    def test_string_and_path_resolve_to_same_cached_instance(self, tmp_path):
+        root = _vault(tmp_path, {})
+        assert for_root(root) is for_root(str(root))
+
+    def test_direct_construction_stays_uncached(self, tmp_path):
+        """``SearchIndex(root)`` must keep returning a fresh instance — the
+        test-fake ``git=`` injection path never collides with a cached
+        production instance."""
+        root = _vault(tmp_path, {})
+        for_root(root)  # populate the cache for this root
+        assert SearchIndex(root) is not SearchIndex(root)

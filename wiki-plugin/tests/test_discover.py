@@ -208,6 +208,35 @@ class TestDiscoverPlan:
         results = discover_plan(vault_root, pages)
         assert len(results) == 1
 
+    def test_multi_page_plan_shares_one_search_index_connection(self, vault_root, monkeypatch):
+        """ADR-0010 regression: ``check()`` used to be called once per planned
+        page against a fresh ``Vault`` (``discover.py``'s own docstring named
+        this exact scenario as the reason ``_vault_for``'s ``lru_cache``
+        existed — a fresh connection per page racing an uncommitted write
+        surfaces as ``database is locked``, ADR-0006). The cache now lives one
+        layer down in ``search_index.for_root``, so a fresh ``Vault`` per
+        ``check()`` call must still open only one underlying connection."""
+        import search_index
+
+        init_calls = 0
+        real_init = search_index.SearchIndex.__init__
+
+        def counting_init(self, *args, **kwargs):
+            nonlocal init_calls
+            init_calls += 1
+            real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(search_index.SearchIndex, "__init__", counting_init)
+
+        pages = [
+            PagePlan(op="create", title="Connection Pooling in Postgres", body="", frontmatter={"summary": ""}),
+            PagePlan(op="create", title="Feeding a Sourdough Starter", body="", frontmatter={"summary": ""}),
+            PagePlan(op="create", title="A Third Page", body="", frontmatter={"summary": ""}),
+        ]
+        results = discover_plan(vault_root, pages)
+        assert len(results) == 3
+        assert init_calls == 1
+
 
 class TestVocabularyCLI:
     """#102: --plan mode's JSON payload carries the vault's tag vocabulary
