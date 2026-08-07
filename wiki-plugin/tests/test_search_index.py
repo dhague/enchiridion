@@ -444,6 +444,46 @@ class TestSchemaVersion:
         assert [h.page_ref for h in idx.search("alpha")] == ["wiki/concepts/a.md"]
         assert idx.status().schema_version == search_index.SCHEMA_VERSION
 
+    def test_v1_rel_column_schema_rebuilds_to_page_ref(self, tmp_path):
+        """ADR-0009 (#123): the schema bump must absorb the ``rel``→``page_ref``
+        column rename. A pre-v2 index.db carries a ``page`` table keyed by
+        ``rel`` (wiki-relative); on open the mismatch must **drop** those
+        tables — not just empty them — or the ``page_ref`` INSERT/SELECT would
+        fail against the stale column. Pins the actual v1→v2 migration, not a
+        generic version mismatch."""
+        (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+        (tmp_path / "wiki" / "concepts" / "a.md").write_text(
+            _page(page_ref="wiki/concepts/a.md", body="alpha"), encoding="utf-8"
+        )
+        # Materialise a real v1 index: `meta` plus a `page`/`page_tag` pair
+        # keyed by the old wiki-relative `rel` column, with a stale row.
+        (tmp_path / ".wiki-knowledge").mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(tmp_path / ".wiki-knowledge" / "index.db") as conn:
+            conn.executescript(
+                """
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+                INSERT INTO meta VALUES ('schema_version', '1');
+                CREATE TABLE page (
+                    rel TEXT PRIMARY KEY, title TEXT, summary TEXT, kind TEXT,
+                    source_date TEXT, git_date TEXT, volatility TEXT,
+                    supersedes TEXT, superseded_by TEXT,
+                    mtime_ns INTEGER, size INTEGER
+                );
+                CREATE TABLE page_tag (rel TEXT, tag TEXT, PRIMARY KEY (rel, tag));
+                INSERT INTO page(rel, title, summary, kind) VALUES
+                    ('concepts/a.md', 'stale', 'old', 'concept');
+                """
+            )
+            conn.commit()
+
+        idx = SearchIndex(tmp_path)
+        assert idx.status().schema_version == search_index.SCHEMA_VERSION
+        # The stale wiki-relative row is gone; the page is re-indexed under
+        # its vault-relative page_ref and the column really renamed.
+        cols = [row[1] for row in idx._conn.execute("PRAGMA table_info(page)")]
+        assert "page_ref" in cols and "rel" not in cols
+        assert [h.page_ref for h in idx.search("alpha")] == ["wiki/concepts/a.md"]
+
 
 # --- inline update (used by Vault.write / move_page) --------------------
 

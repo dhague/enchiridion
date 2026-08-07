@@ -48,6 +48,17 @@ def test_kind_rejects_old_singular_folder():
         page_record.page_record("wiki/concept/a.md", text)
 
 
+def test_kind_rejects_a_page_not_under_a_kind_folder():
+    """The kind-folder is derived from the page's directory (ADR-0009's
+    vault-relative spelling): a page at the wiki root or in a nested subfolder
+    is outside the schema and is a hard error, not a silently-guessed kind."""
+    text = "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n"
+    with pytest.raises(ValueError):
+        page_record.page_record("wiki/foo.md", text)
+    with pytest.raises(ValueError):
+        page_record.page_record("wiki/concepts/nested/deep.md", text)
+
+
 def test_edges_resolved_to_vault_relative():
     text = (
         "---\n"

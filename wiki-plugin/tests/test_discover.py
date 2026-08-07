@@ -236,7 +236,7 @@ class TestVocabularyCLI:
         assert any(c["page_ref"] == "wiki/concepts/connection-pooling.md" for c in payload["pages"][0]["candidates"])
 
 
-class TestCandidatePageRefIsUsableVerbatum:
+class TestCandidatePageRefIsUsableVerbatim:
     """ADR-0009 acceptance (#123): a discover candidate's ``page_ref`` is
     directly usable as an IngestPlan ``update`` target *and* as an edge
     target — no ``wiki/``-prefix conversion step between the two calls."""
