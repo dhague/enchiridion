@@ -105,6 +105,7 @@ def init_wiki(
 
     wrote_settings = False
     if mode == "query-from-anywhere":
+        assert plugin_root is not None  # guarded above: query-from-anywhere requires plugin_root
         claude_dir = root / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
         (claude_dir / "settings.json").write_text(

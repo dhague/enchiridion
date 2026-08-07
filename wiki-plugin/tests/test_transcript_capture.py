@@ -237,6 +237,7 @@ def test_find_transcript_path_missing_session_id(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     transcript_path, error = transcript_capture.find_transcript_path()
     assert transcript_path is None
+    assert error is not None
     assert "CLAUDE_CODE_SESSION_ID" in error
 
 
@@ -249,6 +250,7 @@ def test_find_transcript_path_state_dir_not_located(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     transcript_path, error = transcript_capture.find_transcript_path()
     assert transcript_path is None
+    assert error is not None
     assert "state" in error.lower()
     # Distinct from the "no entry" message: must not blame the SessionStart hook.
     assert "SessionStart hook may not have run" not in error
@@ -264,6 +266,7 @@ def test_find_transcript_path_state_dir_located_but_no_entry(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     transcript_path, error = transcript_capture.find_transcript_path()
     assert transcript_path is None
+    assert error is not None
     assert "sid-abc" in error
     # Must mention the state dir location so the user can see where it looked.
     assert str(state_dir) in error
@@ -329,6 +332,7 @@ def test_find_transcript_path_recorded_transcript_missing(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     transcript_path, error = transcript_capture.find_transcript_path()
     assert transcript_path is None
+    assert error is not None
     assert "ghost.jsonl" in error
     assert "does not exist" in error
 

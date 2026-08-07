@@ -124,6 +124,7 @@ def test_resolve_without_a_vault_places_creates_and_projects_frontmatter():
     assert resolved.root is None
     (rp,) = resolved.pages
     assert rp.page_ref == "wiki/concepts/prepared-statements.md"
+    assert rp.page is not None
     assert rp.page.get("title") == "Prepared Statements"
     assert rp.page.get("tags") == ["db"]
     assert rp.page.body.strip().startswith("# Prepared Statements")
@@ -152,6 +153,7 @@ def test_resolve_marks_an_update_loaded_from_its_on_disk_copy(vault_root):
     (rp,) = ingest.resolve(ingest.IngestPlan.from_dict(d), vault_root).pages
     assert rp.exists is True and rp.loaded is True
     # merged with what was already there, not replacing it
+    assert rp.page is not None
     assert rp.page.get("tags") == ["db", "sql"]
 
 
@@ -177,6 +179,7 @@ def test_execute_writes_exactly_the_pages_resolve_produced(vault_root):
     resolved.execute()
 
     for rp in resolved.pages:
+        assert rp.page_ref is not None and rp.page is not None
         assert (vault_root / rp.page_ref).read_text(encoding="utf-8") == rp.page.text
 
 
@@ -185,6 +188,7 @@ def test_describe_names_every_page_execute_would_write():
     described = resolved.describe()
     assert "Postgres tuning notes" in described
     for rp in resolved.pages:
+        assert rp.page_ref is not None
         assert rp.page_ref in described
 
 

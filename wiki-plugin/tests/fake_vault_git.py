@@ -19,10 +19,10 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from vault_git import GitError
+from vault_git import GitError, VaultGit
 
 
-class FakeVaultGit:
+class FakeVaultGit(VaultGit):
     def __init__(
         self,
         *,
@@ -33,7 +33,8 @@ class FakeVaultGit:
         commit_dates: dict[str, str] | None = None,
         sha: str = "fakesha",
     ) -> None:
-        self.available = available
+        super().__init__(root="")
+        self._available = available
         self.work_tree = work_tree
         self.last_commit_dates = dict(last_commit_dates or {})
         self.dirty = set(dirty)
@@ -45,22 +46,28 @@ class FakeVaultGit:
 
     # -- strict surface ----------------------------------------------------
 
+    def available(self) -> bool:
+        return self._available
+
+    def run(self, *args: str) -> str:
+        raise GitError("FakeVaultGit cannot run git")
+
     def ensure_work_tree(self) -> None:
-        if not self.available or not self.work_tree:
+        if not self._available or not self.work_tree:
             raise GitError("git unavailable or not a work tree")
 
     def init(self) -> None:
-        if not self.available:
+        if not self._available:
             raise GitError("git is required but was not found on PATH")
         self.init_called = True
 
     def add(self, *paths: str) -> None:
-        if not self.available:
+        if not self._available:
             raise GitError("git is required but was not found on PATH")
         self.added.extend(paths)
 
     def commit(self, message: str) -> str:
-        if not self.available:
+        if not self._available:
             raise GitError("git is required but was not found on PATH")
         self.messages.append(message)
         return self.sha
@@ -68,7 +75,7 @@ class FakeVaultGit:
     # -- lenient surface ---------------------------------------------------
 
     def is_work_tree(self) -> bool:
-        return self.available and self.work_tree
+        return self._available and self.work_tree
 
     def last_commit_date(self, rel: str) -> str | None:
         return self.last_commit_dates.get(rel)

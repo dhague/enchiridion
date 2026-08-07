@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import page_record
@@ -47,7 +48,7 @@ def _has_marker(directory: Path) -> bool:
     return any((directory / marker).exists() for marker in MARKERS)
 
 
-def resolve_vault_root(start: Path | str | None = None, env: dict | None = None) -> Path:
+def resolve_vault_root(start: Path | str | None = None, env: Mapping[str, str] | None = None) -> Path:
     """Return the resolved vault root, per the order in the module docstring.
 
     ``start`` defaults to cwd and ``env`` to ``os.environ``; both are

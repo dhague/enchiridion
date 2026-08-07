@@ -157,6 +157,7 @@ def _resolve_title(target_ref: str, titles: dict[str, str], v: Vault | None) -> 
 
 def _compose_raw_source(page_dir: str, plan: IngestPlan) -> str:
     """The composed ``raw_source`` link for the ``frontmatter.raw_source: true`` sentinel."""
+    assert plan.raw is not None  # guarded in _apply_frontmatter: only composed when plan.raw is set
     return wikipage.compose_link(posixpath.basename(plan.raw), plan.raw, page_dir)
 
 
@@ -281,6 +282,8 @@ class ResolvedPlan:
         superseded: list[tuple[str, str]] = []
 
         for resolved in self.pages:
+            if resolved.page_ref is None or resolved.page is None:
+                raise PlanError(f"page {resolved.plan_page.title!r} was not resolved")
             v.write(resolved.page_ref, resolved.page)
             if resolved.op == "create":
                 created.append(resolved.page_ref)
@@ -332,8 +335,12 @@ def resolve(plan: IngestPlan, vault_root: Path | str | None) -> ResolvedPlan:
         if page_ref is None:
             pages.append(ResolvedPage(plan_page, None, None))
             continue
-        loaded = plan_page.op == "update" and v is not None and (v.root / page_ref).is_file()
-        base = v.load(page_ref) if loaded else WikiPage("")
+        if plan_page.op == "update" and v is not None and (v.root / page_ref).is_file():
+            base = v.load(page_ref)
+            loaded = True
+        else:
+            base = WikiPage("")
+            loaded = False
         page = _apply_frontmatter(base, plan_page, posixpath.dirname(page_ref), plan, titles, v)
         page = _apply_body(page, plan_page.body)
         exists = root is not None and (root / page_ref).exists()
@@ -430,7 +437,11 @@ def _semantic_errors(resolved: ResolvedPlan) -> list[str]:
 
     if plan.raw:
         # A courtesy check for the agent; `commit` re-runs it as the hard gate.
-        staged = {rp.page_ref: rp.page for rp in resolved.pages if rp.page_ref is not None}
+        staged = {
+            rp.page_ref: rp.page
+            for rp in resolved.pages
+            if rp.page_ref is not None and rp.page is not None
+        }
         errors.extend(chain_of_evidence.check(staged, plan.raw))
 
     return errors

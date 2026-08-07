@@ -144,7 +144,9 @@ def test_vault_merge_writes_back(small_vault):
     v = Vault(small_vault)
     v.set("wiki/entities/b.md", "tags", ["db"])
     v.merge("wiki/entities/b.md", "tags", ["db", "sql"])
-    assert list(v.load("wiki/entities/b.md").get("tags")) == ["db", "sql"]
+    tags = v.load("wiki/entities/b.md").get("tags")
+    assert tags is not None
+    assert list(tags) == ["db", "sql"]
 
 
 def test_vault_move_page_rewrites_inbound_and_moves_file(small_vault):

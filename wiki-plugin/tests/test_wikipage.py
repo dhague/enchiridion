@@ -142,6 +142,7 @@ def test_get_per_type_edge_key_returns_link_list():
         "# Body\n"
     )
     edges = WikiPage(text).get("refines")
+    assert edges is not None
     assert list(edges) == [
         "[Prepared statements](../concepts/prepared-statements.md)",
         "[Indexing](../concepts/indexing.md)",
@@ -252,13 +253,17 @@ def test_set_new_edge_list_links_are_double_quoted():
 def test_merge_unions_with_existing_list():
     text = "---\ntitle: X\ntags: [db, sql]\n---\nbody\n"
     out = WikiPage(text).merge("tags", ["sql", "perf"])
-    assert list(out.get("tags")) == ["db", "sql", "perf"]
+    tags = out.get("tags")
+    assert tags is not None
+    assert list(tags) == ["db", "sql", "perf"]
 
 
 def test_merge_on_missing_key_behaves_like_set():
     text = "---\ntitle: X\n---\nbody\n"
     out = WikiPage(text).merge("related", ["[A](../concepts/a.md)"])
-    assert list(out.get("related")) == ["[A](../concepts/a.md)"]
+    related = out.get("related")
+    assert related is not None
+    assert list(related) == ["[A](../concepts/a.md)"]
 
 
 def test_merge_new_links_are_double_quoted():
@@ -292,6 +297,7 @@ def test_frontmatter_returns_full_mapping():
         "# Body\n"
     )
     data = WikiPage(text).frontmatter
+    assert data is not None
     assert data["title"] == "Pooling"
     assert list(data["tags"]) == ["db", "perf"]
     assert list(data["related"]) == ["[B](../entities/b.md)"]
