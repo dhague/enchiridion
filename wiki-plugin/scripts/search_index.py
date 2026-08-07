@@ -430,7 +430,6 @@ class SearchIndex:
         until: str | None = None,
         date_field: str = "source_date",
         volatility: Sequence[str] = (),
-        fields: Sequence[str] = ("title", "summary", "body"),  # noqa: ARG002
         include_superseded: bool = False,
         raw: bool = False,
         limit: int = 20,
