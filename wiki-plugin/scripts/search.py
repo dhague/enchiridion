@@ -23,26 +23,26 @@ from typing import Sequence
 import vault as vault_mod
 
 
-def _render_hit(rel_width: int, hit) -> str:
+def _render_hit(width: int, hit) -> str:
     """One hit as a compact table line, for an agent reader.
 
     Path is right-padded so the title column aligns. Volatility is bracketed
     and both dates are shown: with age, they are the trust signal the agent
     has to carry into any answer. Tags and summary are ``--json`` only.
     """
-    rel = hit.rel.ljust(rel_width)
+    page_ref = hit.page_ref.ljust(width)
     score = f"{hit.score:.2f}"
     title = hit.title or "-"
     volatility = hit.volatility or "-"
     source_date = hit.source_date or "-"
     git_date = hit.git_date or "-"
-    return f"{rel}  {score:>7}  {title}  [{volatility}]  src={source_date}  git={git_date}"
+    return f"{page_ref}  {score:>7}  {title}  [{volatility}]  src={source_date}  git={git_date}"
 
 
 def _hit_to_dict(hit) -> dict:
     """JSON-serialisable view of a :class:`SearchHit`."""
     return {
-        "rel": hit.rel,
+        "page_ref": hit.page_ref,
         "score": hit.score,
         "title": hit.title,
         "summary": hit.summary,
@@ -172,9 +172,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
         for hit in hits:
             print(json.dumps(_hit_to_dict(hit)))
     elif hits:
-        rel_width = max(len(h.rel) for h in hits)
+        width = max(len(h.page_ref) for h in hits)
         for hit in hits:
-            print(_render_hit(rel_width, hit))
+            print(_render_hit(width, hit))
     return 0
 
 

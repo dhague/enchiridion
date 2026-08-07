@@ -192,13 +192,14 @@ def link_dest(link: str) -> str | None:
     return match.decoded_path if match is not None else None
 
 
-def resolve_link_dest(dest: str, page_dir: str, prefix: str = "wiki") -> str:
+def resolve_link_dest(dest: str, page_dir: str, prefix: str = "") -> str:
     """Resolve an already-decoded link destination to a normalized path.
 
-    ``page_dir`` is the directory the link lives in. Default
-    ``prefix="wiki"`` suits a wiki-root-relative ``page_dir``
-    (``page_record.py``'s ``rel`` convention); pass ``prefix=""`` when
-    ``page_dir`` is already vault-relative. The one place that owns these
+    ``page_dir`` is the vault-relative directory the link lives in (e.g.
+    ``wiki/concepts``), so the result is vault-relative by construction —
+    ADR-0009. The old ``prefix="wiki"`` default existed for the deleted
+    wiki-relative convention; pass ``prefix`` non-empty only if you know you
+    need a different base. The one place that owns these
     ``normpath``/``join`` quirks — don't reimplement it at a call site.
     """
     base = posixpath.join(prefix, page_dir) if prefix else (page_dir or ".")

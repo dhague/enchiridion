@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import page_record
@@ -112,7 +111,7 @@ class Vault:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(page.text, encoding="utf-8")
         if self._index is not None:
-            self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
+            self._index.upsert_page(rel, page.text)
 
     def load_wiki_pages(self) -> dict[str, str]:
         """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
@@ -130,15 +129,9 @@ class Vault:
         alongside the record for callers (the raw/ sweep's back-pointer
         resolution) that need both without re-reading the file.
         """
-        wiki_relative = {
-            rel.removeprefix("wiki/"): text
-            for rel, text in self.load_wiki_pages().items()
-        }
-        records = page_record.load_records(wiki_relative)
-        return {
-            f"wiki/{rel}": (replace(rec, rel=f"wiki/{rel}"), wiki_relative[rel])
-            for rel, rec in records.items()
-        }
+        pages = self.load_wiki_pages()
+        records = page_record.load_records(pages)
+        return {rel: (rec, pages[rel]) for rel, rec in records.items()}
 
     def pages(self) -> dict[str, PageRecord]:
         """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
@@ -215,10 +208,10 @@ class Vault:
     # --- search / index facade -------------------------------------------
 
     def search(self, *args, **kwargs) -> list[SearchHit]:
-        """Proxy to the search index, verbatim. Rels in the returned hits stay
-        **wiki-relative** (``concepts/foo.md``), matching
-        :mod:`page_record` — not the vault-relative rels the rest of this class
-        returns."""
+        """Proxy to the search index, verbatim. Hits' ``page_ref`` is
+        vault-relative — the same convention every other rel this class
+        returns uses, so a hit can be handed straight to a plan
+        (ADR-0009)."""
         return self._get_index().search(*args, **kwargs)
 
     def reindex(self, *, full: bool = False) -> IndexStats:

@@ -34,7 +34,6 @@ from typing import Iterable
 
 import page_record
 import vault as vault_mod
-import wikipage
 
 
 # --- public types --------------------------------------------------------
@@ -208,22 +207,21 @@ def _git_porcelain_mentions(repo: Path, rel: str) -> bool:
 def _back_pointers_by_raw(
     pages: dict[str, tuple["page_record.PageRecord", str]],
 ) -> dict[str, list[str]]:
-    """``{raw_rel: [page_rel, …]}`` for every page with a ``raw_source``.
+    """``{raw_rel: [page_ref, …]}`` for every page with a ``raw_source``.
     Both sides vault-relative.
 
-    ``page_record`` hands back each target decoded and wiki-root-relative;
-    :func:`wikipage.resolve_link_dest` with ``prefix="wiki"`` is the one step
-    to vault-relative. See ``page_record._rebase_to_wiki_root`` for why the
-    prefix belongs on this side and not that one.
+    ``page_record`` hands back each ``raw_source`` target already resolved to
+    vault-relative by construction (ADR-0009), so there is no re-resolution
+    step to write here — unlike the old wiki-relative convention, whose
+    ``prefix="wiki"`` cancelling dance used to live in this function.
     """
     out: dict[str, list[str]] = {}
-    for rel, (rec, _text) in pages.items():
+    for page_ref, (rec, _text) in pages.items():
         for key, targets in rec.edges:
             if key != "raw_source":
                 continue
             for target in targets:
-                raw_rel = wikipage.resolve_link_dest(target, "", prefix="wiki")
-                out.setdefault(raw_rel, []).append(rel)
+                out.setdefault(target, []).append(page_ref)
     return out
 
 

@@ -5,12 +5,12 @@ create/update, with what frontmatter and typed edges. Semantic chunking and
 overlap classification are judgment and stay with the ingesting agent;
 everything downstream of that decision is mechanics and lives here.
 
-**A plan names link targets by vault-relative rel only** — `edges` and
-`supersedes` hold paths like `"wiki/concept/foo.md"`, never composed
-`"[Title](../dest.md)"` strings. Composing the link (title lookup, `../`
-relativisation, percent-encoding, YAML quoting) is this module's job, via
-:func:`_compose_edges` / :func:`wikipage.compose_link`. `raw_source` uses a
-boolean sentinel for the same reason: `frontmatter: {"raw_source": true}`
+**A plan names link targets by vault-relative page reference only** —
+`edges` and `supersedes` hold paths like `"wiki/concept/foo.md"`, never
+composed `"[Title](../dest.md)"` strings. Composing the link (title lookup,
+`../` relativisation, percent-encoding, YAML quoting) is this module's job,
+via :func:`_compose_edges` / :func:`wikipage.compose_link`. `raw_source` uses
+a boolean sentinel for the same reason: `frontmatter: {"raw_source": true}`
 marks the page as the stub for `plan.raw`, and the link is composed from
 that. Body links are re-encoded on write by
 :func:`wikipage.normalize_body_links`.
@@ -18,7 +18,7 @@ that. Body links are re-encoded on write by
 Pipeline: validate -> per page (place -> frontmatter -> body) -> derive a
 `commit.Manifest` -> commit. Validation runs entirely
 before any write, shape (required fields, valid op) then semantic (an
-update's `rel` exists, a create's target doesn't yet, every edge target
+update's `page_ref` exists, a create's target doesn't yet, every edge target
 resolves to a page already on disk *or* created by this same plan, and
 :mod:`chain_of_evidence` holds). That last check is a courtesy to the agent —
 :mod:`commit` re-runs it as the hard gate, so a hand-built manifest can't
@@ -73,7 +73,7 @@ class PagePlan:
     title: str
     body: str | None = None
     kind: str | None = None
-    rel: str | None = None
+    page_ref: str | None = None
     frontmatter: dict = field(default_factory=dict)
     edges: dict[str, list[str]] = field(default_factory=dict)
 
@@ -84,7 +84,7 @@ class PagePlan:
             title=d.get("title", ""),
             body=d.get("body"),
             kind=d.get("kind"),
-            rel=d.get("rel"),
+            page_ref=d.get("page_ref"),
             frontmatter=dict(d.get("frontmatter", {})),
             edges={k: list(v) for k, v in d.get("edges", {}).items()},
         )
@@ -113,40 +113,40 @@ class IngestPlan:
         )
 
 
-def _page_rel(page: PagePlan) -> str | None:
+def _page_ref(page: PagePlan) -> str | None:
     """The vault-relative path this page will occupy, or ``None`` when it can't
-    be computed yet (an invalid ``kind``/``rel`` already recorded as its own
-    shape error)."""
+    be computed yet (an invalid ``kind``/``page_ref`` already recorded as its
+    own shape error)."""
     if page.op == "create":
         if page.kind not in place.KINDS or not page.title:
             return None
         return place.path(page.kind, page.title)
-    return page.rel or None
+    return page.page_ref or None
 
 
 def _page_dir(page: PagePlan) -> str | None:
     """The vault-relative directory this page's links resolve from."""
-    rel = _page_rel(page)
-    return None if rel is None else posixpath.dirname(rel)
+    page_ref = _page_ref(page)
+    return None if page_ref is None else posixpath.dirname(page_ref)
 
 
-def _resolve_title(target_rel: str, plan: IngestPlan, v: Vault) -> str:
-    """The title a link to ``target_rel`` should carry.
+def _resolve_title(target_ref: str, plan: IngestPlan, v: Vault) -> str:
+    """The title a link to ``target_ref`` should carry.
 
-    This plan's own page for that rel wins, so an update that corrects a
+    This plan's own page for that page_ref wins, so an update that corrects a
     title propagates to every link the same plan writes. Then the on-disk
     title; then the basename, reachable only if validation let an
     unresolvable target through.
     """
-    target_rel = posixpath.normpath(target_rel)
+    target_ref = posixpath.normpath(target_ref)
     for p in plan.pages:
-        if _page_rel(p) == target_rel:
+        if _page_ref(p) == target_ref:
             return p.title
-    if (v.root / target_rel).is_file():
-        title = v.load(target_rel).get("title")
+    if (v.root / target_ref).is_file():
+        title = v.load(target_ref).get("title")
         if title:
             return title
-    return posixpath.basename(target_rel)
+    return posixpath.basename(target_ref)
 
 
 def _compose_raw_source(page_dir: str, plan: IngestPlan) -> str:
@@ -157,24 +157,24 @@ def _compose_raw_source(page_dir: str, plan: IngestPlan) -> str:
 def _compose_edges(
     edges: dict[str, list[str]], page_dir: str, plan: IngestPlan, v: Vault
 ) -> dict[str, list[str]]:
-    """Compose every edge-key's vault-relative rels into markdown links."""
+    """Compose every edge-key's vault-relative page refs into markdown links."""
     return {
-        key: [wikipage.compose_link(_resolve_title(rel, plan, v), rel, page_dir) for rel in rels]
-        for key, rels in edges.items()
+        key: [wikipage.compose_link(_resolve_title(ref, plan, v), ref, page_dir) for ref in refs]
+        for key, refs in edges.items()
     }
 
 
 def _page_link_targets(page: PagePlan, plan: IngestPlan) -> list[tuple[str, str]]:
-    """``(key, normalized target rel)`` pairs for existence validation. Plans
-    name targets by vault-relative rel only, so this is a plain normalize —
-    no markdown-link parsing.
+    """``(key, normalized target page_ref)`` pairs for existence validation.
+    Plans name targets by vault-relative page reference only, so this is a
+    plain normalize — no markdown-link parsing.
     """
     targets: list[tuple[str, str]] = []
     if page.frontmatter.get("raw_source") is True and plan.raw:
         targets.append(("raw_source", posixpath.normpath(plan.raw)))
-    for key, rels in page.edges.items():
-        for rel in rels:
-            targets.append((key, posixpath.normpath(rel)))
+    for key, refs in page.edges.items():
+        for ref in refs:
+            targets.append((key, posixpath.normpath(ref)))
     return targets
 
 
@@ -183,16 +183,16 @@ def _projected_page(page: PagePlan, plan: IngestPlan, v: Vault) -> WikiPage | No
 
     A create starts blank, an update from its on-disk copy, so a re-ingest's
     existing edges and the fresh plan's edges are both visible to the same
-    check. ``None`` when the rel can't be resolved — its own shape error,
+    check. ``None`` when the page_ref can't be resolved — its own shape error,
     reported elsewhere.
     """
-    rel = _page_rel(page)
-    if rel is None:
+    page_ref = _page_ref(page)
+    if page_ref is None:
         return None
     if page.op == "create":
         base = WikiPage("")
     else:
-        base = v.load(rel) if (v.root / rel).is_file() else WikiPage("")
+        base = v.load(page_ref) if (v.root / page_ref).is_file() else WikiPage("")
     return _apply_frontmatter(base, page, plan, v)
 
 
@@ -206,12 +206,12 @@ def _chain_of_evidence_errors(plan: IngestPlan, root: Path) -> list[str]:
     v = Vault(root)
     staged: dict[str, WikiPage] = {}
     for page in plan.pages:
-        rel = _page_rel(page)
-        if rel is None:
+        page_ref = _page_ref(page)
+        if page_ref is None:
             continue
         projected = _projected_page(page, plan, v)
         if projected is not None:
-            staged[rel] = projected
+            staged[page_ref] = projected
     return chain_of_evidence.check(staged, plan.raw)
 
 
@@ -247,8 +247,8 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
             errors.append(f"{prefix}.title is required")
 
         if page.op == "create":
-            if page.rel is not None:
-                errors.append(f"{prefix}.rel must not be set for op=create")
+            if page.page_ref is not None:
+                errors.append(f"{prefix}.page_ref must not be set for op=create")
             if not page.kind:
                 errors.append(f"{prefix}.kind is required for op=create")
             elif page.kind not in place.KINDS:
@@ -268,10 +268,10 @@ def validate(plan: IngestPlan, vault_root: Path | str | None) -> None:
         else:
             if page.kind is not None:
                 errors.append(f"{prefix}.kind must not be set for op=update")
-            if not page.rel:
-                errors.append(f"{prefix}.rel is required for op=update")
-            elif root is not None and not (root / page.rel).is_file():
-                errors.append(f"{prefix}.rel {page.rel} does not exist")
+            if not page.page_ref:
+                errors.append(f"{prefix}.page_ref is required for op=update")
+            elif root is not None and not (root / page.page_ref).is_file():
+                errors.append(f"{prefix}.page_ref {page.page_ref} does not exist")
 
         raw_source = page.frontmatter.get("raw_source")
         if raw_source is not None and raw_source is not True:
@@ -334,21 +334,21 @@ def execute(vault_root: Path | str, plan: IngestPlan) -> str:
 
     for plan_page in plan.pages:
         if plan_page.op == "create":
-            rel = place.path(plan_page.kind, plan_page.title)
+            page_ref = place.path(plan_page.kind, plan_page.title)
             page = _apply_frontmatter(WikiPage(""), plan_page, plan, v)
             page = WikiPage(page.text + wikipage.normalize_body_links(plan_page.body))
-            v.write(rel, page)
-            created.append(rel)
+            v.write(page_ref, page)
+            created.append(page_ref)
 
-            for target_rel in plan_page.edges.get("supersedes", []):
-                superseded.append((posixpath.normpath(target_rel), rel))
+            for target_ref in plan_page.edges.get("supersedes", []):
+                superseded.append((posixpath.normpath(target_ref), page_ref))
         else:
-            rel = plan_page.rel
-            page = v.load(rel)
+            page_ref = plan_page.page_ref
+            page = v.load(page_ref)
             page = _apply_frontmatter(page, plan_page, plan, v)
             page = _apply_body(page, plan_page.body)
-            v.write(rel, page)
-            updated.append(rel)
+            v.write(page_ref, page)
+            updated.append(page_ref)
 
     manifest = commit.Manifest(
         title=plan.title,

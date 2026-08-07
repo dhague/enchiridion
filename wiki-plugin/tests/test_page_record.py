@@ -2,7 +2,8 @@
 
 Decoded once into a :class:`PageRecord` so every other caller
 (``Vault.pages()``, ``search_index.upsert_page``) reads the record instead
-of re-parsing YAML keys itself.
+of re-parsing YAML keys itself. All rels are vault-relative page references
+(ADR-0009).
 """
 import pytest
 
@@ -20,8 +21,8 @@ def test_basic_fields():
         "---\n"
         "# Prepared statements\n"
     )
-    rec = page_record.page_record("concepts/prepared-statements.md", text)
-    assert rec.rel == "concepts/prepared-statements.md"
+    rec = page_record.page_record("wiki/concepts/prepared-statements.md", text)
+    assert rec.page_ref == "wiki/concepts/prepared-statements.md"
     assert rec.title == "Prepared statements"
     assert rec.summary == "Avoid re-parsing repeated SQL text."
     assert rec.tags == ["sql", "perf"]
@@ -33,10 +34,10 @@ def test_basic_fields():
 
 def test_kind_derived_from_folder():
     text = "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n"
-    assert page_record.page_record("concepts/a.md", text).kind == "concept"
-    assert page_record.page_record("entities/b.md", text).kind == "entity"
-    assert page_record.page_record("sources/c.md", text).kind == "source"
-    assert page_record.page_record("synthesis/d.md", text).kind == "synthesis"
+    assert page_record.page_record("wiki/concepts/a.md", text).kind == "concept"
+    assert page_record.page_record("wiki/entities/b.md", text).kind == "entity"
+    assert page_record.page_record("wiki/sources/c.md", text).kind == "source"
+    assert page_record.page_record("wiki/synthesis/d.md", text).kind == "synthesis"
 
 
 def test_kind_rejects_old_singular_folder():
@@ -44,10 +45,10 @@ def test_kind_rejects_old_singular_folder():
     hard error, not silently accepted as a valid kind."""
     text = "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n"
     with pytest.raises(ValueError):
-        page_record.page_record("concept/a.md", text)
+        page_record.page_record("wiki/concept/a.md", text)
 
 
-def test_edges_resolved_and_rebased_to_wiki_root():
+def test_edges_resolved_to_vault_relative():
     text = (
         "---\n"
         "title: B\n"
@@ -59,8 +60,8 @@ def test_edges_resolved_and_rebased_to_wiki_root():
         '  - "[A](../concepts/a.md)"\n'
         "---\n"
     )
-    rec = page_record.page_record("entities/b.md", text)
-    assert rec.edges == [("related", ["concepts/a.md"])]
+    rec = page_record.page_record("wiki/entities/b.md", text)
+    assert rec.edges == [("related", ["wiki/concepts/a.md"])]
 
 
 def test_edges_ordered_by_schema_not_authored_order():
@@ -77,13 +78,13 @@ def test_edges_ordered_by_schema_not_authored_order():
         '  - "[C](../concepts/c.md)"\n'
         "---\n"
     )
-    rec = page_record.page_record("concepts/a.md", text)
+    rec = page_record.page_record("wiki/concepts/a.md", text)
     assert [key for key, _ in rec.edges] == ["refines", "related"]
 
 
 def test_superseded_by_derived_across_vault():
     pages = {
-        "sources/new.md": (
+        "wiki/sources/new.md": (
             "---\n"
             "title: New deploy\n"
             "summary: s\n"
@@ -94,19 +95,19 @@ def test_superseded_by_derived_across_vault():
             '  - "[Old deploy](old.md)"\n'
             "---\n"
         ),
-        "sources/old.md": (
+        "wiki/sources/old.md": (
             "---\ntitle: Old deploy\nsummary: s\ntags: []\n"
             "source_date: 2026-01-01\nvolatility: stable\n---\n"
         ),
     }
     records = page_record.load_records(pages)
-    assert records["sources/old.md"].superseded_by == ["sources/new.md"]
-    assert records["sources/new.md"].superseded_by == []
+    assert records["wiki/sources/old.md"].superseded_by == ["wiki/sources/new.md"]
+    assert records["wiki/sources/new.md"].superseded_by == []
 
 
 def test_superseded_by_empty_when_no_page_supersedes_it():
     pages = {
-        "concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "wiki/concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
     }
     records = page_record.load_records(pages)
-    assert records["concepts/a.md"].superseded_by == []
+    assert records["wiki/concepts/a.md"].superseded_by == []

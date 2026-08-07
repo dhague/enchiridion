@@ -12,6 +12,10 @@ _Avoid_: KB, wiki (alone — "wiki" means just the `wiki/` subtree, "vault" mean
 One markdown file under `wiki/`, carrying a frontmatter block plus a body. The vault's unit of knowledge.
 _Avoid_: Note, document, entry — "note" was the term in early drafts; "page" is the standardized term.
 
+**Page reference**:
+The vault-relative path by which a page is named (`wiki/concepts/a.md`) — the one address spelling the plugin uses for pages, in plans, typed edges, the index, and commits. A vault-relative path under `raw/` names a raw artifact, not a page reference.
+_Avoid_: `rel` (code shorthand for the same thing), `wiki-relative path` (the deleted second spelling — a page reference is always vault-relative).
+
 **Kind**:
 The axis that places a page into one of the four `wiki/` folders. The only axis that is both decidable from a page's own content and independent of any particular vault's subject domain — which is why the folder tree is fixed by the plugin rather than configured per vault. The kind **value** is singular (`concept`, `entity`, `source`, `synthesis`, as authored/compared in code); the kind **folder** it maps to pluralizes (`concepts/`, `entities/`, `sources/`; `synthesis/` has no distinct plural, so it's unchanged) — the two are deliberately decoupled, not a 1:1 name match ([ADR-0008](docs/adr/0008-kind-folders-plural-kind-values-singular.md)).
 _Avoid_: Category, type (too generic — "kind" names specifically this folder axis).
