@@ -23,6 +23,7 @@ _HYPHEN_PATH = os.path.join(
 _spec = importlib.util.spec_from_file_location(
     "save_session_to_vault", os.path.abspath(_HYPHEN_PATH),
 )
+assert _spec is not None and _spec.loader is not None  # the file above always exists
 save_session_to_vault = importlib.util.module_from_spec(_spec)
 sys.modules["save_session_to_vault"] = save_session_to_vault
 _spec.loader.exec_module(save_session_to_vault)

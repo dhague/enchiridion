@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, IO
 
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 import ingest_scan
@@ -282,13 +282,14 @@ class _RawEventHandler(FileSystemEventHandler):
         self.root = root
         self.debouncer = debouncer
 
-    def on_any_event(self, event) -> None:
+    def on_any_event(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
         # Atomic saves (vim, VSCode, Obsidian write-temp-then-rename) arrive
         # as one moved event: dest_path is the real file, src_path the temp
         # one, already gone by the time we'd re-check it.
-        path = getattr(event, "dest_path", "") or event.src_path
+        path = getattr(event, "dest_path", "") or event.src_path or ""
+        path = path.decode() if isinstance(path, bytes) else path
         try:
             rel = Path(path).relative_to(self.root).as_posix()
         except ValueError:

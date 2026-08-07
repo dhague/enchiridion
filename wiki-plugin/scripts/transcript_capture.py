@@ -15,6 +15,7 @@ import json
 import os
 import re
 import unicodedata
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -166,7 +167,10 @@ class CaptureError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def find_transcript_path(env=None, cwd=None):
+def find_transcript_path(
+    env: Mapping[str, str] | None = None,
+    cwd: Path | str | None = None,
+) -> tuple[str | None, str | None]:
     """Return ``(transcript_path, error_message)``; exactly one is ``None``.
 
     Four distinct failures, kept distinct so the user can tell them apart:
@@ -233,7 +237,14 @@ def write_capture(wiki_root, filename: str, markdown: str, *, short_id: str) -> 
     return os.path.relpath(out_path, str(wiki_root)).replace("\\", "/")
 
 
-def capture_session(*, wiki_root, slug=None, env=None, cwd=None, now=None) -> str:
+def capture_session(
+    *,
+    wiki_root: Path | str,
+    slug: str | None = None,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | str | None = None,
+    now: datetime | None = None,
+) -> str:
     """Find, render, and write this session's transcript; return its vault-relative path.
 
     The whole pipeline (find_transcript_path -> transcript_to_page ->
@@ -243,6 +254,7 @@ def capture_session(*, wiki_root, slug=None, env=None, cwd=None, now=None) -> st
     transcript_path, error = find_transcript_path(env=env, cwd=cwd)
     if error:
         raise CaptureError(error)
+    assert transcript_path is not None  # exactly one of the pair is None
 
     session_id = os.path.splitext(os.path.basename(transcript_path))[0]
     with open(transcript_path, encoding="utf-8") as f:

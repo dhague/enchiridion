@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 
-def sessions_dir(root: Path | str | None = None, env: dict | None = None) -> Path:
+def sessions_dir(root: Path | str | None = None, env: Mapping[str, str] | None = None) -> Path:
     """The sessions directory for this project.
 
     Resolution order, highest priority first:
