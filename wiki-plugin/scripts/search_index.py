@@ -659,6 +659,28 @@ class SearchIndex:
         self._conn.close()
 
 
+# --- per-root cache (ADR-0010) --------------------------------------------
+
+#: Process-lifetime, keyed by resolved root path, no eviction — every
+#: entrypoint is a one-shot CLI process (ADR-0001), so this is bounded in
+#: practice to a handful of roots for the life of one invocation.
+_cache: dict[Path, "SearchIndex"] = {}
+
+
+def for_root(root: Path | str) -> SearchIndex:
+    """The one cached entrypoint: one ``SearchIndex`` per resolved root,
+    lifetime of the process. Takes root only — no ``git`` parameter — so a
+    test's ``SearchIndex(root, git=fake)`` injection path can never silently
+    collide with a cached production instance; it keeps calling
+    ``SearchIndex(...)`` directly, uncached, as before."""
+    resolved = Path(root).resolve()
+    index = _cache.get(resolved)
+    if index is None:
+        index = SearchIndex(resolved)
+        _cache[resolved] = index
+    return index
+
+
 # --- body extraction -----------------------------------------------------
 
 

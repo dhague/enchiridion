@@ -95,7 +95,7 @@ class Vault:
 
     def _get_index(self) -> search_index.SearchIndex:
         if self._index is None:
-            self._index = search_index.SearchIndex(self.root)
+            self._index = search_index.for_root(self.root)
         return self._index
 
     def load(self, page_ref: str) -> WikiPage:
