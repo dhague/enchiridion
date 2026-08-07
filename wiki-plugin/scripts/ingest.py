@@ -490,6 +490,8 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
         help="resolve and validate the plan, print what would be written, write nothing",
     )
     args = parser.parse_args(argv)
+    if args.dry_run and not args.plan:
+        parser.error("--dry-run only applies to --plan; --ignore always writes")
 
     root = vault_mod.resolve_vault_root()
 
