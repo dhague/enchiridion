@@ -19,12 +19,11 @@ CLI::
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import place
+from vault_git import GitError, VaultGit
 
 #: A directory is already a vault if either marker is present.
 _MARKERS = ("wiki", ".wiki-root")
@@ -62,26 +61,6 @@ def _settings_json(plugin_root: str) -> str:
     ) + "\n"
 
 
-def _run_git(root: Path, *args: str) -> str:
-    proc = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True
-    )
-    if proc.returncode != 0:
-        raise InitError(
-            f"git {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}"
-        )
-    return proc.stdout
-
-
-def _is_git_repo(root: Path) -> bool:
-    proc = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode == 0 and proc.stdout.strip() == "true"
-
-
 def init_wiki(
     vault_root: Path | str,
     mode: str,
@@ -92,15 +71,23 @@ def init_wiki(
     ``mode`` is ``"query-from-anywhere"`` (requires ``plugin_root``, the
     plugin's install directory) or ``"dedicated"`` (no ``settings.json``;
     the caller installs the plugin themselves).
+
+    Git comes from :class:`VaultGit` (the one module that shells out to git,
+    #126). Its absent-git policy here is a hard dependency: git missing on
+    PATH raises :class:`InitError` before any scaffolding, and a git command
+    that fails mid-scaffold is translated from :class:`GitError` into
+    :class:`InitError` so the CLI reports it cleanly.
     """
     if mode not in ("query-from-anywhere", "dedicated"):
         raise InitError(f"unknown mode {mode!r}")
     if mode == "query-from-anywhere" and not plugin_root:
         raise InitError("query-from-anywhere mode requires plugin_root")
-    if shutil.which("git") is None:
-        raise InitError("git is required but was not found on PATH")
 
     root = Path(vault_root)
+    git = VaultGit(root)
+    if not git.available():
+        raise InitError("git is required but was not found on PATH")
+
     if is_vault(root):
         raise InitError(f"{root} already looks like a vault (wiki/ or .wiki-root exists)")
 
@@ -125,14 +112,17 @@ def init_wiki(
         )
         wrote_settings = True
 
-    if not _is_git_repo(root):
-        _run_git(root, "init")
-
     add_paths = ["wiki", ".gitignore", "raw/.gitkeep"]
     if wrote_settings:
         add_paths.append(".claude/settings.json")
-    _run_git(root, "add", "--", *add_paths)
-    _run_git(root, "commit", "-m", "Initialize wiki vault")
+
+    try:
+        if not git.is_work_tree():
+            git.init()
+        git.add(*add_paths)
+        git.commit("Initialize wiki vault")
+    except GitError as exc:
+        raise InitError(str(exc)) from exc
 
     return root
 

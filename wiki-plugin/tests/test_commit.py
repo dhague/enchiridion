@@ -4,6 +4,7 @@ import subprocess
 import pytest
 
 import commit
+from fake_vault_git import FakeVaultGit
 
 
 def _git(root, *args):
@@ -139,12 +140,28 @@ def test_commit_fails_loudly_when_not_a_repo(tmp_path):
         commit.commit(tmp_path, m)
 
 
-def test_commit_fails_loudly_when_git_absent(git_repo, monkeypatch):
-    (git_repo / "a.md").write_text("x\n", encoding="utf-8")
-    monkeypatch.setattr(commit.shutil, "which", lambda _name: None)
+def test_commit_fails_loudly_when_git_absent(tmp_path):
+    """#126: absent git is the strict surface's hard dependency — GitError,
+    never a silent skip — read off the fake instead of PATH monkeypatching."""
+    (tmp_path / "a.md").write_text("x\n", encoding="utf-8")
     m = commit.Manifest(action="ingest", title="x", created=["a.md"])
     with pytest.raises(commit.GitError):
-        commit.commit(git_repo, m)
+        commit.commit(tmp_path, m, git=FakeVaultGit(available=False))
+
+
+def test_commit_records_add_and_commit_against_fake(tmp_path):
+    """#126: the whole commit verb — ensure work tree, stage, structured
+    message, SHA — is assertable against the in-memory fake, no work tree."""
+    (tmp_path / "wiki").mkdir()
+    (tmp_path / "wiki" / "a.md").write_text("# A\n", encoding="utf-8")
+    fake = FakeVaultGit(sha="abc123")
+    m = commit.Manifest(action="ingest", title="Seed A", created=["wiki/a.md"])
+
+    sha = commit.commit(tmp_path, m, git=fake)
+
+    assert sha == "abc123"
+    assert fake.added == ["wiki/a.md"]
+    assert fake.messages == [commit.build_message(m)]
 
 
 # --- chain-of-evidence gate (#34 point 4) -------------------------------------

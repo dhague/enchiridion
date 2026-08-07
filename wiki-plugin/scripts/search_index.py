@@ -16,19 +16,17 @@ edits made outside the plugin entirely (git pull, Obsidian). A capability
 probe at open time falls back to a Python ``re`` backend when FTS5 isn't
 compiled into the platform's SQLite.
 
-Depends only on ``page_record`` (frontmatter decoding) and ``wikipage`` (body
-split); the ``re`` fallback reads page text off disk itself. Nothing here
-imports ``vault`` — the index is a stand-alone object ``Vault`` owns and
-proxies through, and the reverse dependency would be a cycle.
+Depends only on ``page_record`` (frontmatter decoding), ``wikipage`` (body
+split) and ``vault_git`` (the ``git_date`` map); the ``re`` fallback reads
+page text off disk itself. Nothing here imports ``vault`` — the index is a
+stand-alone object ``Vault`` owns and proxies through, and the reverse
+dependency would be a cycle.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
-import shutil
 import sqlite3
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +34,7 @@ from typing import Sequence
 
 import page_record
 import wikipage
+from vault_git import VaultGit
 
 
 #: Bump when the on-disk schema changes. A mismatch on open triggers a
@@ -127,41 +126,6 @@ def _probe_fts5(conn: sqlite3.Connection) -> bool:
         return False
 
 
-# --- git_date extraction -------------------------------------------------
-
-
-def _compute_git_dates(vault_root: Path) -> dict[str, str]:
-    """One ``git log`` pass → ``{vault-relative page_ref: YYYY-MM-DD}``, most
-    recent commit per file. Empty dict when git is unavailable or this isn't a
-    work tree — a missing date means ``git_date is None``, never a failure.
-    """
-    if shutil.which("git") is None:
-        return {}
-    proc = subprocess.run(
-        [
-            "git", "-C", str(vault_root),
-            "log", "--name-only", "--format=%H|%ad", "--date=short",
-        ],
-        capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        return {}
-    dates: dict[str, str] = {}
-    current_date: str | None = None
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if "|" in line:
-            _sha, _, current_date = line.partition("|")
-        elif current_date and line.endswith(".md") and line.startswith("wiki/"):
-            # git log paths are already vault-relative — no strip, unlike the
-            # old wiki-relative convention (ADR-0009).
-            if line not in dates:
-                dates[line] = current_date
-    return dates
-
-
 # --- SearchIndex ---------------------------------------------------------
 
 
@@ -177,8 +141,12 @@ class SearchIndex:
     (ADR-0009).
     """
 
-    def __init__(self, root: Path | str):
+    def __init__(self, root: Path | str, git: VaultGit | None = None):
         self.root = Path(root)
+        # ``git`` is injectable for tests (an in-memory :class:`VaultGit`
+        # fake). Its lenient absent-git policy — ``{}``, so ``git_date`` is
+        # ``None`` — is the "never a failure" reading search relies on.
+        self._git = git or VaultGit(self.root)
         self._index_dir = self.root / ".wiki-knowledge"
         self._index_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = self._index_dir / "index.db"
@@ -290,7 +258,7 @@ class SearchIndex:
         }
         seen: set[str] = set()
         stats = IndexStats()
-        git_dates = _compute_git_dates(self.root)
+        git_dates = self._git.commit_dates()
         for path in (self.root / "wiki").rglob("*.md"):
             page_ref = path.relative_to(self.root).as_posix()
             seen.add(page_ref)
@@ -320,7 +288,7 @@ class SearchIndex:
         rebuild path."""
         start = time.monotonic()
         stats = IndexStats()
-        git_dates = _compute_git_dates(self.root)
+        git_dates = self._git.commit_dates()
         for path in (self.root / "wiki").rglob("*.md"):
             page_ref = path.relative_to(self.root).as_posix()
             self.upsert_page(page_ref, path.read_text(encoding="utf-8"),
@@ -349,8 +317,8 @@ class SearchIndex:
         staleness scan compares against to call this row fresh.
 
         ``git_dates`` is the ``{page_ref: date}`` map from one
-        :func:`_compute_git_dates` pass; scan callers derive it once per walk
-        and hand it down. When it's ``None`` (the single-page path,
+        :meth:`VaultGit.commit_dates` pass; scan callers derive it once per
+        walk and hand it down. When it's ``None`` (the single-page path,
         ``Vault.write``'s inline update) it is computed here — one full-history
         ``git log`` pass per write, the honest cost of that already-documented
         latency optimisation.
@@ -359,7 +327,7 @@ class SearchIndex:
         path = self.root / page_ref
         st = path.stat()
         if git_dates is None:
-            git_dates = _compute_git_dates(self.root)
+            git_dates = self._git.commit_dates()
         body = _body_text(text)
 
         c = self._conn
