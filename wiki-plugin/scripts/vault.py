@@ -24,8 +24,8 @@ The vault also fronts the lexical index at ``.wiki-knowledge/index.db``:
 That inline update is a latency optimisation only — see :mod:`search_index`
 for why correctness lives in the staleness scan instead.
 
-``commit.py`` (git orchestration) stays separate — this module doesn't talk to
-git itself.
+``vault_git.py`` (git orchestration) stays separate — this module doesn't talk
+to git itself.
 """
 from __future__ import annotations
 

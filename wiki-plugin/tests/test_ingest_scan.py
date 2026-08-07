@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 import ingest_scan
+from fake_vault_git import FakeVaultGit
 from ingest_scan import (
     IngestCandidate,
     ScanResult,
@@ -242,10 +243,9 @@ class TestScanEligibility:
         )
         (tmp_path / "raw" / "foo.md").write_text("raw", encoding="utf-8")
 
-        # No `git init` here, so `_git_last_commit_date` returns None and
-        # `_git_porcelain_mentions` returns False — the file is offered
-        # under the "changed-since-ingestion" reason with a back-pointer
-        # hint.
+        # No `git init` here, so the real VaultGit's lenient surface returns
+        # None / False — the file is offered under the
+        # "changed-since-ingestion" reason with a back-pointer hint.
         result = scan(tmp_path)
         assert len(result.eligible) == 1
         cand = result.eligible[0]
@@ -302,6 +302,53 @@ def git_vault(tmp_path):
 
 
 class TestScanGitBacked:
+    def test_strictly_newer_fake_git_facts_offer_the_file(self, tmp_path):
+        """#126: the sweep reads its git facts off VaultGit, so the strictly-
+        newer rule is assertable against the in-memory fake — no work tree."""
+        _seed_vault(tmp_path)
+        (tmp_path / "wiki" / "sources" / "foo.md").write_text(
+            '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/foo.md)"\n---\n# Foo\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "raw" / "foo.md").write_text("raw", encoding="utf-8")
+        fake = FakeVaultGit(
+            last_commit_dates={
+                "raw/foo.md": "2026-02-01",
+                "wiki/sources/foo.md": "2026-01-01",
+            },
+        )
+
+        result = scan(tmp_path, git=fake)
+
+        assert len(result.eligible) == 1
+        cand = result.eligible[0]
+        assert cand.raw_rel == "raw/foo.md"
+        assert cand.reason == "changed-since-ingestion"
+        assert cand.back_pointers == ["wiki/sources/foo.md"]
+
+    def test_dirty_fake_overrides_equal_dates(self, tmp_path):
+        """#126: the fake's dirty set flips the offer even when the dates are
+        equal — the porcelain check runs before the date comparison."""
+        _seed_vault(tmp_path)
+        (tmp_path / "wiki" / "sources" / "foo.md").write_text(
+            '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/foo.md)"\n---\n# Foo\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "raw" / "foo.md").write_text("raw", encoding="utf-8")
+        fake = FakeVaultGit(
+            dirty=["raw/foo.md"],
+            last_commit_dates={
+                "raw/foo.md": "2026-01-01",
+                "wiki/sources/foo.md": "2026-01-01",
+            },
+        )
+
+        result = scan(tmp_path, git=fake)
+
+        assert len(result.eligible) == 1
+        assert result.eligible[0].raw_rel == "raw/foo.md"
+        assert result.eligible[0].reason == "changed-since-ingestion"
+
     def test_same_commit_means_not_offered(self, git_vault):
         """A raw file and the page it produces normally land in the same
         commit (`e548c78` in the vault does) — strictly newer, not `>=`,

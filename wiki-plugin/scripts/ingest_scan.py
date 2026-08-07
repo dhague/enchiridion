@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +32,7 @@ from typing import Iterable
 
 import page_record
 import vault as vault_mod
+from vault_git import VaultGit
 
 
 # --- public types --------------------------------------------------------
@@ -158,49 +157,6 @@ def append_ignore_entry(
         path.write_text(line + "\n", encoding="utf-8")
 
 
-# --- git helpers ---------------------------------------------------------
-
-
-def _git_last_commit_date(repo: Path, rel: str) -> str | None:
-    """The last commit date of ``rel`` (``YYYY-MM-DD``), or ``None`` when git
-    is unavailable, ``rel`` was never committed, or git returns non-zero.
-
-    Callers treat a missing date as **fail toward offering** — the only safe
-    direction for a signal that must err without losing data.
-    """
-    if shutil.which("git") is None:
-        return None
-    proc = subprocess.run(
-        [
-            "git", "-C", str(repo),
-            "log", "-1", "--format=%ad", "--date=short", "--", rel,
-        ],
-        capture_output=True, text=True,
-    )
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
-    return proc.stdout.strip().splitlines()[-1]
-
-
-def _git_porcelain_mentions(repo: Path, rel: str) -> bool:
-    """``True`` iff ``git status --porcelain`` reports ``rel`` modified or
-    untracked.
-
-    Untracked (``??``) counts: a brand-new file isn't in git's index at all,
-    and finding it is the point. Called only after the back-pointer and
-    ``.ingestignore`` checks, so it costs at most one subprocess per file.
-    """
-    if shutil.which("git") is None:
-        return False
-    proc = subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain", "--", rel],
-        capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        return False
-    return bool(proc.stdout.strip())
-
-
 # --- back-pointer map ----------------------------------------------------
 
 
@@ -244,15 +200,22 @@ def _is_strictly_newer(raw_date: str | None, page_date: str | None) -> bool:
 # --- main scan -----------------------------------------------------------
 
 
-def scan(root: Path, folder: str | None = None) -> ScanResult:
+def scan(root: Path, folder: str | None = None, git: VaultGit | None = None) -> ScanResult:
     """Walk ``root/raw/`` and return the sweep's verdict (see the module
     docstring for the eligibility rule).
 
     Policy trumps the eligibility signal: a file matching its own folder's
     ``.ingestignore`` lands in ``ignored`` without being evaluated.
+
+    ``git`` is injectable for tests (an in-memory :class:`VaultGit` fake); it
+    defaults to real git over ``root``. The absent-git policy — **fail toward
+    offering** — is read off :meth:`VaultGit.last_commit_date` /
+    :meth:`VaultGit.porcelain_mentions`, whose lenient defaults this sweep
+    relies on.
     """
     pages = vault_mod.Vault(root).pages_with_text()
     back_pointers = _back_pointers_by_raw(pages)
+    git = git or VaultGit(root)
 
     eligible: list[IngestCandidate] = []
     ignored: list[str] = []
@@ -273,13 +236,13 @@ def scan(root: Path, folder: str | None = None) -> ScanResult:
 
         # Ingested at least once. Offer it again only if it has moved on:
         # dirty working tree, or newer than a back-pointer page.
-        if _git_porcelain_mentions(root, rel):
+        if git.porcelain_mentions(rel):
             eligible.append(IngestCandidate(rel, "changed-since-ingestion", pointing))
             continue
 
-        raw_date = _git_last_commit_date(root, rel)
+        raw_date = git.last_commit_date(rel)
         any_strictly_older = any(
-            _is_strictly_newer(raw_date, _git_last_commit_date(root, page_rel))
+            _is_strictly_newer(raw_date, git.last_commit_date(page_rel))
             for page_rel in pointing
         )
         if any_strictly_older:

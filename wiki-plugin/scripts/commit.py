@@ -26,18 +26,13 @@ CLI::
 """
 from __future__ import annotations
 
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import chain_of_evidence
 import wikipage
-
-
-class GitError(RuntimeError):
-    """Raised when git is unavailable or the target is not a git work tree."""
+from vault_git import GitError, VaultGit
 
 
 class CommitGateError(RuntimeError):
@@ -108,31 +103,6 @@ def build_message(manifest: Manifest) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _run(root: Path, *args: str) -> str:
-    proc = subprocess.run(
-        ["git", "-C", str(root), *args],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise GitError(
-            f"git {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}"
-        )
-    return proc.stdout
-
-
-def _ensure_git(root: Path) -> None:
-    if shutil.which("git") is None:
-        raise GitError("git is required but was not found on PATH")
-    proc = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0 or proc.stdout.strip() != "true":
-        raise GitError(f"{root} is not a git work tree")
-
-
 def _check_chain_of_evidence(root: Path, manifest: Manifest) -> None:
     """Gate the commit on :func:`chain_of_evidence.check`.
 
@@ -156,17 +126,27 @@ def _check_chain_of_evidence(root: Path, manifest: Manifest) -> None:
         raise CommitGateError("commit gated: " + "; ".join(errors))
 
 
-def commit(vault_root: Path | str, manifest: Manifest) -> str:
-    """Stage the manifest's paths and write one structured commit. Returns the SHA."""
+def commit(
+    vault_root: Path | str,
+    manifest: Manifest,
+    git: VaultGit | None = None,
+) -> str:
+    """Stage the manifest's paths and write one structured commit. Returns the SHA.
+
+    ``git`` is injectable for tests (an in-memory :class:`VaultGit` fake); it
+    defaults to real git over ``vault_root``. Git stays a hard dependency:
+    absent git, or a root that isn't a work tree, raises :class:`GitError`
+    from :meth:`VaultGit.ensure_work_tree`.
+    """
     root = Path(vault_root)
-    _ensure_git(root)
+    git = git or VaultGit(root)
+    git.ensure_work_tree()
 
     paths = manifest.staged_paths()
     _check_chain_of_evidence(root, manifest)
     if paths:
-        _run(root, "add", "--", *paths)
-    _run(root, "commit", "-m", build_message(manifest))
-    return _run(root, "rev-parse", "HEAD").strip()
+        git.add(*paths)
+    return git.commit(build_message(manifest))
 
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper

@@ -20,7 +20,21 @@ from pathlib import Path
 import pytest
 
 import search_index
+from fake_vault_git import FakeVaultGit
 from search_index import SearchHit, SearchIndex, tokenize_query
+
+
+class _CountingGit(FakeVaultGit):
+    """A fake that counts ``commit_dates()`` calls — pins the #124 "one git
+    log pass per scan, not per page" contract without a work tree."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.commit_dates_calls = 0
+
+    def commit_dates(self) -> dict[str, str]:
+        self.commit_dates_calls += 1
+        return {}
 
 
 # --- helpers --------------------------------------------------------------
@@ -590,7 +604,16 @@ class TestGitDate:
         # git_date=2026-07-01 does
         assert [h.page_ref for h in idx.search(since="2026-06-01", date_field="git_date")] == ["wiki/concepts/a.md"]
 
-    def test_scan_computes_git_dates_once(self, tmp_path, monkeypatch):
+    def test_git_date_reads_from_vaultgit_fake(self, tmp_path):
+        """#126: ``git_date`` comes from the injected VaultGit fake's map,
+        not a real work tree."""
+        pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md")}
+        fake = FakeVaultGit(commit_dates={"wiki/concepts/a.md": "2026-03-15"})
+        idx = SearchIndex(_vault(tmp_path, pages), git=fake)
+        (hit,) = idx.search()
+        assert hit.git_date == "2026-03-15"
+
+    def test_scan_computes_git_dates_once(self, tmp_path):
         """#124: a multi-page scan must run one ``git log`` pass, not one per
         page — N subprocesses collapse to 1."""
         pages = {
@@ -598,30 +621,20 @@ class TestGitDate:
             "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md"),
             "wiki/concepts/c.md": _page(page_ref="wiki/concepts/c.md"),
         }
-        idx = SearchIndex(_vault(tmp_path, pages))
-        calls: list[str] = []
-        real = search_index._compute_git_dates
-        monkeypatch.setattr(
-            search_index, "_compute_git_dates",
-            lambda root: (calls.append(str(root)) or real(root)),
-        )
+        fake = _CountingGit()
+        idx = SearchIndex(_vault(tmp_path, pages), git=fake)
         idx.search()
-        assert calls == [str(tmp_path)]
+        assert fake.commit_dates_calls == 1
 
-    def test_reindex_walk_computes_git_dates_once(self, tmp_path, monkeypatch):
+    def test_reindex_walk_computes_git_dates_once(self, tmp_path):
         pages = {
             "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md"),
             "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md"),
         }
-        idx = SearchIndex(_vault(tmp_path, pages))
-        calls: list[str] = []
-        real = search_index._compute_git_dates
-        monkeypatch.setattr(
-            search_index, "_compute_git_dates",
-            lambda root: (calls.append(str(root)) or real(root)),
-        )
+        fake = _CountingGit()
+        idx = SearchIndex(_vault(tmp_path, pages), git=fake)
         idx.reindex(full=True)
-        assert calls == [str(tmp_path)]
+        assert fake.commit_dates_calls == 1
 
     def test_injected_git_dates_need_no_git_repo(self, tmp_path):
         """#124: ``upsert_page`` accepts the git-date map, so date propagation
@@ -637,19 +650,18 @@ class TestGitDate:
         (hit,) = idx.search()
         assert hit.git_date == "2026-03-15"
 
-    def test_scan_uses_injected_git_dates_for_stale_page(self, tmp_path, monkeypatch):
+    def test_scan_uses_injected_git_dates_for_stale_page(self, tmp_path):
         """The scan must thread its map through to the upsert: a page that
         changed since the last index picks up its date in the same pass."""
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_page(page_ref="wiki/concepts/a.md", body="original"), encoding="utf-8")
-        idx = SearchIndex(tmp_path)
+        fake = FakeVaultGit(commit_dates={"wiki/concepts/a.md": "2026-03-01"})
+        idx = SearchIndex(tmp_path, git=fake)
         assert idx.search("original")
         path.write_text(_page(page_ref="wiki/concepts/a.md", body="rewritten"), encoding="utf-8")
         os.utime(path, None)
-        monkeypatch.setattr(
-            search_index, "_compute_git_dates", lambda _root: {"wiki/concepts/a.md": "2026-04-20"}
-        )
+        fake.set_commit_dates({"wiki/concepts/a.md": "2026-04-20"})
         (hit,) = idx.search("rewritten")
         assert hit.git_date == "2026-04-20"
 
