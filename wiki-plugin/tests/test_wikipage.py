@@ -464,22 +464,24 @@ def test_link_dest_none_for_non_link():
     assert wikipage.link_dest("not a link") is None
 
 
-def test_resolve_link_dest_joins_page_dir_with_default_prefix():
+def test_resolve_link_dest_vault_relative_by_default():
+    # page_dir is vault-relative; the default prefix is "" (ADR-0009)
+    assert (
+        wikipage.resolve_link_dest("../../raw/notes.md", "wiki/sources")
+        == "raw/notes.md"
+    )
+
+
+def test_resolve_link_dest_explicit_prefix_still_supported():
+    # An explicit prefix is the escape hatch for a caller with a different base.
     assert (
         wikipage.resolve_link_dest("../raw/notes.md", "source", prefix="wiki")
         == "wiki/raw/notes.md"
     )
 
 
-def test_resolve_link_dest_no_prefix_when_page_dir_already_vault_relative():
-    assert (
-        wikipage.resolve_link_dest("../../raw/notes.md", "wiki/sources", prefix="")
-        == "raw/notes.md"
-    )
-
-
 def test_resolve_link_dest_empty_page_dir():
-    assert wikipage.resolve_link_dest("a.md", "", prefix="") == "a.md"
+    assert wikipage.resolve_link_dest("a.md", "") == "a.md"
 
 
 # --- compose_link (#101: plans name rels, ingest.py composes the link) ---------
@@ -577,8 +579,8 @@ def test_normalize_body_links_leaves_bare_anchors_alone():
 def test_prop_resolve_link_dest_stable_under_re_resolution(dest, page_dir):
     """Resolving an already-resolved (vault-relative) path a second time,
     with no further prefix to add, is a no-op — no double-prefixing."""
-    once = wikipage.resolve_link_dest(dest, page_dir, prefix="wiki")
-    twice = wikipage.resolve_link_dest(once, "", prefix="")
+    once = wikipage.resolve_link_dest(dest, page_dir)
+    twice = wikipage.resolve_link_dest(once, "")
     assert twice == once
 
 

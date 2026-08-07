@@ -78,10 +78,10 @@ class Manifest:
     def staged_paths(self) -> list[str]:
         """Every path this manifest touches, de-duplicated, in a stable order."""
         paths: list[str] = []
-        for rel in self.created:
-            paths.append(rel)
-        for rel in self.updated:
-            paths.append(rel)
+        for page_ref in self.created:
+            paths.append(page_ref)
+        for page_ref in self.updated:
+            paths.append(page_ref)
         for old, new in self.superseded:
             paths.append(old)
             paths.append(new)
@@ -89,10 +89,10 @@ class Manifest:
             paths.append(self.raw_source)
         seen: set[str] = set()
         ordered: list[str] = []
-        for rel in paths:
-            if rel not in seen:
-                seen.add(rel)
-                ordered.append(rel)
+        for page_ref in paths:
+            if page_ref not in seen:
+                seen.add(page_ref)
+                ordered.append(page_ref)
         return ordered
 
 
@@ -100,8 +100,8 @@ def build_message(manifest: Manifest) -> str:
     """Render ``manifest`` to the structured commit message (see module
     docstring for the format). Deterministic."""
     lines = [f"{manifest.action}: {manifest.title}", ""]
-    lines += [f"created: {rel}" for rel in manifest.created]
-    lines += [f"updated: {rel}" for rel in manifest.updated]
+    lines += [f"created: {page_ref}" for page_ref in manifest.created]
+    lines += [f"updated: {page_ref}" for page_ref in manifest.updated]
     lines += [f"superseded: {old} -> {new}" for old, new in manifest.superseded]
     if manifest.source_date:
         lines.append(f"source-date: {manifest.source_date}")
@@ -146,10 +146,10 @@ def _check_chain_of_evidence(root: Path, manifest: Manifest) -> None:
         return
 
     staged: dict[str, wikipage.WikiPage] = {}
-    for rel in list(manifest.created) + list(manifest.updated):
-        page_path = root / rel
+    for page_ref in list(manifest.created) + list(manifest.updated):
+        page_path = root / page_ref
         if page_path.is_file():
-            staged[rel] = wikipage.WikiPage(page_path.read_text(encoding="utf-8"))
+            staged[page_ref] = wikipage.WikiPage(page_path.read_text(encoding="utf-8"))
 
     errors = chain_of_evidence.check(staged, manifest.raw_source)
     if errors:

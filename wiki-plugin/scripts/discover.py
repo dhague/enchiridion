@@ -50,7 +50,7 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 
 @dataclass(frozen=True)
 class DiscoveryCandidate:
-    rel: str
+    page_ref: str
     title: str
     score: float
     hint: Hint
@@ -121,7 +121,7 @@ def check(
     planned_tokens = _title_tokens(title)
     return [
         DiscoveryCandidate(
-            rel=hit.rel,
+            page_ref=hit.page_ref,
             title=hit.title,
             score=hit.score,
             hint=_classify(
@@ -171,7 +171,7 @@ def discover_plan(
 
 def _candidate_json(c: DiscoveryCandidate) -> dict:
     return {
-        "rel": c.rel,
+        "page_ref": c.page_ref,
         "title": c.title,
         "score": c.score,
         "hint": c.hint,

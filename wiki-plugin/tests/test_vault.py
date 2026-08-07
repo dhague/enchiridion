@@ -217,7 +217,7 @@ def test_vault_pages_rel_is_vault_relative(small_vault):
     v = Vault(small_vault)
     records = v.pages()
     assert set(records) == {"wiki/concepts/a.md", "wiki/entities/b.md"}
-    assert records["wiki/concepts/a.md"].rel == "wiki/concepts/a.md"
+    assert records["wiki/concepts/a.md"].page_ref == "wiki/concepts/a.md"
 
 
 def test_vault_pages_kind_derived_from_folder(small_vault):
@@ -227,17 +227,17 @@ def test_vault_pages_kind_derived_from_folder(small_vault):
     assert records["wiki/entities/b.md"].kind == "entity"
 
 
-def test_vault_pages_edges_stay_wiki_relative(small_vault):
+def test_vault_pages_edges_resolve_vault_relative(small_vault):
     # a.md's link to b.md is page-relative ("../entities/b.md"); the resulting
-    # edge target is wiki/-relative like page_record's rendering expects --
-    # only rec.rel itself is vault-relative.
+    # edge target is vault-relative — the one convention every rel in the
+    # script layer uses (ADR-0009).
     (small_vault / "wiki/concepts/a.md").write_text(
         '---\ntitle: A\nrelated:\n  - "[B](../entities/b.md)"\n---\nsee b\n',
         encoding="utf-8",
     )
     v = Vault(small_vault)
     records = v.pages()
-    assert records["wiki/concepts/a.md"].edges == [("related", ["entities/b.md"])]
+    assert records["wiki/concepts/a.md"].edges == [("related", ["wiki/entities/b.md"])]
 
 
 def test_vault_pages_never_walks_raw(small_vault):
@@ -255,7 +255,7 @@ def test_vault_pages_with_text_round_trips_the_same_text_on_disk(small_vault):
     v = Vault(small_vault)
     pages = v.pages_with_text()
     rec, text = pages["wiki/entities/b.md"]
-    assert rec.rel == "wiki/entities/b.md"
+    assert rec.page_ref == "wiki/entities/b.md"
     assert text == (small_vault / "wiki/entities/b.md").read_text(encoding="utf-8")
 
 
@@ -289,16 +289,16 @@ def test_vault_search_finds_written_page(small_vault):
     v = Vault(small_vault)
     v.set("wiki/entities/b.md", "summary", "connection pooling in postgres")
     hits = v.search("postgres")
-    assert any(h.rel == "entities/b.md" for h in hits)
+    assert any(h.page_ref == "wiki/entities/b.md" for h in hits)
 
 
-def test_vault_search_returns_wiki_relative_rels(small_vault):
-    """The convention here is wiki-relative (matches ``page_record``);
-    agents reading a hit's rel prepend ``wiki/`` to open the file."""
+def test_vault_search_returns_vault_relative_page_refs(small_vault):
+    """Hits carry the same vault-relative convention every other Vault rel
+    uses (ADR-0009), so a hit can be handed straight to a plan."""
     v = Vault(small_vault)
     v.set("wiki/entities/b.md", "summary", "connection pooling in postgres")
     (hit,) = v.search("postgres")
-    assert hit.rel == "entities/b.md"
+    assert hit.page_ref == "wiki/entities/b.md"
 
 
 def test_vault_set_inline_updates_index(small_vault):
@@ -312,9 +312,9 @@ def test_vault_set_inline_updates_index(small_vault):
     # we want to observe the inline update, not the scan).
     idx = v._get_index()
     text = (small_vault / "wiki/entities/b.md").read_text(encoding="utf-8")
-    idx.upsert_page("entities/b.md", text)
+    idx.upsert_page("wiki/entities/b.md", text)
     rows = idx._conn.execute(
-        "SELECT summary FROM page WHERE rel = ?", ("entities/b.md",)
+        "SELECT summary FROM page WHERE page_ref = ?", ("wiki/entities/b.md",)
     ).fetchall()
     assert rows == [("alpha content",)]
 
@@ -325,9 +325,9 @@ def test_vault_move_page_picked_up_by_next_search(small_vault):
     v = Vault(small_vault)
     v.move_page("wiki/entities/b.md", "wiki/concepts/b.md")
     # The old rel is gone from the index, the new one is present.
-    rels = [h.rel for h in v.search()]
-    assert "entities/b.md" not in rels
-    assert "concepts/b.md" in rels
+    page_refs = [h.page_ref for h in v.search()]
+    assert "wiki/entities/b.md" not in page_refs
+    assert "wiki/concepts/b.md" in page_refs
 
 
 def test_vault_index_status_reports_backend(small_vault):

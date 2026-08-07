@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import page_record
@@ -98,21 +97,21 @@ class Vault:
             self._index = search_index.SearchIndex(self.root)
         return self._index
 
-    def load(self, rel: str) -> WikiPage:
-        """Read the page at ``rel`` (vault-relative) into a :class:`WikiPage`."""
-        return WikiPage((self.root / rel).read_text(encoding="utf-8"))
+    def load(self, page_ref: str) -> WikiPage:
+        """Read the page at ``page_ref`` (vault-relative) into a :class:`WikiPage`."""
+        return WikiPage((self.root / page_ref).read_text(encoding="utf-8"))
 
-    def write(self, rel: str, page: WikiPage) -> None:
-        """Write ``page`` to ``rel`` (vault-relative), creating parents as needed.
+    def write(self, page_ref: str, page: WikiPage) -> None:
+        """Write ``page`` to ``page_ref`` (vault-relative), creating parents as needed.
 
         Inline-updates the search index if it's already open. Safe to skip —
         :meth:`search`'s staleness scan is the correctness path.
         """
-        path = self.root / rel
+        path = self.root / page_ref
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(page.text, encoding="utf-8")
         if self._index is not None:
-            self._index.upsert_page(rel.removeprefix("wiki/"), page.text)
+            self._index.upsert_page(page_ref, page.text)
 
     def load_wiki_pages(self) -> dict[str, str]:
         """Every ``wiki/**`` page as a ``{rel: text}`` map. Never walks ``raw/``."""
@@ -130,15 +129,9 @@ class Vault:
         alongside the record for callers (the raw/ sweep's back-pointer
         resolution) that need both without re-reading the file.
         """
-        wiki_relative = {
-            rel.removeprefix("wiki/"): text
-            for rel, text in self.load_wiki_pages().items()
-        }
-        records = page_record.load_records(wiki_relative)
-        return {
-            f"wiki/{rel}": (replace(rec, rel=f"wiki/{rel}"), wiki_relative[rel])
-            for rel, rec in records.items()
-        }
+        pages = self.load_wiki_pages()
+        records = page_record.load_records(pages)
+        return {rel: (rec, pages[rel]) for rel, rec in records.items()}
 
     def pages(self) -> dict[str, PageRecord]:
         """Every ``wiki/**`` page as a ``{rel: PageRecord}`` map.
@@ -149,16 +142,16 @@ class Vault:
         """
         return {rel: rec for rel, (rec, _text) in self.pages_with_text().items()}
 
-    def set(self, rel: str, key: str, value) -> WikiPage:
-        """Load, :meth:`WikiPage.set`, and write back the page at ``rel``."""
-        page = self.load(rel).set(key, value)
-        self.write(rel, page)
+    def set(self, page_ref: str, key: str, value) -> WikiPage:
+        """Load, :meth:`WikiPage.set`, and write back the page at ``page_ref``."""
+        page = self.load(page_ref).set(key, value)
+        self.write(page_ref, page)
         return page
 
-    def merge(self, rel: str, key: str, values: list) -> WikiPage:
-        """Load, :meth:`WikiPage.merge`, and write back the page at ``rel``."""
-        page = self.load(rel).merge(key, values)
-        self.write(rel, page)
+    def merge(self, page_ref: str, key: str, values: list) -> WikiPage:
+        """Load, :meth:`WikiPage.merge`, and write back the page at ``page_ref``."""
+        page = self.load(page_ref).merge(key, values)
+        self.write(page_ref, page)
         return page
 
     def _write_changed(self, planned: dict[str, str], before: dict[str, str]) -> list[str]:
@@ -167,37 +160,37 @@ class Vault:
         Returns the changed vault-relative paths, in ``planned`` order.
         """
         changed: list[str] = []
-        for rel, text in planned.items():
-            if text == before.get(rel):
+        for page_ref, text in planned.items():
+            if text == before.get(page_ref):
                 continue
-            path = self.root / rel
+            path = self.root / page_ref
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-            changed.append(rel)
+            changed.append(page_ref)
         return changed
 
-    def move_page(self, old_rel: str, new_rel: str) -> list[str]:
+    def move_page(self, old_ref: str, new_ref: str) -> list[str]:
         """Rewrite links across the vault's wiki pages and move the page on disk.
 
         Reads every ``wiki/**`` page (never ``raw/`` — its files aren't
         rewritten by a page move), plans the move, writes back only the pages
         whose text changed, then removes the original. Returns the changed
-        vault-relative paths, sorted; empty for ``old_rel == new_rel``.
+        vault-relative paths, sorted; empty for ``old_ref == new_ref``.
 
         The index is deliberately **not** inline-updated here: letting the
         next :meth:`search`'s staleness scan reconcile the whole move is
         cheaper than a per-file upsert.
         """
         files = self.load_wiki_pages()
-        if old_rel not in files:
-            raise FileNotFoundError(f"{old_rel} not found under {self.root}")
+        if old_ref not in files:
+            raise FileNotFoundError(f"{old_ref} not found under {self.root}")
 
-        # `planned` keys the moved page under new_rel, so writing every changed
+        # `planned` keys the moved page under new_ref, so writing every changed
         # page also lays down the moved file (with its outbound links fixed) —
         # all that's left is to drop the original.
-        changed = self._write_changed(plan_move(files, old_rel, new_rel), files)
-        old_path = self.root / old_rel
-        if old_path.resolve() != (self.root / new_rel).resolve():
+        changed = self._write_changed(plan_move(files, old_ref, new_ref), files)
+        old_path = self.root / old_ref
+        if old_path.resolve() != (self.root / new_ref).resolve():
             old_path.unlink()
         return sorted(changed)
 
@@ -215,10 +208,10 @@ class Vault:
     # --- search / index facade -------------------------------------------
 
     def search(self, *args, **kwargs) -> list[SearchHit]:
-        """Proxy to the search index, verbatim. Rels in the returned hits stay
-        **wiki-relative** (``concepts/foo.md``), matching
-        :mod:`page_record` — not the vault-relative rels the rest of this class
-        returns."""
+        """Proxy to the search index, verbatim. Hits' ``page_ref`` is
+        vault-relative — the same convention every other rel this class
+        returns uses, so a hit can be handed straight to a plan
+        (ADR-0009)."""
         return self._get_index().search(*args, **kwargs)
 
     def reindex(self, *, full: bool = False) -> IndexStats:
@@ -258,8 +251,8 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
         "move",
         help="move a page within the vault and fix every link, inbound and outbound",
     )
-    mv.add_argument("old_rel", help="vault-relative path of the page to move")
-    mv.add_argument("new_rel", help="vault-relative path to move it to")
+    mv.add_argument("old_ref", help="vault-relative path of the page to move")
+    mv.add_argument("new_ref", help="vault-relative path to move it to")
 
     args = parser.parse_args(argv)
     root = resolve_vault_root()
@@ -268,8 +261,8 @@ def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper
         print(root)
         return 0
 
-    for rel in Vault(root).move_page(args.old_rel, args.new_rel):
-        print(rel)
+    for page_ref in Vault(root).move_page(args.old_ref, args.new_ref):
+        print(page_ref)
     return 0
 
 

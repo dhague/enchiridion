@@ -27,17 +27,16 @@ from search_index import SearchHit, SearchIndex, tokenize_query
 
 
 def _vault(root: Path, pages: dict[str, str]) -> Path:
-    """Materialise a ``wiki/`` tree from ``{wiki-relative rel: text}``."""
-    wiki = root / "wiki"
-    for rel, text in pages.items():
-        p = wiki / rel
+    """Materialise a ``wiki/`` tree from ``{vault-relative page_ref: text}``."""
+    for page_ref, text in pages.items():
+        p = root / page_ref
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
     return root
 
 
 def _page(
-    rel: str = "concepts/page.md",
+    page_ref: str = "wiki/concepts/page.md",
     title: str = "Page",
     summary: str = "summary.",
     tags: list[str] | None = None,
@@ -48,9 +47,10 @@ def _page(
 ) -> str:
     """A complete markdown page with frontmatter.
 
-    ``supersedes`` is a list of *wiki-relative* rels (e.g. ``"concepts/old.md"``);
-    the helper converts each to a page-relative markdown link so
-    ``page_record``'s edge-rebase gives the wiki-relative form back.
+    ``supersedes`` is a list of *vault-relative* page refs (e.g.
+    ``"wiki/concepts/old.md"``); the helper converts each to a page-relative
+    markdown link so ``page_record``'s edge-rebase gives the vault-relative
+    form back.
     """
     parts = [
         "---",
@@ -62,7 +62,7 @@ def _page(
     ]
     if supersedes:
         parts.append("supersedes:")
-        page_dir = posixpath.dirname(rel)
+        page_dir = posixpath.dirname(page_ref)
         for t in supersedes:
             link_dest = posixpath.relpath(t, page_dir)
             parts.append(f'  - "[{Path(t).stem}]({link_dest})"')
@@ -120,10 +120,10 @@ class TestBackend:
         monkeypatch.setattr(
             search_index, "_probe_fts5", lambda _conn: False
         )
-        pages = {"concepts/a.md": _page(rel="concepts/a.md", body="alpha content")}
+        pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", body="alpha content")}
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("alpha")
-        assert [h.rel for h in hits] == ["concepts/a.md"]
+        assert [h.page_ref for h in hits] == ["wiki/concepts/a.md"]
 
 
 # --- tag_counts (#102) -----------------------------------------------------
@@ -139,9 +139,9 @@ class TestTagCounts:
 
     def test_counts_and_orders_most_used_first(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(rel="concepts/a.md", tags=["python", "testing"]),
-            "concepts/b.md": _page(rel="concepts/b.md", tags=["python"]),
-            "concepts/c.md": _page(rel="concepts/c.md", tags=["zeta"]),
+            "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", tags=["python", "testing"]),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md", tags=["python"]),
+            "wiki/concepts/c.md": _page(page_ref="wiki/concepts/c.md", tags=["zeta"]),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         idx.reindex()
@@ -152,7 +152,7 @@ class TestTagCounts:
         assert idx.tag_counts() == []
         (tmp_path / "wiki" / "concepts").mkdir(parents=True, exist_ok=True)
         (tmp_path / "wiki" / "concepts" / "a.md").write_text(
-            _page(rel="concepts/a.md", tags=["fresh"]), encoding="utf-8"
+            _page(page_ref="wiki/concepts/a.md", tags=["fresh"]), encoding="utf-8"
         )
         assert idx.tag_counts() == [("fresh", 1)]
 
@@ -166,15 +166,15 @@ class TestLifecycle:
         assert idx.status().pages == 0
 
     def test_status_reports_pages_after_reindex(self, tmp_path):
-        pages = {"concepts/a.md": _page(rel="concepts/a.md")}
+        pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md")}
         idx = SearchIndex(_vault(tmp_path, pages))
         idx.reindex()
         assert idx.status().pages == 1
 
     def test_reindex_stats(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(rel="concepts/a.md"),
-            "concepts/b.md": _page(rel="concepts/b.md"),
+            "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md"),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         stats = idx.reindex()
@@ -189,59 +189,59 @@ class TestLifecycle:
 class TestSearch:
     def test_finds_page_by_text_in_body(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(
-                rel="concepts/a.md", title="A", body="The quick brown fox."
+            "wiki/concepts/a.md": _page(
+                page_ref="wiki/concepts/a.md", title="A", body="The quick brown fox."
             ),
-            "concepts/b.md": _page(
-                rel="concepts/b.md", title="B", body="Something else entirely."
+            "wiki/concepts/b.md": _page(
+                page_ref="wiki/concepts/b.md", title="B", body="Something else entirely."
             ),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("fox")
-        assert [h.rel for h in hits] == ["concepts/a.md"]
+        assert [h.page_ref for h in hits] == ["wiki/concepts/a.md"]
 
     def test_finds_page_by_text_in_title(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(rel="concepts/a.md", title="Prepared statements"),
-            "concepts/b.md": _page(rel="concepts/b.md", title="Other"),
+            "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", title="Prepared statements"),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md", title="Other"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("prepared")
-        assert [h.rel for h in hits] == ["concepts/a.md"]
+        assert [h.page_ref for h in hits] == ["wiki/concepts/a.md"]
 
     def test_hyphenated_text_does_not_crash(self, tmp_path):
         """The footgun: 'wiki-knowledge' is a syntax error in FTS5 MATCH."""
         pages = {
-            "concepts/a.md": _page(
-                rel="concepts/a.md",
+            "wiki/concepts/a.md": _page(
+                page_ref="wiki/concepts/a.md",
                 tags=["wiki-knowledge"],
                 body="A page about the wiki-knowledge plugin.",
             ),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("wiki-knowledge")
-        assert [h.rel for h in hits] == ["concepts/a.md"]
+        assert [h.page_ref for h in hits] == ["wiki/concepts/a.md"]
 
     def test_raw_escape_hatch_passes_literal(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(
-                rel="concepts/a.md", body="ingest ingestion ingesting"
+            "wiki/concepts/a.md": _page(
+                page_ref="wiki/concepts/a.md", body="ingest ingestion ingesting"
             ),
-            "concepts/b.md": _page(rel="concepts/b.md", body="nothing related"),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md", body="nothing related"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("ingest*", raw=True)
-        assert "concepts/a.md" in [h.rel for h in hits]
-        assert "concepts/b.md" not in [h.rel for h in hits]
+        assert "wiki/concepts/a.md" in [h.page_ref for h in hits]
+        assert "wiki/concepts/b.md" not in [h.page_ref for h in hits]
 
     def test_score_sign_is_higher_better(self, tmp_path):
         """``bm25()`` returns negative values; we negate so higher-is-better."""
         pages = {
-            "concepts/match.md": _page(
-                rel="concepts/match.md", body="fox fox fox fox"
+            "wiki/concepts/match.md": _page(
+                page_ref="wiki/concepts/match.md", body="fox fox fox fox"
             ),
-            "concepts/once.md": _page(
-                rel="concepts/once.md", body="only one fox here"
+            "wiki/concepts/once.md": _page(
+                page_ref="wiki/concepts/once.md", body="only one fox here"
             ),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
@@ -254,8 +254,8 @@ class TestSearch:
 
     def test_search_hit_has_full_record(self, tmp_path):
         pages = {
-            "concepts/a.md": _page(
-                rel="concepts/a.md",
+            "wiki/concepts/a.md": _page(
+                page_ref="wiki/concepts/a.md",
                 title="Foo",
                 summary="A foo about things.",
                 tags=["alpha", "beta"],
@@ -275,7 +275,7 @@ class TestSearch:
         assert hit.superseded_by is None
 
     def test_limit(self, tmp_path):
-        pages = {f"concepts/p{i}.md": _page(rel=f"concepts/p{i}.md", body="fox") for i in range(5)}
+        pages = {f"wiki/concepts/p{i}.md": _page(page_ref=f"wiki/concepts/p{i}.md", body="fox") for i in range(5)}
         idx = SearchIndex(_vault(tmp_path, pages))
         hits = idx.search("fox", limit=2)
         assert len(hits) == 2
@@ -287,18 +287,18 @@ class TestSearch:
 class TestMetadataFilters:
     def _vault(self, tmp_path):
         pages = {
-            "concepts/foo.md": _page(
-                rel="concepts/foo.md", title="Foo",
+            "wiki/concepts/foo.md": _page(
+                page_ref="wiki/concepts/foo.md", title="Foo",
                 tags=["alpha", "beta"],
                 source_date="2026-07-01", volatility="stable",
             ),
-            "entities/bar.md": _page(
-                rel="entities/bar.md", title="Bar",
+            "wiki/entities/bar.md": _page(
+                page_ref="wiki/entities/bar.md", title="Bar",
                 tags=["alpha"],
                 source_date="2026-06-15", volatility="evolving",
             ),
-            "concepts/baz.md": _page(
-                rel="concepts/baz.md", title="Baz",
+            "wiki/concepts/baz.md": _page(
+                page_ref="wiki/concepts/baz.md", title="Baz",
                 tags=["gamma"],
                 source_date="2026-05-01", volatility="stable",
             ),
@@ -308,19 +308,19 @@ class TestMetadataFilters:
     def test_tags_all(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(tags_all=["alpha", "beta"])
-        assert [h.rel for h in hits] == ["concepts/foo.md"]
+        assert [h.page_ref for h in hits] == ["wiki/concepts/foo.md"]
 
     def test_tags_any(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(tags_any=["alpha", "gamma"])
-        assert {h.rel for h in hits} == {
-            "concepts/foo.md", "entities/bar.md", "concepts/baz.md"
+        assert {h.page_ref for h in hits} == {
+            "wiki/concepts/foo.md", "wiki/entities/bar.md", "wiki/concepts/baz.md"
         }
 
     def test_kind_filter_scalar(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(kind="concept")
-        assert {h.rel for h in hits} == {"concepts/foo.md", "concepts/baz.md"}
+        assert {h.page_ref for h in hits} == {"wiki/concepts/foo.md", "wiki/concepts/baz.md"}
 
     def test_kind_filter_list(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
@@ -330,17 +330,17 @@ class TestMetadataFilters:
     def test_since_uses_source_date_by_default(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(since="2026-06-15")
-        assert {h.rel for h in hits} == {"concepts/foo.md", "entities/bar.md"}
+        assert {h.page_ref for h in hits} == {"wiki/concepts/foo.md", "wiki/entities/bar.md"}
 
     def test_until(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(until="2026-06-15")
-        assert {h.rel for h in hits} == {"entities/bar.md", "concepts/baz.md"}
+        assert {h.page_ref for h in hits} == {"wiki/entities/bar.md", "wiki/concepts/baz.md"}
 
     def test_volatility_filter(self, tmp_path):
         idx = SearchIndex(self._vault(tmp_path))
         hits = idx.search(volatility=["stable"])
-        assert {h.rel for h in hits} == {"concepts/foo.md", "concepts/baz.md"}
+        assert {h.page_ref for h in hits} == {"wiki/concepts/foo.md", "wiki/concepts/baz.md"}
 
 
 # --- supersession --------------------------------------------------------
@@ -352,29 +352,29 @@ class TestSupersession:
         superseded page out — this is the mechanization of #16's hand-run
         rule, and the single highest-value thing the index buys."""
         pages = {
-            "concepts/new.md": _page(
-                rel="concepts/new.md", title="New",
-                supersedes=["concepts/old.md"],
+            "wiki/concepts/new.md": _page(
+                page_ref="wiki/concepts/new.md", title="New",
+                supersedes=["wiki/concepts/old.md"],
             ),
-            "concepts/old.md": _page(rel="concepts/old.md", title="Old"),
+            "wiki/concepts/old.md": _page(page_ref="wiki/concepts/old.md", title="Old"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
-        rels = [h.rel for h in idx.search()]
-        assert "concepts/old.md" not in rels
-        assert "concepts/new.md" in rels
+        rels = [h.page_ref for h in idx.search()]
+        assert "wiki/concepts/old.md" not in rels
+        assert "wiki/concepts/new.md" in rels
 
     def test_include_superseded_true_keeps_them(self, tmp_path):
         pages = {
-            "concepts/new.md": _page(
-                rel="concepts/new.md", title="New",
-                supersedes=["concepts/old.md"],
+            "wiki/concepts/new.md": _page(
+                page_ref="wiki/concepts/new.md", title="New",
+                supersedes=["wiki/concepts/old.md"],
             ),
-            "concepts/old.md": _page(rel="concepts/old.md", title="Old"),
+            "wiki/concepts/old.md": _page(page_ref="wiki/concepts/old.md", title="Old"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
-        rels = [h.rel for h in idx.search(include_superseded=True)]
-        assert "concepts/old.md" in rels
-        assert "concepts/new.md" in rels
+        rels = [h.page_ref for h in idx.search(include_superseded=True)]
+        assert "wiki/concepts/old.md" in rels
+        assert "wiki/concepts/new.md" in rels
 
 
 # --- staleness scan ------------------------------------------------------
@@ -389,31 +389,31 @@ class TestStaleness:
         idx = SearchIndex(tmp_path)
         assert idx.search("beta") == []
         (tmp_path / "wiki" / "concepts" / "b.md").write_text(
-            _page(rel="concepts/b.md", body="beta content"),
+            _page(page_ref="wiki/concepts/b.md", body="beta content"),
             encoding="utf-8",
         )
-        assert [h.rel for h in idx.search("beta")] == ["concepts/b.md"]
+        assert [h.page_ref for h in idx.search("beta")] == ["wiki/concepts/b.md"]
 
     def test_picks_up_modified_page(self, tmp_path):
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md", body="original"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="original"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
-        assert [h.rel for h in idx.search("original")] == ["concepts/a.md"]
+        assert [h.page_ref for h in idx.search("original")] == ["wiki/concepts/a.md"]
 
-        path.write_text(_page(rel="concepts/a.md", body="rewritten"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="rewritten"), encoding="utf-8")
         # Bump mtime so the scan notices (write_text may already, but be explicit).
         os.utime(path, None)
-        assert [h.rel for h in idx.search("rewritten")] == ["concepts/a.md"]
+        assert [h.page_ref for h in idx.search("rewritten")] == ["wiki/concepts/a.md"]
         # And the old term is no longer findable.
         assert idx.search("original") == []
 
     def test_drops_deleted_page(self, tmp_path):
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md", body="alpha"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="alpha"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
-        assert [h.rel for h in idx.search("alpha")] == ["concepts/a.md"]
+        assert [h.page_ref for h in idx.search("alpha")] == ["wiki/concepts/a.md"]
 
         path.unlink()
         assert idx.search("alpha") == []
@@ -426,7 +426,7 @@ class TestSchemaVersion:
     def test_mismatched_version_triggers_full_rebuild(self, tmp_path):
         (tmp_path / "wiki" / "concepts").mkdir(parents=True)
         (tmp_path / "wiki" / "concepts" / "a.md").write_text(
-            _page(rel="concepts/a.md", body="alpha"), encoding="utf-8"
+            _page(page_ref="wiki/concepts/a.md", body="alpha"), encoding="utf-8"
         )
         # Pre-create the index with a version the code doesn't recognise.
         # Next open should detect the mismatch and rebuild from scratch.
@@ -441,8 +441,48 @@ class TestSchemaVersion:
             conn.commit()
 
         idx = SearchIndex(tmp_path)
-        assert [h.rel for h in idx.search("alpha")] == ["concepts/a.md"]
+        assert [h.page_ref for h in idx.search("alpha")] == ["wiki/concepts/a.md"]
         assert idx.status().schema_version == search_index.SCHEMA_VERSION
+
+    def test_v1_rel_column_schema_rebuilds_to_page_ref(self, tmp_path):
+        """ADR-0009 (#123): the schema bump must absorb the ``rel``→``page_ref``
+        column rename. A pre-v2 index.db carries a ``page`` table keyed by
+        ``rel`` (wiki-relative); on open the mismatch must **drop** those
+        tables — not just empty them — or the ``page_ref`` INSERT/SELECT would
+        fail against the stale column. Pins the actual v1→v2 migration, not a
+        generic version mismatch."""
+        (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+        (tmp_path / "wiki" / "concepts" / "a.md").write_text(
+            _page(page_ref="wiki/concepts/a.md", body="alpha"), encoding="utf-8"
+        )
+        # Materialise a real v1 index: `meta` plus a `page`/`page_tag` pair
+        # keyed by the old wiki-relative `rel` column, with a stale row.
+        (tmp_path / ".wiki-knowledge").mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(tmp_path / ".wiki-knowledge" / "index.db") as conn:
+            conn.executescript(
+                """
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+                INSERT INTO meta VALUES ('schema_version', '1');
+                CREATE TABLE page (
+                    rel TEXT PRIMARY KEY, title TEXT, summary TEXT, kind TEXT,
+                    source_date TEXT, git_date TEXT, volatility TEXT,
+                    supersedes TEXT, superseded_by TEXT,
+                    mtime_ns INTEGER, size INTEGER
+                );
+                CREATE TABLE page_tag (rel TEXT, tag TEXT, PRIMARY KEY (rel, tag));
+                INSERT INTO page(rel, title, summary, kind) VALUES
+                    ('concepts/a.md', 'stale', 'old', 'concept');
+                """
+            )
+            conn.commit()
+
+        idx = SearchIndex(tmp_path)
+        assert idx.status().schema_version == search_index.SCHEMA_VERSION
+        # The stale wiki-relative row is gone; the page is re-indexed under
+        # its vault-relative page_ref and the column really renamed.
+        cols = [row[1] for row in idx._conn.execute("PRAGMA table_info(page)")]
+        assert "page_ref" in cols and "rel" not in cols
+        assert [h.page_ref for h in idx.search("alpha")] == ["wiki/concepts/a.md"]
 
 
 # --- inline update (used by Vault.write / move_page) --------------------
@@ -459,43 +499,43 @@ class TestInlineUpdate:
         path = tmp_path / "wiki" / "concepts" / "new.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            _page(rel="concepts/new.md", body="foo content"), encoding="utf-8"
+            _page(page_ref="wiki/concepts/new.md", body="foo content"), encoding="utf-8"
         )
         idx = SearchIndex(tmp_path)
-        idx.upsert_page("concepts/new.md", path.read_text(encoding="utf-8"))
+        idx.upsert_page("wiki/concepts/new.md", path.read_text(encoding="utf-8"))
         # Inline update populated the page table — the next scan will
         # see matching (mtime, size) and skip.
         rows = idx._conn.execute(
-            "SELECT rel FROM page WHERE rel = ?", ("concepts/new.md",)
+            "SELECT page_ref FROM page WHERE page_ref = ?", ("wiki/concepts/new.md",)
         ).fetchall()
-        assert rows == [("concepts/new.md",)]
+        assert rows == [("wiki/concepts/new.md",)]
 
     def test_upsert_page_replaces_existing(self, tmp_path):
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md", body="original"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="original"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
         # First upsert from the on-disk text.
-        idx.upsert_page("concepts/a.md", path.read_text(encoding="utf-8"))
-        assert [h.rel for h in idx.search("original")] == ["concepts/a.md"]
+        idx.upsert_page("wiki/concepts/a.md", path.read_text(encoding="utf-8"))
+        assert [h.page_ref for h in idx.search("original")] == ["wiki/concepts/a.md"]
         # Now write a new body to disk (the file is what stat() reads) and
         # inline-upsert. The next scan sees matching mtime/size and skips.
-        path.write_text(_page(rel="concepts/a.md", body="replaced"), encoding="utf-8")
-        idx.upsert_page("concepts/a.md", path.read_text(encoding="utf-8"))
-        assert [h.rel for h in idx.search("replaced")] == ["concepts/a.md"]
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="replaced"), encoding="utf-8")
+        idx.upsert_page("wiki/concepts/a.md", path.read_text(encoding="utf-8"))
+        assert [h.page_ref for h in idx.search("replaced")] == ["wiki/concepts/a.md"]
 
     def test_remove_page_clears_index_row(self, tmp_path):
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md", body="alpha"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="alpha"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
-        idx.upsert_page("concepts/a.md", path.read_text(encoding="utf-8"))
-        idx.remove_page("concepts/a.md")
+        idx.upsert_page("wiki/concepts/a.md", path.read_text(encoding="utf-8"))
+        idx.remove_page("wiki/concepts/a.md")
         # The row is gone from the page table (the next scan will *not*
         # re-add it, because the file is still on disk; ``remove_page`` is
         # paired with the file delete — see the staleness test).
         rows = idx._conn.execute(
-            "SELECT rel FROM page WHERE rel = ?", ("concepts/a.md",)
+            "SELECT page_ref FROM page WHERE page_ref = ?", ("wiki/concepts/a.md",)
         ).fetchall()
         assert rows == []
 
@@ -508,7 +548,7 @@ class TestGitDate:
 
     def test_git_date_is_none_for_uncommitted_page(self, tmp_path):
         # No git repo: git_date is None.
-        idx = SearchIndex(_vault(tmp_path, {"concepts/a.md": _page(rel="concepts/a.md")}))
+        idx = SearchIndex(_vault(tmp_path, {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md")}))
         (hit,) = idx.search()
         assert hit.git_date is None
 
@@ -521,7 +561,7 @@ class TestGitDate:
         subprocess.run(
             ["git", "config", "user.name", "t"], cwd=tmp_path, check=True
         )
-        _vault(tmp_path, {"concepts/a.md": _page(rel="concepts/a.md")})
+        _vault(tmp_path, {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md")})
         subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
         env = {**os.environ, "GIT_AUTHOR_DATE": "2026-07-01T12:00:00",
                "GIT_COMMITTER_DATE": "2026-07-01T12:00:00"}
@@ -538,7 +578,7 @@ class TestGitDate:
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
         subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
         subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
-        _vault(tmp_path, {"concepts/a.md": _page(rel="concepts/a.md", source_date="2026-01-01")})
+        _vault(tmp_path, {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", source_date="2026-01-01")})
         subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
         env = {**os.environ, "GIT_AUTHOR_DATE": "2026-07-01T12:00:00",
                "GIT_COMMITTER_DATE": "2026-07-01T12:00:00"}
@@ -548,15 +588,15 @@ class TestGitDate:
         # source_date=2026-01-01 wouldn't match --since=2026-06-01
         assert idx.search(since="2026-06-01", date_field="source_date") == []
         # git_date=2026-07-01 does
-        assert [h.rel for h in idx.search(since="2026-06-01", date_field="git_date")] == ["concepts/a.md"]
+        assert [h.page_ref for h in idx.search(since="2026-06-01", date_field="git_date")] == ["wiki/concepts/a.md"]
 
     def test_scan_computes_git_dates_once(self, tmp_path, monkeypatch):
         """#124: a multi-page scan must run one ``git log`` pass, not one per
         page — N subprocesses collapse to 1."""
         pages = {
-            "concepts/a.md": _page(rel="concepts/a.md"),
-            "concepts/b.md": _page(rel="concepts/b.md"),
-            "concepts/c.md": _page(rel="concepts/c.md"),
+            "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md"),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md"),
+            "wiki/concepts/c.md": _page(page_ref="wiki/concepts/c.md"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         calls: list[str] = []
@@ -570,8 +610,8 @@ class TestGitDate:
 
     def test_reindex_walk_computes_git_dates_once(self, tmp_path, monkeypatch):
         pages = {
-            "concepts/a.md": _page(rel="concepts/a.md"),
-            "concepts/b.md": _page(rel="concepts/b.md"),
+            "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md"),
+            "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md"),
         }
         idx = SearchIndex(_vault(tmp_path, pages))
         calls: list[str] = []
@@ -588,11 +628,11 @@ class TestGitDate:
         is assertable without standing up a git repo."""
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
         idx.upsert_page(
-            "concepts/a.md", path.read_text(encoding="utf-8"),
-            git_dates={"concepts/a.md": "2026-03-15"},
+            "wiki/concepts/a.md", path.read_text(encoding="utf-8"),
+            git_dates={"wiki/concepts/a.md": "2026-03-15"},
         )
         (hit,) = idx.search()
         assert hit.git_date == "2026-03-15"
@@ -602,13 +642,13 @@ class TestGitDate:
         changed since the last index picks up its date in the same pass."""
         path = tmp_path / "wiki" / "concepts" / "a.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_page(rel="concepts/a.md", body="original"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="original"), encoding="utf-8")
         idx = SearchIndex(tmp_path)
         assert idx.search("original")
-        path.write_text(_page(rel="concepts/a.md", body="rewritten"), encoding="utf-8")
+        path.write_text(_page(page_ref="wiki/concepts/a.md", body="rewritten"), encoding="utf-8")
         os.utime(path, None)
         monkeypatch.setattr(
-            search_index, "_compute_git_dates", lambda _root: {"concepts/a.md": "2026-04-20"}
+            search_index, "_compute_git_dates", lambda _root: {"wiki/concepts/a.md": "2026-04-20"}
         )
         (hit,) = idx.search("rewritten")
         assert hit.git_date == "2026-04-20"
@@ -618,7 +658,7 @@ class TestGitDate:
 
 
 def test_cli_status_and_reindex(tmp_path, capsys, monkeypatch):
-    pages = {"concepts/a.md": _page(rel="concepts/a.md", body="alpha content")}
+    pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", body="alpha content")}
     _vault(tmp_path, pages)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
     from search import _main
@@ -637,37 +677,37 @@ def test_cli_status_and_reindex(tmp_path, capsys, monkeypatch):
 
 
 def test_cli_text_query_default_output(tmp_path, capsys, monkeypatch):
-    pages = {"concepts/a.md": _page(rel="concepts/a.md", body="alpha content")}
+    pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", body="alpha content")}
     _vault(tmp_path, pages)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
     from search import _main
     _main(["alpha"])
     out = capsys.readouterr().out
-    assert "concepts/a.md" in out
+    assert "wiki/concepts/a.md" in out
     # Compact format includes title and volatility.
     assert "alpha content" in out or "Page" in out  # title or summary text
 
 
 def test_cli_text_query_json(tmp_path, capsys, monkeypatch):
-    pages = {"concepts/a.md": _page(rel="concepts/a.md", body="alpha content")}
+    pages = {"wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", body="alpha content")}
     _vault(tmp_path, pages)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
     from search import _main
     _main(["alpha", "--json"])
     out = capsys.readouterr().out.strip()
     record = json.loads(out.splitlines()[0])
-    assert record["rel"] == "concepts/a.md"
+    assert record["page_ref"] == "wiki/concepts/a.md"
     assert record["title"] == "Page"
 
 
 def test_cli_tag_filter(tmp_path, capsys, monkeypatch):
     pages = {
-        "concepts/a.md": _page(rel="concepts/a.md", tags=["db"], body="alpha"),
-        "concepts/b.md": _page(rel="concepts/b.md", tags=["http"], body="beta"),
+        "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", tags=["db"], body="alpha"),
+        "wiki/concepts/b.md": _page(page_ref="wiki/concepts/b.md", tags=["http"], body="beta"),
     }
     _vault(tmp_path, pages)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path))
     from search import _main
     _main(["--tag", "db", "--json"])
-    rels = [json.loads(line)["rel"] for line in capsys.readouterr().out.splitlines() if line]
-    assert rels == ["concepts/a.md"]
+    page_refs = [json.loads(line)["page_ref"] for line in capsys.readouterr().out.splitlines() if line]
+    assert page_refs == ["wiki/concepts/a.md"]

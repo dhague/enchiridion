@@ -89,7 +89,7 @@ def test_plan_from_dict_roundtrip():
     assert page.title == "Prepared Statements"
     assert page.frontmatter["tags"] == ["db"]
     assert page.edges["related"] == ["wiki/concepts/existing.md"]
-    assert page.rel is None
+    assert page.page_ref is None
 
 
 def test_plan_from_dict_defaults():
@@ -103,13 +103,13 @@ def test_page_from_dict_update_shape():
     d = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concepts/existing.md",
+        "page_ref": "wiki/concepts/existing.md",
         "frontmatter": {"tags": ["db", "sql"]},
         "edges": {},
     }
     page = ingest.PagePlan.from_dict(d)
     assert page.op == "update"
-    assert page.rel == "wiki/concepts/existing.md"
+    assert page.page_ref == "wiki/concepts/existing.md"
     assert page.kind is None
     assert page.body is None
 
@@ -152,11 +152,11 @@ def test_validate_rejects_create_target_already_exists(vault_root):
         ingest.validate(plan, vault_root)
 
 
-def test_validate_rejects_update_missing_rel(vault_root):
+def test_validate_rejects_update_missing_page_ref(vault_root):
     plan = ingest.IngestPlan.from_dict(
         {"title": "T", "pages": [{"op": "update", "title": "X"}]}
     )
-    with pytest.raises(ingest.PlanError, match="rel"):
+    with pytest.raises(ingest.PlanError, match="page_ref"):
         ingest.validate(plan, vault_root)
 
 
@@ -165,7 +165,7 @@ def test_validate_rejects_update_rel_not_found(vault_root):
         {
             "title": "T",
             "pages": [
-                {"op": "update", "title": "X", "rel": "wiki/concepts/missing.md"}
+                {"op": "update", "title": "X", "page_ref": "wiki/concepts/missing.md"}
             ],
         }
     )
@@ -347,7 +347,7 @@ def test_validate_requires_the_source_edge_on_an_updated_page_too(raw_notes):
     d["pages"][1] = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concepts/existing.md",
+        "page_ref": "wiki/concepts/existing.md",
         "frontmatter": {"volatility": "evolving"},
         "edges": {},
     }
@@ -361,7 +361,7 @@ def test_validate_accepts_an_updated_page_carrying_the_source_edge(raw_notes):
     d["pages"][1] = {
         "op": "update",
         "title": "Existing",
-        "rel": "wiki/concepts/existing.md",
+        "page_ref": "wiki/concepts/existing.md",
         "frontmatter": {"volatility": "evolving"},
         "edges": {"source": ["wiki/sources/notes.md"]},
     }
@@ -385,14 +385,14 @@ def test_validate_accepts_a_source_edge_the_page_already_carries_on_disk(raw_not
             {
                 "op": "update",
                 "title": "Notes",
-                "rel": "wiki/sources/notes.md",
+                "page_ref": "wiki/sources/notes.md",
                 "frontmatter": {},
                 "edges": {},
             },
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             },
@@ -415,7 +415,7 @@ def test_validate_recognises_an_existing_stub_updated_in_place(raw_notes):
             {
                 "op": "update",
                 "title": "Notes",
-                "rel": "wiki/sources/notes.md",
+                "page_ref": "wiki/sources/notes.md",
                 "frontmatter": {},
                 "edges": {},
             },
@@ -531,7 +531,7 @@ def test_execute_normalizes_an_unencoded_body_link_on_update(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "body": "# Existing\n\nSee [notes](../../raw/My%20Notes%20(draft).md).\n",
                 "frontmatter": {},
                 "edges": {},
@@ -548,7 +548,7 @@ def test_execute_page_findable_via_search(vault_root):
     plan = ingest.IngestPlan.from_dict(_plan_dict())
     ingest.execute(vault_root, plan)
     hits = Vault(vault_root).search("prepared")
-    assert "concepts/prepared-statements.md" in [h.rel for h in hits]
+    assert "wiki/concepts/prepared-statements.md" in [h.page_ref for h in hits]
 
 
 def test_execute_commits_with_structured_message(vault_root):
@@ -577,7 +577,7 @@ def test_execute_update_merges_tags(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {"tags": ["sql"]},
                 "edges": {},
             }
@@ -596,7 +596,7 @@ def test_execute_update_overwrites_scalar_frontmatter(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "volatile"},
                 "edges": {},
             }
@@ -624,7 +624,7 @@ def test_execute_update_merges_edge_lists(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {},
                 # a genuinely different target — the composed label always
                 # matches the target's own title, so this can't alias "other.md"
@@ -648,7 +648,7 @@ def test_execute_update_replaces_body_when_given(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "body": "# Existing\n\nNew body text.\n",
                 "frontmatter": {},
                 "edges": {},
@@ -670,7 +670,7 @@ def test_execute_update_leaves_body_untouched_when_omitted(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             }
@@ -689,7 +689,7 @@ def test_execute_records_updated_not_created_in_manifest(vault_root):
             {
                 "op": "update",
                 "title": "Existing",
-                "rel": "wiki/concepts/existing.md",
+                "page_ref": "wiki/concepts/existing.md",
                 "frontmatter": {"volatility": "evolving"},
                 "edges": {},
             }
@@ -867,7 +867,7 @@ def test_execute_saves_a_synthesis_page_with_source_edges(vault_root):
     assert page.get("volatility") == "evolving"
 
     hits = Vault(vault_root).search("connection pooling")
-    assert "synthesis/how-connection-pooling-is-configured.md" in [h.rel for h in hits]
+    assert "wiki/synthesis/how-connection-pooling-is-configured.md" in [h.page_ref for h in hits]
     assert _git(vault_root, "status", "--porcelain") == ""
 
 

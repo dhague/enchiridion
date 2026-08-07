@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from discover import DiscoveryCandidate, _classify, check, discover_plan
+import ingest
 from ingest import PagePlan
 
 
@@ -88,7 +89,7 @@ class TestCheckFindsOwnTitle:
             summary="",
             body="",
         )
-        assert any(c.rel == "concepts/connection-pooling.md" for c in candidates)
+        assert any(c.page_ref == "wiki/concepts/connection-pooling.md" for c in candidates)
 
 
 class TestCheckSurvivesNoisyNewText:
@@ -105,7 +106,7 @@ class TestCheckSurvivesNoisyNewText:
             summary="A totally unrelated sentence about zebras and volcanoes.",
             body="",
         )
-        assert any(c.rel == "concepts/connection-pooling.md" for c in candidates)
+        assert any(c.page_ref == "wiki/concepts/connection-pooling.md" for c in candidates)
 
 
 class TestCheckDisjointTitlesAreDistinct:
@@ -119,7 +120,7 @@ class TestCheckDisjointTitlesAreDistinct:
             body="",
         )
         connection_pooling_hits = [
-            c for c in candidates if c.rel == "concepts/connection-pooling.md"
+            c for c in candidates if c.page_ref == "wiki/concepts/connection-pooling.md"
         ]
         assert all(c.hint == "distinct" for c in connection_pooling_hits)
 
@@ -137,7 +138,7 @@ class TestCheckBodyIsQueryScoresHighest:
             "reusing a fixed set of open connections across callers.",
         )
         assert candidates
-        assert candidates[0].rel == "concepts/connection-pooling.md"
+        assert candidates[0].page_ref == "wiki/concepts/connection-pooling.md"
 
 
 class TestCheckHintsOnRealHits:
@@ -157,7 +158,7 @@ class TestCheckHintsOnRealHits:
             duplicate_threshold=1e-06,
             related_threshold=1e-08,
         )
-        (top,) = [c for c in candidates if c.rel == "concepts/connection-pooling.md"]
+        (top,) = [c for c in candidates if c.page_ref == "wiki/concepts/connection-pooling.md"]
         assert top.hint == "duplicate"
 
     def test_returns_discovery_candidate_instances(self, vault_root):
@@ -181,7 +182,7 @@ class TestCheckReturnsFullPayload:
             summary="",
             body="",
         )
-        (top,) = [c for c in candidates if c.rel == "concepts/connection-pooling.md"]
+        (top,) = [c for c in candidates if c.page_ref == "wiki/concepts/connection-pooling.md"]
         assert top.summary == "Reuse connections instead of opening a new one per request."
         assert isinstance(top.tags, list)
         assert isinstance(top.volatility, str)
@@ -200,10 +201,10 @@ class TestDiscoverPlan:
         titles = [title for title, _ in results]
         assert titles == ["Connection Pooling in Postgres", "Feeding a Sourdough Starter"]
         pooling_candidates = dict(results)["Connection Pooling in Postgres"]
-        assert any(c.rel == "concepts/connection-pooling.md" for c in pooling_candidates)
+        assert any(c.page_ref == "wiki/concepts/connection-pooling.md" for c in pooling_candidates)
 
     def test_update_page_with_no_body_does_not_crash(self, vault_root):
-        pages = [PagePlan(op="update", title="Connection Pooling in Postgres", rel="wiki/concepts/connection-pooling.md", frontmatter={})]
+        pages = [PagePlan(op="update", title="Connection Pooling in Postgres", page_ref="wiki/concepts/connection-pooling.md", frontmatter={})]
         results = discover_plan(vault_root, pages)
         assert len(results) == 1
 
@@ -232,4 +233,44 @@ class TestVocabularyCLI:
         payload = json.loads(capsys.readouterr().out)
         assert "pages" in payload and "vocabulary" in payload
         assert payload["pages"][0]["title"] == "Connection Pooling in Postgres"
-        assert any(c["rel"] == "concepts/connection-pooling.md" for c in payload["pages"][0]["candidates"])
+        assert any(c["page_ref"] == "wiki/concepts/connection-pooling.md" for c in payload["pages"][0]["candidates"])
+
+
+class TestCandidatePageRefIsUsableVerbatim:
+    """ADR-0009 acceptance (#123): a discover candidate's ``page_ref`` is
+    directly usable as an IngestPlan ``update`` target *and* as an edge
+    target — no ``wiki/``-prefix conversion step between the two calls."""
+
+    def test_candidate_page_ref_passes_ingest_validate_as_update_and_edge_target(self, vault_root):
+        candidates = check(
+            vault_root,
+            title="Connection Pooling in Postgres",
+            summary="",
+            body="",
+        )
+        (candidate,) = [c for c in candidates if c.page_ref == "wiki/concepts/connection-pooling.md"]
+        page_ref = candidate.page_ref
+
+        plan = ingest.IngestPlan.from_dict(
+            {
+                "title": "Reuse a discover candidate verbatim",
+                "pages": [
+                    {
+                        "op": "update",
+                        "title": candidate.title,
+                        "page_ref": page_ref,
+                        "frontmatter": {"volatility": "stable"},
+                        "edges": {},
+                    },
+                    {
+                        "op": "create",
+                        "kind": "concept",
+                        "title": "New Sibling",
+                        "body": "# New Sibling\n",
+                        "frontmatter": {},
+                        "edges": {"related": [page_ref]},
+                    },
+                ],
+            }
+        )
+        ingest.validate(plan, vault_root)  # no raise — both uses accepted verbatim

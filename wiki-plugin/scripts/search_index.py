@@ -40,11 +40,11 @@ import wikipage
 
 #: Bump when the on-disk schema changes. A mismatch on open triggers a
 #: full rebuild — delete-and-rebuild is the migration strategy.
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
-#: ``bm25()`` column weights for ``rel`` (UNINDEXED), title, summary, body —
-#: encodes the retrieval skill's "frontmatter-first" instruction into the
-#: ranking rather than leaving it as prose the agent must remember.
+#: ``bm25()`` column weights for ``page_ref`` (UNINDEXED), title, summary,
+#: body — encodes the retrieval skill's "frontmatter-first" instruction into
+#: the ranking rather than leaving it as prose the agent must remember.
 _FTS5_WEIGHTS = (0.0, 10.0, 5.0, 1.0)
 
 
@@ -54,9 +54,11 @@ _FTS5_WEIGHTS = (0.0, 10.0, 5.0, 1.0)
 @dataclass(frozen=True)
 class SearchHit:
     """One search result. ``score`` is higher-is-better — ``bm25()`` returns
-    negative values, so it is negated on the way out."""
+    negative values, so it is negated on the way out. ``page_ref`` is
+    vault-relative, so it is directly usable as a plan edge/``update`` target
+    (ADR-0009)."""
 
-    rel: str
+    page_ref: str
     score: float
     title: str
     summary: str
@@ -129,9 +131,9 @@ def _probe_fts5(conn: sqlite3.Connection) -> bool:
 
 
 def _compute_git_dates(vault_root: Path) -> dict[str, str]:
-    """One ``git log`` pass → ``{wiki-relative-rel: YYYY-MM-DD}``, most recent
-    commit per file. Empty dict when git is unavailable or this isn't a work
-    tree — a missing date means ``git_date is None``, never a failure.
+    """One ``git log`` pass → ``{vault-relative page_ref: YYYY-MM-DD}``, most
+    recent commit per file. Empty dict when git is unavailable or this isn't a
+    work tree — a missing date means ``git_date is None``, never a failure.
     """
     if shutil.which("git") is None:
         return {}
@@ -153,9 +155,10 @@ def _compute_git_dates(vault_root: Path) -> dict[str, str]:
         if "|" in line:
             _sha, _, current_date = line.partition("|")
         elif current_date and line.endswith(".md") and line.startswith("wiki/"):
-            rel = line[len("wiki/"):]
-            if rel not in dates:
-                dates[rel] = current_date
+            # git log paths are already vault-relative — no strip, unlike the
+            # old wiki-relative convention (ADR-0009).
+            if line not in dates:
+                dates[line] = current_date
     return dates
 
 
@@ -166,11 +169,12 @@ class SearchIndex:
     """The lexical index for one vault. One ``SearchIndex`` per vault,
     lifetime of the process.
 
-    The unit of address is a wiki-relative rel (``concept/foo.md``)
-    throughout — schema, inline-update API, and search results alike. It is
-    *not* re-labelled on the way out: ``Vault.search`` proxies these rels
-    unchanged, so callers mixing them with ``Vault.pages()``' vault-relative
-    rels must add the ``wiki/`` prefix themselves.
+    The unit of address is a vault-relative page reference
+    (``wiki/concepts/foo.md``) throughout — schema, inline-update API, and
+    search results alike. It is *not* re-labelled on the way out:
+    ``Vault.search`` proxies these page_refs unchanged, so a hit's
+    ``page_ref`` is directly usable as a plan edge/``update`` target
+    (ADR-0009).
     """
 
     def __init__(self, root: Path | str):
@@ -195,22 +199,22 @@ class SearchIndex:
                 value TEXT
             );
             CREATE TABLE IF NOT EXISTS page (
-                rel           TEXT PRIMARY KEY,
+                page_ref      TEXT PRIMARY KEY,
                 title         TEXT,
                 summary       TEXT,
                 kind          TEXT,
                 source_date   TEXT,
                 git_date      TEXT,
                 volatility    TEXT,
-                supersedes    TEXT,    -- JSON array of wiki-relative rels
-                superseded_by TEXT,    -- single wiki-relative rel, or NULL
+                supersedes    TEXT,    -- JSON array of vault-relative page_refs
+                superseded_by TEXT,    -- single vault-relative page_ref, or NULL
                 mtime_ns      INTEGER,
                 size          INTEGER
             );
             CREATE TABLE IF NOT EXISTS page_tag (
-                rel TEXT,
+                page_ref TEXT,
                 tag TEXT,
-                PRIMARY KEY (rel, tag)
+                PRIMARY KEY (page_ref, tag)
             );
             CREATE INDEX IF NOT EXISTS ix_page_tag_tag ON page_tag(tag);
             """
@@ -219,7 +223,7 @@ class SearchIndex:
             c.executescript(
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
-                    rel UNINDEXED, title, summary, body,
+                    page_ref UNINDEXED, title, summary, body,
                     tokenize = 'porter unicode61'
                 );
                 """
@@ -239,12 +243,15 @@ class SearchIndex:
 
     def _full_rebuild(self) -> IndexStats:
         """Wipe and re-index. Delete-and-rebuild *is* the migration strategy —
-        no incremental migrations, ever."""
+        no incremental migrations, ever. Tables are dropped, not just emptied,
+        so a schema-spelling change (ADR-0009's ``rel`` → ``page_ref``) is
+        absorbed by the same path as a data wipe."""
         c = self._conn
         for table in ("page_tag", "page"):
-            c.execute(f"DELETE FROM {table}")
+            c.execute(f"DROP TABLE IF EXISTS {table}")
         if self.backend == "fts5":
-            c.execute("DELETE FROM page_fts")
+            c.execute("DROP TABLE IF EXISTS page_fts")
+        self._create_schema()
         c.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
             (SCHEMA_VERSION,),
@@ -276,31 +283,31 @@ class SearchIndex:
         """
         start = time.monotonic()
         rows = self._conn.execute(
-            "SELECT rel, mtime_ns, size FROM page"
+            "SELECT page_ref, mtime_ns, size FROM page"
         ).fetchall()
         indexed: dict[str, tuple[int, int]] = {
-            rel: (mtime_ns, size) for rel, mtime_ns, size in rows
+            page_ref: (mtime_ns, size) for page_ref, mtime_ns, size in rows
         }
         seen: set[str] = set()
         stats = IndexStats()
         git_dates = _compute_git_dates(self.root)
         for path in (self.root / "wiki").rglob("*.md"):
-            rel = path.relative_to(self.root / "wiki").as_posix()
-            seen.add(rel)
+            page_ref = path.relative_to(self.root).as_posix()
+            seen.add(page_ref)
             st = path.stat()
             mtime_ns, size = st.st_mtime_ns, st.st_size
-            prev = indexed.get(rel)
+            prev = indexed.get(page_ref)
             if prev is None:
-                self.upsert_page(rel, path.read_text(encoding="utf-8"),
+                self.upsert_page(page_ref, path.read_text(encoding="utf-8"),
                                  git_dates=git_dates)
                 stats.inserted += 1
             elif prev != (mtime_ns, size):
-                self.upsert_page(rel, path.read_text(encoding="utf-8"),
+                self.upsert_page(page_ref, path.read_text(encoding="utf-8"),
                                  git_dates=git_dates)
                 stats.updated += 1
 
-        for rel in indexed.keys() - seen:
-            self.remove_page(rel)
+        for page_ref in indexed.keys() - seen:
+            self.remove_page(page_ref)
             stats.removed += 1
 
         self._recompute_superseded_by()
@@ -315,8 +322,8 @@ class SearchIndex:
         stats = IndexStats()
         git_dates = _compute_git_dates(self.root)
         for path in (self.root / "wiki").rglob("*.md"):
-            rel = path.relative_to(self.root / "wiki").as_posix()
-            self.upsert_page(rel, path.read_text(encoding="utf-8"),
+            page_ref = path.relative_to(self.root).as_posix()
+            self.upsert_page(page_ref, path.read_text(encoding="utf-8"),
                              git_dates=git_dates)
             stats.inserted += 1
         self._recompute_superseded_by()
@@ -333,44 +340,45 @@ class SearchIndex:
     # -- per-page upsert/remove (used inline by Vault) -------------------
 
     def upsert_page(
-        self, rel: str, text: str,
+        self, page_ref: str, text: str,
         git_dates: dict[str, str] | None = None,
     ) -> None:
-        """Index/replace one page. ``rel`` is wiki-relative. The file at
-        ``self.root / "wiki" / rel`` must already exist — its
+        """Index/replace one page. ``page_ref`` is vault-relative (ADR-0009).
+        The file at ``self.root / page_ref`` must already exist — its
         ``(mtime_ns, size)`` is stored verbatim, and is what the next
         staleness scan compares against to call this row fresh.
 
-        ``git_dates`` is the ``{rel: date}`` map from one :func:`_compute_git_dates`
-        pass; scan callers derive it once per walk and hand it down. When it's
-        ``None`` (the single-page path, ``Vault.write``'s inline update) it is
-        computed here — one full-history ``git log`` pass per write, the honest
-        cost of that already-documented latency optimisation.
+        ``git_dates`` is the ``{page_ref: date}`` map from one
+        :func:`_compute_git_dates` pass; scan callers derive it once per walk
+        and hand it down. When it's ``None`` (the single-page path,
+        ``Vault.write``'s inline update) it is computed here — one full-history
+        ``git log`` pass per write, the honest cost of that already-documented
+        latency optimisation.
         """
-        rec = page_record.page_record(rel, text)
-        path = self.root / "wiki" / rel
+        rec = page_record.page_record(page_ref, text)
+        path = self.root / page_ref
         st = path.stat()
         if git_dates is None:
             git_dates = _compute_git_dates(self.root)
         body = _body_text(text)
 
         c = self._conn
-        c.execute("DELETE FROM page WHERE rel = ?", (rel,))
-        c.execute("DELETE FROM page_tag WHERE rel = ?", (rel,))
+        c.execute("DELETE FROM page WHERE page_ref = ?", (page_ref,))
+        c.execute("DELETE FROM page_tag WHERE page_ref = ?", (page_ref,))
         if self.backend == "fts5":
-            c.execute("DELETE FROM page_fts WHERE rel = ?", (rel,))
+            c.execute("DELETE FROM page_fts WHERE page_ref = ?", (page_ref,))
 
         c.execute(
-            "INSERT INTO page(rel, title, summary, kind, source_date, "
+            "INSERT INTO page(page_ref, title, summary, kind, source_date, "
             "git_date, volatility, supersedes, superseded_by, mtime_ns, size) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
             (
-                rel,
+                page_ref,
                 rec.title,
                 rec.summary,
                 rec.kind,
                 rec.source_date,
-                git_dates.get(rel),
+                git_dates.get(page_ref),
                 rec.volatility,
                 json.dumps([t for key, targets in rec.edges
                             if key == "supersedes" for t in targets]),
@@ -379,21 +387,21 @@ class SearchIndex:
             ),
         )
         for tag in rec.tags:
-            c.execute("INSERT OR IGNORE INTO page_tag(rel, tag) VALUES (?, ?)",
-                      (rel, tag))
+            c.execute("INSERT OR IGNORE INTO page_tag(page_ref, tag) VALUES (?, ?)",
+                      (page_ref, tag))
         if self.backend == "fts5":
             c.execute(
-                "INSERT INTO page_fts(rel, title, summary, body) VALUES (?, ?, ?, ?)",
-                (rel, rec.title, rec.summary, body),
+                "INSERT INTO page_fts(page_ref, title, summary, body) VALUES (?, ?, ?, ?)",
+                (page_ref, rec.title, rec.summary, body),
             )
         self._conn.commit()
 
-    def remove_page(self, rel: str) -> None:
+    def remove_page(self, page_ref: str) -> None:
         c = self._conn
-        c.execute("DELETE FROM page WHERE rel = ?", (rel,))
-        c.execute("DELETE FROM page_tag WHERE rel = ?", (rel,))
+        c.execute("DELETE FROM page WHERE page_ref = ?", (page_ref,))
+        c.execute("DELETE FROM page_tag WHERE page_ref = ?", (page_ref,))
         if self.backend == "fts5":
-            c.execute("DELETE FROM page_fts WHERE rel = ?", (rel,))
+            c.execute("DELETE FROM page_fts WHERE page_ref = ?", (page_ref,))
         self._conn.commit()
 
     def _recompute_superseded_by(self) -> None:
@@ -401,15 +409,15 @@ class SearchIndex:
         (one per target — the immediate superseder)."""
         c = self._conn
         c.execute("UPDATE page SET superseded_by = NULL")
-        for rel, raw in c.execute("SELECT rel, supersedes FROM page WHERE supersedes IS NOT NULL").fetchall():
+        for page_ref, raw in c.execute("SELECT page_ref, supersedes FROM page WHERE supersedes IS NOT NULL").fetchall():
             try:
                 targets = json.loads(raw)
             except (TypeError, json.JSONDecodeError):
                 continue
             for t in targets:
                 c.execute(
-                    "UPDATE page SET superseded_by = ? WHERE rel = ? AND superseded_by IS NULL",
-                    (rel, t),
+                    "UPDATE page SET superseded_by = ? WHERE page_ref = ? AND superseded_by IS NULL",
+                    (page_ref, t),
                 )
 
     # -- public read API -------------------------------------------------
@@ -488,11 +496,11 @@ class SearchIndex:
                 date_field, volatility, include_superseded,
             )
             sql = (
-                "SELECT p.rel, 0.0, p.title, p.summary, p.kind, "
+                "SELECT p.page_ref, 0.0, p.title, p.summary, p.kind, "
                 "       p.source_date, p.git_date, p.volatility, p.superseded_by "
                 "FROM page p "
                 f"WHERE {where} "
-                "ORDER BY p.rel LIMIT ?"
+                "ORDER BY p.page_ref LIMIT ?"
             )
             rows = self._conn.execute(sql, (*params, limit)).fetchall()
             return [self._row_to_hit(row) for row in rows]
@@ -504,12 +512,12 @@ class SearchIndex:
         )
         weights = ",".join(str(w) for w in _FTS5_WEIGHTS)
         sql = (
-            "SELECT p.rel, bm25(page_fts, " + weights + ") AS raw_score, "
+            "SELECT p.page_ref, bm25(page_fts, " + weights + ") AS raw_score, "
             "       p.title, p.summary, p.kind, "
             "       p.source_date, p.git_date, p.volatility, p.superseded_by, "
             "       snippet(page_fts, 3, '', '', '…', 12) AS snip "
             "FROM page_fts "
-            "JOIN page p ON p.rel = page_fts.rel "
+            "JOIN page p ON p.page_ref = page_fts.page_ref "
             "WHERE page_fts MATCH ? AND " + where + " "
             "ORDER BY raw_score LIMIT ?"
         )
@@ -518,7 +526,7 @@ class SearchIndex:
         ).fetchall()
         return [
             SearchHit(
-                rel=row[0],
+                page_ref=row[0],
                 score=-row[1],  # bm25() returns negative; negate for higher-is-better
                 title=row[2],
                 summary=row[3],
@@ -545,7 +553,7 @@ class SearchIndex:
             date_field, volatility, include_superseded,
         )
         sql = (
-            "SELECT p.rel, p.title, p.summary, p.kind, p.source_date, "
+            "SELECT p.page_ref, p.title, p.summary, p.kind, p.source_date, "
             "       p.git_date, p.volatility, p.superseded_by "
             "FROM page p "
             f"WHERE {where}"
@@ -560,8 +568,8 @@ class SearchIndex:
         # For the re backend, snippet = the matched line, if any.
         hits: list[SearchHit] = []
         pages_text = self._load_pages_text(candidates.keys())
-        for rel, row in candidates.items():
-            text_blob = pages_text.get(rel, "")
+        for page_ref, row in candidates.items():
+            text_blob = pages_text.get(page_ref, "")
             if pattern is not None:
                 m = pattern.search(text_blob)
                 if not m:
@@ -572,11 +580,11 @@ class SearchIndex:
                 snippet = None
                 score = 0.0
             hits.append(SearchHit(
-                rel=rel,
+                page_ref=page_ref,
                 score=score,
                 title=row[1],
                 summary=row[2],
-                tags=self._tags_for(rel),
+                tags=self._tags_for(page_ref),
                 kind=row[3],
                 source_date=row[4],
                 git_date=row[5],
@@ -589,14 +597,14 @@ class SearchIndex:
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:limit]
 
-    def _load_pages_text(self, rels) -> dict[str, str]:
+    def _load_pages_text(self, page_refs) -> dict[str, str]:
         """Read each candidate page's full text off disk, for the ``re``
         fallback. The I/O is the price of not requiring FTS5."""
         out: dict[str, str] = {}
-        for rel in rels:
-            path = self.root / "wiki" / rel
+        for page_ref in page_refs:
+            path = self.root / page_ref
             if path.exists():
-                out[rel] = path.read_text(encoding="utf-8")
+                out[page_ref] = path.read_text(encoding="utf-8")
         return out
 
     @staticmethod
@@ -629,7 +637,7 @@ class SearchIndex:
         for tag in tags_all:
             clauses.append(
                 "EXISTS (SELECT 1 FROM page_tag t "
-                "WHERE t.rel = p.rel AND t.tag = ?)"
+                "WHERE t.page_ref = p.page_ref AND t.tag = ?)"
             )
             params.append(tag)
 
@@ -637,7 +645,7 @@ class SearchIndex:
             placeholders = ",".join("?" for _ in tags_any)
             clauses.append(
                 "EXISTS (SELECT 1 FROM page_tag t "
-                f"WHERE t.rel = p.rel AND t.tag IN ({placeholders}))"
+                f"WHERE t.page_ref = p.page_ref AND t.tag IN ({placeholders}))"
             )
             params.extend(tags_any)
 
@@ -664,17 +672,17 @@ class SearchIndex:
         where = " AND ".join(clauses) if clauses else "1=1"
         return where, params
 
-    def _tags_for(self, rel: str) -> list[str]:
+    def _tags_for(self, page_ref: str) -> list[str]:
         return [
             row[0] for row in
-            self._conn.execute("SELECT tag FROM page_tag WHERE rel = ? ORDER BY tag", (rel,))
+            self._conn.execute("SELECT tag FROM page_tag WHERE page_ref = ? ORDER BY tag", (page_ref,))
         ]
 
     @staticmethod
     def _row_to_hit(row) -> SearchHit:
         # Pure-metadata query path returns 9 columns, no snippet.
         return SearchHit(
-            rel=row[0], score=row[1], title=row[2], summary=row[3],
+            page_ref=row[0], score=row[1], title=row[2], summary=row[3],
             tags=[], kind=row[4], source_date=row[5], git_date=row[6],
             volatility=row[7], superseded_by=row[8], snippet=None,
         )

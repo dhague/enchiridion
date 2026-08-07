@@ -34,30 +34,30 @@ def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
     """
     raw = posixpath.normpath(raw)
 
-    stub_rel: str | None = None
-    for rel in sorted(staged):
-        if posixpath.dirname(rel) != _SOURCE_DIR:
+    stub_ref: str | None = None
+    for page_ref in sorted(staged):
+        if posixpath.dirname(page_ref) != _SOURCE_DIR:
             continue
-        link = staged[rel].get("raw_source")
+        link = staged[page_ref].get("raw_source")
         if not isinstance(link, str):
             continue
         dest = link_dest(link)
-        if dest is not None and resolve_link_dest(dest, posixpath.dirname(rel), prefix="") == raw:
-            stub_rel = rel
+        if dest is not None and resolve_link_dest(dest, posixpath.dirname(page_ref), prefix="") == raw:
+            stub_ref = page_ref
             break
 
-    if stub_rel is None:
+    if stub_ref is None:
         return [
             f"{raw} needs a {place.KIND_FOLDERS['source']}/ page whose raw_source points at it "
             "— every ingested raw file gets a stand-in, even a thin stub"
         ]
 
     errors: list[str] = []
-    for rel in sorted(staged):
-        if rel == stub_rel:
+    for page_ref in sorted(staged):
+        if page_ref == stub_ref:
             continue
-        source_edges = staged[rel].get("source")
-        page_dir = posixpath.dirname(rel)
+        source_edges = staged[page_ref].get("source")
+        page_dir = posixpath.dirname(page_ref)
         targets: set[str] = set()
         if isinstance(source_edges, list):
             for link in source_edges:
@@ -66,6 +66,6 @@ def check(staged: dict[str, WikiPage], raw: str) -> list[str]:
                 dest = link_dest(link)
                 if dest is not None:
                     targets.add(resolve_link_dest(dest, page_dir, prefix=""))
-        if stub_rel not in targets:
-            errors.append(f"{rel} needs a source edge to the stub {stub_rel}")
+        if stub_ref not in targets:
+            errors.append(f"{page_ref} needs a source edge to the stub {stub_ref}")
     return errors
