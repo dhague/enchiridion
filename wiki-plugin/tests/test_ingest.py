@@ -114,6 +114,80 @@ def test_page_from_dict_update_shape():
     assert page.body is None
 
 
+# --- resolve: the one derivation validate and execute both read (#125) ------------
+
+
+def test_resolve_without_a_vault_places_creates_and_projects_frontmatter():
+    """`resolve` is pure — given no vault root it reads nothing and still resolves."""
+    resolved = ingest.resolve(ingest.IngestPlan.from_dict(_plan_dict()), None)
+
+    assert resolved.root is None
+    (rp,) = resolved.pages
+    assert rp.page_ref == "wiki/concepts/prepared-statements.md"
+    assert rp.page.get("title") == "Prepared Statements"
+    assert rp.page.get("tags") == ["db"]
+    assert rp.page.body.strip().startswith("# Prepared Statements")
+    assert rp.exists is False and rp.loaded is False
+
+
+def test_resolve_leaves_page_ref_and_page_none_for_an_unplaceable_page():
+    d = _plan_dict()
+    d["pages"][0]["kind"] = "nonsense"
+    resolved = ingest.resolve(ingest.IngestPlan.from_dict(d), None)
+    assert resolved.pages[0].page_ref is None
+    assert resolved.pages[0].page is None
+
+
+def test_resolve_marks_an_update_loaded_from_its_on_disk_copy(vault_root):
+    d = _plan_dict(
+        pages=[
+            {
+                "op": "update",
+                "title": "Existing",
+                "page_ref": "wiki/concepts/existing.md",
+                "frontmatter": {"tags": ["sql"]},
+            }
+        ]
+    )
+    (rp,) = ingest.resolve(ingest.IngestPlan.from_dict(d), vault_root).pages
+    assert rp.exists is True and rp.loaded is True
+    # merged with what was already there, not replacing it
+    assert rp.page.get("tags") == ["db", "sql"]
+
+
+def test_a_handmade_resolved_plan_validates_without_touching_a_vault():
+    """The acceptance shape: build a ResolvedPlan directly, assert against it."""
+    plan = ingest.IngestPlan(title="Handmade", pages=[ingest.PagePlan(op="wat", title="X")])
+    resolved = ingest.ResolvedPlan(
+        plan=plan, pages=[ingest.ResolvedPage(plan.pages[0], None, None)]
+    )
+    with pytest.raises(ingest.PlanError, match="op must be 'create' or 'update'"):
+        resolved.validate()
+
+
+def test_a_resolved_plan_with_no_root_cannot_execute():
+    with pytest.raises(ingest.PlanError, match="vault root"):
+        ingest.ResolvedPlan(plan=ingest.IngestPlan(title="Handmade")).execute()
+
+
+def test_execute_writes_exactly_the_pages_resolve_produced(vault_root):
+    """Nothing between resolve and write re-derives placement or frontmatter."""
+    resolved = ingest.resolve(ingest.IngestPlan.from_dict(_plan_dict()), vault_root)
+    resolved.validate()
+    resolved.execute()
+
+    for rp in resolved.pages:
+        assert (vault_root / rp.page_ref).read_text(encoding="utf-8") == rp.page.text
+
+
+def test_describe_names_every_page_execute_would_write():
+    resolved = ingest.resolve(ingest.IngestPlan.from_dict(_plan_dict()), None)
+    described = resolved.describe()
+    assert "Postgres tuning notes" in described
+    for rp in resolved.pages:
+        assert rp.page_ref in described
+
+
 # --- validation ---------------------------------------------------------------
 
 
