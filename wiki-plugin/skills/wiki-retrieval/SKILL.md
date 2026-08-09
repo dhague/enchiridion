@@ -53,13 +53,16 @@ Given a question:
 
    `source` is excluded from that fallback because it belongs to the provenance path, not general expansion — it names the raw artifact a page distilled, not another concept to fan out into. Only follow it when the question matches the provenance row below.
 
-4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Build a `superseded_by` map for the candidate set: for every page P, if any other page Q in the vault has `supersedes: [P]` in its frontmatter, then P is replaced by Q. With the agent's tools, one pass is `Grep` for the frontmatter pattern `^\s*supersedes:` plus each seed's filename in the body of any `wiki/**/*.md` — `search_index.py` derives the same map in-process under the name `superseded_by`.
+4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Run `scripts/superseded_by.py` with every candidate's `page_ref` as a positional arg (`--json` for a machine-readable line per candidate); it walks each one's `supersedes` inversions in-process (the same derivation `page_record.load_records()` — and `search_index.py` — already do) and returns each candidate's *active* page:
 
-   **Three rules for the filter pass:**
+   ```
+   python superseded_by.py wiki/concepts/a.md wiki/concepts/x.md --json
+   ```
 
-   - **Same-set supersession.** For each candidate P, if a candidate Q has `supersedes: [P]`, **drop P from the active set and keep Q as current**. P is history, not the answer.
-   - **Chains.** A supersession chain A → B → C where A, B, C are all in the set collapses to **just C** (the head); A and B are mentioned as history, not read. Don't blow the budget walking a chain frontmatter by frontmatter — one follow per page is enough; the rest is mentioned, not cited.
-   - **Head not in set.** If a seed P is superseded by a Q that *isn't* in the candidate set, **add Q to the set** (frontmatter-only read is enough to confirm the chain head) and remove P from the active set. The user asked about the current view; P is not it.
+   Each result is `{"seed": ..., "active": ..., "chain": [...]}`. Apply the result directly — **no need to re-derive any of this by hand:**
+
+   - **`active == seed`** — the candidate is current; keep it.
+   - **`active != seed`** — **drop the seed from the active set and keep `active` instead**, adding it to the candidate set if it wasn't already there. The seed is history, not the answer, whether the replacement was one hop away or a multi-page chain — the script already walked it to the head.
 
 5. **Stop at the budget.** Retrieval is bounded, and the bound is stated so it can't quietly run away:
    - **max 2 hops** from the seed set,
