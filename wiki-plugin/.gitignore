@@ -5,5 +5,8 @@ __pycache__/
 .pytest_cache/
 .hypothesis/
 
+# OpenCode wiring dev tooling (typecheck-only deps for plugins/).
+wiring/opencode/node_modules/
+
 # Resilio Sync scratch artifacts.
 *.rsls
