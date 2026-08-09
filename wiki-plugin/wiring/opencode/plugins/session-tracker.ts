@@ -9,6 +9,12 @@
  * session_id — the transcript is fetched at save time via
  * `opencode export <session_id>`.
  *
+ * OpenCode records no session id in the environment of processes it spawns,
+ * so the reader (`save-session-opencode.py`) would have no way to know which
+ * session is current. This plugin therefore also hooks `shell.env` — every
+ * shell command OpenCode runs receives `$OPENCODE_SESSION_ID` — giving the
+ * reader the exact analog of Claude Code's `$CLAUDE_CODE_SESSION_ID`.
+ *
  * Events are already scoped to the plugin's directory (OpenCode drops events
  * whose `location.directory` differs), but the session's own directory is
  * preferred anyway so state lands in the project the session actually
@@ -40,6 +46,11 @@ export const SessionTracker: Plugin = async ({ directory }) => {
         )
       } catch {
         // swallow — never break session start
+      }
+    },
+    "shell.env": async (input, output) => {
+      if (input.sessionID) {
+        output.env.OPENCODE_SESSION_ID = input.sessionID
       }
     },
   }
