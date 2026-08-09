@@ -442,18 +442,27 @@ def test_main_model_config_flag_is_honoured(tmp_path, capsys):
     assert "model: openai/gpt-5" in text
 
 
-def test_main_list_models_prints_models(tmp_path, capsys):
-    root = _make_plugin_root(tmp_path)
-    rc = generate_opencode.main(["--plugin-root", str(root), "--list-models"])
-    assert rc == 0
-    assert capsys.readouterr().out.splitlines() == ["sonnet", "haiku"]
-
-
 def test_main_default_models_prints_defaults_json(tmp_path, capsys):
     root = _make_plugin_root(tmp_path)
     rc = generate_opencode.main(["--plugin-root", str(root), "--default-models"])
     assert rc == 0
     assert json.loads(capsys.readouterr().out) == generate_opencode.DEFAULT_MODELS
+
+
+def test_main_default_models_scans_agents_not_hardcoded(tmp_path, capsys):
+    # A canonical agent using a model with no documented default must still
+    # surface in --default-models (empty default) so install prompts for it.
+    root = _make_plugin_root(tmp_path)
+    researcher = root / "agents" / "wiki-researcher.md"
+    researcher.write_text(
+        researcher.read_text(encoding="utf-8").replace("model: haiku", "model: opus"),
+        encoding="utf-8",
+    )
+    rc = generate_opencode.main(["--plugin-root", str(root), "--default-models"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "opus" in out and out["opus"] == ""
+    assert "sonnet" in out  # the other agent's model still present
 
 
 def test_main_generation_error_exits_nonzero(tmp_path, capsys):

@@ -94,9 +94,11 @@ def prompt_model_config(
     mapping = {}
     for model in models:
         default = defaults.get(model, "")
-        answer = prompt(
-            f"OpenCode model id for {model!r} (default {default!r}): ",
-        ).strip()
+        if default:
+            message = f"OpenCode model id for {model!r} (default {default!r}): "
+        else:
+            message = f"OpenCode model id for {model!r}: "
+        answer = prompt(message).strip()
         mapping[model] = answer or default
     return mapping
 
@@ -162,7 +164,12 @@ def _fetch_default_models(plugin_root: Path) -> dict:
             f"generate-opencode.py --default-models failed ({proc.returncode}): "
             f"{proc.stderr.strip()}"
         )
-    data = json.loads(proc.stdout.strip())
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise InstallError(
+            f"generate-opencode.py --default-models returned invalid JSON: {exc}"
+        ) from exc
     if not isinstance(data, dict):
         raise InstallError("generate-opencode.py --default-models returned a non-object")
     return data

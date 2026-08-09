@@ -269,6 +269,21 @@ def test_main_requires_plugin_root(tmp_path, monkeypatch):
     assert exc.value.code != 0
 
 
+def test_main_bad_default_models_output_raises(tmp_path, monkeypatch, capsys):
+    # A generate-opencode.py that prints garbage for --default-models must
+    # surface as a clean InstallError, not an uncaught JSONDecodeError.
+    plugin = tmp_path / "bad-plugin"
+    scripts = plugin / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "generate-opencode.py").write_text(
+        "print('not json')\n", encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    rc = install_opencode.main(["--plugin-root", str(plugin)])
+    assert rc != 0
+    assert "invalid JSON" in capsys.readouterr().err
+
+
 def test_main_rejects_unrecognized_flag(tmp_path, plugin_root, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exc:

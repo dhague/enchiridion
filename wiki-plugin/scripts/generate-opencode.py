@@ -175,6 +175,17 @@ def translate_agent(frontmatter: dict, model_map: dict) -> dict:
     }
 
 
+def _render_frontmatter(frontmatter: dict) -> str:
+    """The ``---``-delimited frontmatter block for a generated file, with the
+    trailing delimiter newline already in place."""
+    yaml = YAML()
+    yaml.width = 4096  # never line-wrap long scalars (matches wikipage.py)
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    stream = StringIO()
+    yaml.dump(frontmatter, stream)
+    return "---\n" + stream.getvalue() + "---\n"
+
+
 def render_agent(frontmatter: dict, body: str) -> str:
     """Render the translated frontmatter + verbatim body as an OpenCode agent
     markdown file.
@@ -182,13 +193,7 @@ def render_agent(frontmatter: dict, body: str) -> str:
     The emitted frontmatter deliberately carries no ``name`` — OpenCode takes
     the agent name from the file name.
     """
-    yaml = YAML()
-    yaml.width = 4096  # never line-wrap long scalars (matches wikipage.py)
-    yaml.indent(mapping=2, sequence=4, offset=2)
-    stream = StringIO()
-    yaml.dump(frontmatter, stream)
-    rendered = stream.getvalue()
-    return "---\n" + rendered + "---\n" + body
+    return _render_frontmatter(frontmatter) + body
 
 
 def translate_command(skill_name: str, description: str) -> dict:
@@ -210,13 +215,7 @@ def translate_command(skill_name: str, description: str) -> dict:
 
 def render_command(frontmatter: dict, template: str) -> str:
     """Render a command markdown file: frontmatter + the thin template body."""
-    yaml = YAML()
-    yaml.width = 4096
-    yaml.indent(mapping=2, sequence=4, offset=2)
-    stream = StringIO()
-    yaml.dump(frontmatter, stream)
-    rendered = stream.getvalue()
-    return "---\n" + rendered + "---\n\n" + template + "\n"
+    return _render_frontmatter(frontmatter) + "\n" + template + "\n"
 
 
 def load_model_map(model_config: Path | str | None) -> dict:
@@ -238,6 +237,15 @@ def load_model_map(model_config: Path | str | None) -> dict:
     return mapping
 
 
+def _read_canonical(path: Path, what: str) -> str:
+    """Read a canonical source file, raising :class:`GenerationError` with a
+    clear message when it's absent — generation must never silently skip a
+    source it is supposed to translate."""
+    if not path.is_file():
+        raise GenerationError(f"{what} not found: {path}")
+    return path.read_text(encoding="utf-8")
+
+
 def list_models(plugin_root: Path | str) -> list[str]:
     """The distinct canonical ``model`` values across the CC agent files, in
     file order — the names install-opencode.py must prompt a mapping for.
@@ -245,10 +253,10 @@ def list_models(plugin_root: Path | str) -> list[str]:
     root = Path(plugin_root)
     seen: list[str] = []
     for filename in CANONICAL_AGENTS:
-        path = root / "agents" / filename
-        if not path.is_file():
-            raise GenerationError(f"canonical agent file not found: {path}")
-        yaml_text, _body = split_frontmatter(path.read_text(encoding="utf-8"))
+        text = _read_canonical(
+            root / "agents" / filename, "canonical agent file",
+        )
+        yaml_text, _body = split_frontmatter(text)
         model = parse_frontmatter(yaml_text).get("model")
         if model and model not in seen:
             seen.append(model)
@@ -278,9 +286,7 @@ def generate(
     written: list[Path] = []
     for filename in CANONICAL_AGENTS:
         path = root / "agents" / filename
-        if not path.is_file():
-            raise GenerationError(f"canonical agent file not found: {path}")
-        text = path.read_text(encoding="utf-8")
+        text = _read_canonical(path, "canonical agent file")
         yaml_text, body = split_frontmatter(text)
         frontmatter = parse_frontmatter(yaml_text)
         name = frontmatter.get("name")
@@ -293,9 +299,8 @@ def generate(
 
     for skill in SKILLS:
         skill_path = root / "skills" / skill / "SKILL.md"
-        if not skill_path.is_file():
-            raise GenerationError(f"skill SKILL.md not found: {skill_path}")
-        skill_yaml, _body = split_frontmatter(skill_path.read_text(encoding="utf-8"))
+        skill_text = _read_canonical(skill_path, "skill SKILL.md")
+        skill_yaml, _body = split_frontmatter(skill_text)
         description = parse_frontmatter(skill_yaml).get("description")
         if not description:
             raise GenerationError(f"skill {skill!r} carries no description")
@@ -331,25 +336,22 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin CLI
         "--output", default=".opencode", help="directory to write agents/ and commands/ into"
     )
     parser.add_argument(
-        "--list-models",
-        action="store_true",
-        help="print the canonical model names the CC agents use, one per line",
-    )
-    parser.add_argument(
         "--default-models",
         action="store_true",
-        help="print the documented model defaults as JSON (install-opencode.py "
-        "reads this to know which models to prompt for)",
+        help="print, as JSON, the canonical model names the CC agents use "
+        "mapped to their documented defaults ('' when a model has no "
+        "default) — install-opencode.py reads this to know which models to "
+        "prompt for",
     )
     args = parser.parse_args(argv)
 
     try:
         if args.default_models:
-            print(json.dumps(DEFAULT_MODELS))
-            return 0
-        if args.list_models:
-            for model in list_models(args.plugin_root):
-                print(model)
+            defaults = {
+                model: DEFAULT_MODELS.get(model, "")
+                for model in list_models(args.plugin_root)
+            }
+            print(json.dumps(defaults))
             return 0
         model_map = load_model_map(args.model_config)
         written = generate(args.plugin_root, model_map, args.output)
