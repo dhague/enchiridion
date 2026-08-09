@@ -28,7 +28,7 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
     └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … an OPEN set
 ```
 
-- The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. Kind-folders pluralize (`concepts/`, `entities/`, `sources/`); the kind **value** stored in frontmatter stays singular (`concept`, `entity`, `source`).
+- The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. (Folder-vs-value naming convention: see [Naming](#naming).)
 - **Multi-membership never spawns a second folder.** A page that touches several subjects is filed once, by primary function; every other facet rides on **tags + typed edges**. The summaries in the search index and the typed-edge graph are the real retrieval surface — the folder tree is only a thin, decidable filing handle.
 - `raw/` is a **sibling** of `wiki/`, not a child — the immutable-originals-vs-generated split. The search index walks `wiki/**` only; it never lists `raw/`.
 - `raw/` is an **inbox** that a deterministic script scans for new files, so its subfolders are **user-extensible** — the five above are typical defaults, not a closed set, and there is no mandated catch-all.
@@ -57,7 +57,7 @@ Ingestion runs this **top-to-bottom, first match wins**, so placement is determi
 
 ### The `raw/` layer
 
-`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. Raw filenames are preserved as-is, preserving their external identity. Plugin-authored raw files carry a `YYYY-MM-DD-hhmm-` prefix at creation. Links into `raw/` are percent-encoded (see [Links](#links)) so any filename is linkable. (Repairing links after *external* renames is deferred linter work — out of scope for the core build.)
+`raw/` holds **content-immutable** originals. Ingestion **never edits a raw file's contents**. Links into `raw/` are percent-encoded (see [Links](#links)) so any filename is linkable. See [Naming](#naming) for filename and prefix rules.
 
 ### Naming
 
@@ -145,7 +145,7 @@ The edge is **directional** — it reads *this page* → *key* → *target*. Inc
 | **`refines`** | *this page refines the target* | This page sharpens, extends, or adds precision to the target's idea. The target is the broader/earlier statement; this page is the finer one. |
 | **`contradicts`** | *this page contradicts the target* | This page's claim conflicts with the target's. Record the edge even before the conflict is resolved; when it *is* resolved by replacement, also set `supersedes`. |
 | **`example-of`** | *this page is an example of the target* | This page is a concrete instance / case study of the general concept the target describes. |
-| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. Two uses: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from, and — **mandatorily**, see [The chain of evidence](#the-chain-of-evidence) — every page an ingestion produces points at that raw file's `sources/` stub. **Not** the same as the `raw_source:` frontmatter field, which points a `sources/` page into `raw/`. |
+| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. Two uses: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from, and — **mandatorily**, see [The chain of evidence](#the-chain-of-evidence) — every page an ingestion produces points at that raw file's `sources/` stub. Distinct from the `raw_source:` field — see [field notes](#frontmatter-schema). |
 | **`related`** | *this page is associatively related to the target* | A real connection that is none of the above. The catch-all — prefer a sharper type whenever one fits, because retrieval can follow a specific type purposefully and can only wander a `related` one. |
 
 **Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. The one exception to "judge it per page" is the mandatory `source` back-edge above. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
