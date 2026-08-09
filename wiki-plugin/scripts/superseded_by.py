@@ -1,12 +1,8 @@
 """Resolve a candidate set's supersession chains to their current heads.
 
-Replaces the Grep-based procedure wiki-retrieval/SKILL.md's step 4 used to
-describe ("Grep for the frontmatter pattern ``^\\s*supersedes:`` plus each
-seed's filename"). The derivation already exists in-process --
-:func:`page_record.load_records` inverts every page's ``supersedes`` edge
-into ``superseded_by`` (``build_index.py`` already calls it) -- this module
-is the missing scripted entrypoint retrieval calls instead of re-deriving
-the same map by hand with Grep.
+:func:`page_record.load_records` already inverts every page's ``supersedes``
+edge into ``superseded_by``; this module is the retrieval-facing entrypoint
+into that derivation.
 
 Takes the retrieval frontier's candidate set of page_refs and returns, for
 each, its *active* page: the same page_ref if it's current, or the page at

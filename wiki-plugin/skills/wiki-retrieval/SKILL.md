@@ -53,7 +53,7 @@ Given a question:
 
    `source` is excluded from that fallback because it belongs to the provenance path, not general expansion — it names the raw artifact a page distilled, not another concept to fan out into. Only follow it when the question matches the provenance row below.
 
-4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Run `scripts/superseded_by.py` with every candidate's `page_ref` as a positional arg (`--json` for a machine-readable line per candidate); it walks each one's `supersedes` inversions in-process (the same derivation `page_record.load_records()` — and `search_index.py` — already do) and returns each candidate's *active* page:
+4. **Filter the frontier for currency.** A superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and a recorded fact beats any recency guess. Run `scripts/superseded_by.py` with every candidate's `page_ref` as a positional arg (`--json` for a machine-readable line per candidate); it walks each one's `supersedes` inversions in-process and returns each candidate's *active* page:
 
    ```
    python superseded_by.py wiki/concepts/a.md wiki/concepts/x.md --json
