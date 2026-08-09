@@ -28,7 +28,7 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
     └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … an OPEN set
 ```
 
-- The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. Kind-folders pluralize (`concepts/`, `entities/`, `sources/`); the kind **value** stored in frontmatter stays singular (`concept`, `entity`, `source`) — see [ADR-0008](../../../docs/adr/0008-kind-folders-plural-kind-values-singular.md).
+- The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. Kind-folders pluralize (`concepts/`, `entities/`, `sources/`); the kind **value** stored in frontmatter stays singular (`concept`, `entity`, `source`).
 - **Multi-membership never spawns a second folder.** A page that touches several subjects is filed once, by primary function; every other facet rides on **tags + typed edges**. The summaries in the search index and the typed-edge graph are the real retrieval surface — the folder tree is only a thin, decidable filing handle.
 - `raw/` is a **sibling** of `wiki/`, not a child — the immutable-originals-vs-generated split. The search index walks `wiki/**` only; it never lists `raw/`.
 - `raw/` is an **inbox** that a deterministic script scans for new files, so its subfolders are **user-extensible** — the five above are typical defaults, not a closed set, and there is no mandated catch-all.
@@ -61,7 +61,7 @@ Ingestion runs this **top-to-bottom, first match wins**, so placement is determi
 
 ### Naming
 
-- **Kind-folders pluralize** (`concepts/`, `entities/`, `sources/`; `synthesis/` has no distinct plural, so it's unchanged) — **kind values stay singular** (`concept`, `entity`, `source`, `synthesis`), so the folder name no longer matches the value 1:1 ([ADR-0008](../../../docs/adr/0008-kind-folders-plural-kind-values-singular.md)). **Raw sub-folders are plural** (`emails/`, `meetings/`) and user-extensible, same as always.
+- **Kind-folders pluralize** (`concepts/`, `entities/`, `sources/`; `synthesis/` has no distinct plural, so it's unchanged) — **kind values stay singular** (`concept`, `entity`, `source`, `synthesis`).
 - **Page filenames** are the lowercase **kebab-slug of the title, with no date prefix** — `concepts/prepared-statements.md`. Git carries the ingestion date and `source_date` carries the valid-time; a filename date would be a third, drifting clock.
 - **Raw filenames** preserve their external identity unchanged. Plugin-authored raw files (created by ingestion, not sourced from outside) carry a `YYYY-MM-DD-hhmm-` prefix at creation, so their date is known at source. External raw files renamed outside the tool are repaired by the deferred linter; the core build never renames an existing raw file.
 
@@ -75,7 +75,7 @@ title: <human title>
 summary: <one line, ≤ ~20 words>        # THE field retrieval reads first; write it well at ingestion
 tags: [<emergent — reuse existing tags where sensible, mint new where needed; NOT a controlled vocabulary>]
 source_date: <YYYY-MM-DD>               # when the knowledge is FROM (valid time) — judgment, not recoverable from git
-raw_source: "[<filename>](<encoded relative/path into raw/>)"   # REQUIRED on sources/ pages; a single link (title = literal filename, dest = percent-encoded path) to the ingested artifact. Omit on other kinds.
+raw_source: "[<filename>](<encoded relative/path into raw/>)"   # REQUIRED on sources/ pages; a single Markdown link to the ingested artifact. Omit on other kinds.
 volatility: stable | evolving | volatile
 # Relationships — each an optional list of relative-markdown links (quoted, so YAML doesn't read the [ as a flow sequence).
 # Include only the keys that have links; omit the rest.
