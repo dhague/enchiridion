@@ -29,7 +29,7 @@ The substantive logic lives in `scripts/watch_raw.py` (event detection, per-file
 5. **Watch loop.** Poll the queue file at `.wiki-knowledge/watch-queue.jsonl` every ~5s (`Read` the file, or `cat` it — it's a plain newline-delimited list of vault-relative paths). For each entry:
    - Dispatch a `wiki-ingest` Sonnet subagent via `Task` with the file's path.
    - Wait for the manifest and log it.
-   - Remove that entry from the queue: `python -c "import sys; sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts'); from watch_raw import remove_from_queue; from pathlib import Path; remove_from_queue(Path('.wiki-knowledge/watch-queue.jsonl'), '<file-rel-path>')"`, or equivalently call `remove_from_queue` from a short inline script.
+   - Remove that entry from the queue: `python "${CLAUDE_PLUGIN_ROOT}/scripts/watch_raw.py" --dequeue <file-rel-path>`.
 
    The queue is only a wake-up signal (a file path, nothing more) — `ingest_scan.py`'s eligibility logic already ran once (in `watch_raw.py`, before the entry was queued), so no re-check is needed before dispatching.
 

@@ -15,6 +15,7 @@ background and polls. Three pieces:
 CLI::
 
     python watch_raw.py [--vault <root>] [--debounce 30]
+    python watch_raw.py [--vault <root>] --dequeue <raw_rel>
 """
 from __future__ import annotations
 
@@ -322,10 +323,19 @@ def _main(argv=None) -> int:
         "--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL_SECONDS,
         help="how often to check for settled files, seconds",
     )
+    parser.add_argument(
+        "--dequeue",
+        metavar="RAW_REL",
+        help="remove this vault-relative path from the watch queue and exit, instead of watching",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.vault).resolve() if args.vault else vault_mod.resolve_vault_root()
     paths = WatchPaths.for_root(root)
+
+    if args.dequeue is not None:
+        remove_from_queue(paths.queue, args.dequeue)
+        return 0
 
     if not acquire_lock(paths.lock):
         print(f"another watcher is already running (lock at {paths.lock})")

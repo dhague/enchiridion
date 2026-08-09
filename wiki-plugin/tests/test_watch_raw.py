@@ -301,6 +301,28 @@ def test_handler_ignores_directory_events(tmp_path):
     assert debouncer._last_event == {}
 
 
+# --- CLI: --dequeue ----------------------------------------------------------
+
+
+def test_cli_dequeue_removes_entry(tmp_path):
+    queue_path = tmp_path / ".wiki-knowledge" / "watch-queue.jsonl"
+    append_queue(queue_path, "raw/a.md")
+    append_queue(queue_path, "raw/b.md")
+
+    rc = watch_raw._main(["--vault", str(tmp_path), "--dequeue", "raw/a.md"])
+    assert rc == 0
+    assert read_queue(queue_path) == ["raw/b.md"]
+
+
+def test_cli_dequeue_missing_entry_is_a_noop(tmp_path):
+    queue_path = tmp_path / ".wiki-knowledge" / "watch-queue.jsonl"
+    append_queue(queue_path, "raw/b.md")
+
+    rc = watch_raw._main(["--vault", str(tmp_path), "--dequeue", "raw/a.md"])
+    assert rc == 0
+    assert read_queue(queue_path) == ["raw/b.md"]
+
+
 # --- SIGTERM graceful shutdown ----------------------------------------------
 
 
