@@ -1,0 +1,138 @@
+name: opencode-wiring
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Python script-layer tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install ruamel.yaml markdown-it-py watchdog pytest hypothesis
+
+      - name: Run tests
+        working-directory: wiki-plugin
+        run: python -m pytest
+
+  validate:
+    name: Validate OpenCode wiring
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENCODE_VERSION: "1.18.15"
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install script-layer deps
+        run: pip install ruamel.yaml
+
+      - name: Install OpenCode (pinned)
+        run: curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
+
+      - name: Install plugin wiring into a throwaway vault
+        run: |
+          set -euo pipefail
+          VAULT="$RUNNER_TEMP/wiki-vault"
+          mkdir -p "$VAULT"
+          python - "$RUNNER_TEMP" "$VAULT" <<'PY'
+          import json
+          import sys
+          runner_temp, vault = sys.argv[1:3]
+          # Throwaway model-mapping config: both canonical models -> the openai
+          # provider, whose baseURL the CI job points at the local mock server.
+          with open(f"{runner_temp}/mock-models.json", "w") as f:
+              json.dump({"sonnet": "openai/gpt-4o-mini",
+                         "haiku": "openai/gpt-4o-mini"}, f)
+          # A pre-existing opencode.json carrying the mock provider; the
+          # installer merges skills.paths in without clobbering it.
+          with open(f"{vault}/opencode.json", "w") as f:
+              json.dump({
+                  "$schema": "https://opencode.ai/config.json",
+                  "model": "openai/gpt-4o-mini",
+                  "small_model": "openai/gpt-4o-mini",
+                  "provider": {
+                      "openai": {
+                          "options": {
+                              "baseURL": "http://127.0.0.1:8799/v1",
+                              "apiKey": "sk-mock",
+                          }
+                      }
+                  },
+              }, f, indent=2)
+          PY
+          # install-opencode.py runs generate-opencode.py itself with the
+          # throwaway config, then deploys agents/commands/marker/plugin into
+          # the vault's .opencode/ and merges skills.paths into opencode.json.
+          # Run it from inside the vault so the generated tree lands there.
+          (cd "$VAULT" && python "$GITHUB_WORKSPACE/wiki-plugin/scripts/install-opencode.py" \
+            --plugin-root "$GITHUB_WORKSPACE/wiki-plugin" \
+            --model-config "$RUNNER_TEMP/mock-models.json")
+          echo "VAULT=$VAULT" >> "$GITHUB_ENV"
+          echo "Generated artifacts:"
+          ls -1 "$VAULT/.opencode/agents" "$VAULT/.opencode/commands"
+
+      - name: Verify plugin surfaces against the mock model
+        run: |
+          set -euo pipefail
+          python "$GITHUB_WORKSPACE/.github/scripts/mock-opencode-model.py" &
+          MOCK_PID=$!
+          trap 'kill "$MOCK_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8799/health >/dev/null 2>&1; then
+              echo "mock server up after ${i}s"
+              break
+            fi
+            if [ "$i" = 30 ]; then
+              echo "mock server failed to start" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          cd "$VAULT"
+
+          echo "== agents registerable =="
+          "$HOME/.opencode/bin/opencode" agent list | grep -E "^wiki-(ingest|researcher) \(subagent\)"
+
+          echo "== skills discoverable =="
+          "$HOME/.opencode/bin/opencode" debug skill > "$RUNNER_TEMP/skills.json"
+          python - "$RUNNER_TEMP/skills.json" <<'PY'
+          import json, sys
+          names = {s.get("name") for s in json.load(open(sys.argv[1]))}
+          need = {"wiki-conventions", "wiki-ingest", "wiki-init",
+                  "wiki-retrieval", "wiki-watch", "save-conversation"}
+          missing = need - names
+          assert not missing, f"missing skills: {sorted(missing)}"
+          print("all wiki skills discoverable:", ", ".join(sorted(need)))
+          PY
+
+          echo "== commands invocable =="
+          "$HOME/.opencode/bin/opencode" run --format json "/wiki-conventions" > "$RUNNER_TEMP/run.json"
+          grep -q '"reason":"stop"' "$RUNNER_TEMP/run.json"
+          echo "command run produced a clean step_finish"
+
+      - name: Assert no generated files committed
+        run: |
+          test -z "$(git status --porcelain)" \
+            || { echo "working tree dirty — generated files leaked into the repo:"; git status --porcelain; exit 1; }
+          echo "working tree clean — no generated artifacts committed"
