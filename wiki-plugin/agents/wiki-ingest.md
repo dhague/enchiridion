@@ -2,7 +2,7 @@
 name: wiki-ingest
 description: Turns one raw document into one or more well-formed wiki pages — chunked, placed by the kind-axed folder algorithm, tagged, linked, and committed. Invoke whenever a document needs to be ingested, added, or filed into the wiki vault.
 model: sonnet
-tools: Read, Write, Grep, Glob, Bash
+tools: Read, Write, Bash
 skills: [wiki-conventions, wiki-ingest]
 ---
 
