@@ -15,6 +15,7 @@ construction; ``superseded_by`` is derived by inverting every other page's
 from __future__ import annotations
 
 import posixpath
+import warnings
 from dataclasses import dataclass, field, replace
 
 import place
@@ -98,10 +99,21 @@ def load_records(pages: dict[str, str]) -> dict[str, PageRecord]:
     """Decode every page in ``pages`` (``{page_ref: text}``, keys vault-
     relative), filling in ``superseded_by`` by inverting the ``supersedes``
     edges.
+
+    Pages in unknown kind-folders (e.g. custom vault extensions) are silently
+    skipped with a :class:`UserWarning` rather than aborting the whole load.
     """
-    records = {
-        page_ref: page_record(page_ref, text) for page_ref, text in pages.items()
-    }
+    records: dict[str, PageRecord] = {}
+    for page_ref, text in pages.items():
+        folder = posixpath.basename(posixpath.dirname(page_ref))
+        if folder not in place.FOLDER_KINDS:
+            warnings.warn(
+                f"{page_ref!r}: unknown kind-folder {folder!r} — skipped",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+        records[page_ref] = page_record(page_ref, text)
 
     superseded_by: dict[str, list[str]] = {}
     for page_ref, rec in records.items():
