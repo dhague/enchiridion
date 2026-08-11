@@ -5,6 +5,8 @@ Decoded once into a :class:`PageRecord` so every other caller
 of re-parsing YAML keys itself. All rels are vault-relative page references
 (ADR-0009).
 """
+import warnings
+
 import pytest
 
 import page_record
@@ -122,3 +124,44 @@ def test_superseded_by_empty_when_no_page_supersedes_it():
     }
     records = page_record.load_records(pages)
     assert records["wiki/concepts/a.md"].superseded_by == []
+
+
+def test_load_records_skips_custom_kind_folder():
+    """A page in an unknown but structurally-valid custom folder is omitted from
+    the result rather than aborting the entire load (issue #161)."""
+    pages = {
+        "wiki/concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "wiki/decisions/my-decision.md": "---\ntitle: My Decision\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+    }
+    records = page_record.load_records(pages)
+    assert "wiki/concepts/a.md" in records
+    assert "wiki/decisions/my-decision.md" not in records
+
+
+def test_load_records_warns_on_custom_kind_folder():
+    """A skipped page emits a UserWarning naming the unknown folder."""
+    pages = {
+        "wiki/decisions/my-decision.md": "---\ntitle: My Decision\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+    }
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        page_record.load_records(pages)
+
+    assert len(caught) == 1
+    assert issubclass(caught[0].category, UserWarning)
+    assert "decisions" in str(caught[0].message)
+
+
+def test_load_records_skips_multiple_custom_folders():
+    """Pages in multiple unknown folders are all silently skipped; known pages survive."""
+    pages = {
+        "wiki/concepts/a.md": "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "wiki/decisions/d.md": "---\ntitle: D\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+        "wiki/meetings/m.md": "---\ntitle: M\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n",
+    }
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        records = page_record.load_records(pages)
+
+    assert set(records) == {"wiki/concepts/a.md"}
+    assert len(caught) == 2
