@@ -15,7 +15,7 @@ Retrieval **never modifies an existing page** — no edit, no move, no delete, e
   If returned answer carries `save-candidate` block, you also **put the offer to user and perform save on yes** — see [Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page). You hold the conversation; confirmation can only happen here.
 - **If you are `wiki-researcher` agent**: continue directly with procedure below using own tools. **Recommend** save (step 8); never perform one — subagent can't ask user, and unconfirmed save is the exact failure this design prevents.
 
-Every script below lives in plugin's install directory and resolves vault root itself — see `## Scripts` section of `wiki-conventions` for full reference (vault-root resolution, `${CLAUDE_PLUGIN_ROOT}`, common tasks, script catalogue).
+Every script below lives in plugin's install directory and resolves vault root itself — see `## Scripts` section of `wiki-conventions` for full reference (vault-root resolution, locating the plugin root, common tasks, script catalogue).
 
 Search `wiki/**` only. `raw/` holds immutable originals a `source/` page already stands in for; reading it duplicates content you have summaries for, and it's not in the index.
 
@@ -28,7 +28,7 @@ Given a question:
 2. **Single search call.** One call to `scripts/search.py` does the work — composes BM25 text matching with metadata filters, ranks results, defaults to excluding superseded pages. Pass **only term list** from step 1 as single space-separated string (`search.py` tokenizes and phrase-quotes each term). Use `--json` and read the records:
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" \
+   python "<plugin-root>/scripts/search.py" \
        "<term1> <term2> <term3>" \
        --kind concept \
        --since 2026-07-01 --date-field source_date \
@@ -181,7 +181,7 @@ For **session holding the conversation** — invoked `wiki-researcher` and got `
 4. **Run it and report.**
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>
+   python "<plugin-root>/scripts/ingest.py" --plan <plan.json>
    ```
 
    Validates whole plan before touching disk, then writes page and makes one structured commit — printing SHA. Report path and SHA in one line. If it raises, nothing was committed; fix plan and rerun (writes are idempotent).

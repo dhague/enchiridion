@@ -7,7 +7,7 @@ description: Turn a raw document into one or more schema-valid wiki pages — ch
 
 Reads `wiki-conventions` for anything this procedure doesn't spell out — folder placement, frontmatter schema, link format, typed-edge vocabulary. Preloaded into `wiki-ingest` agent context at startup; also what `/wiki-ingest <path>` loads when invoked on single file. Single-file procedure only. Folder/`raw/` sweeps belong to invoking session, not agent — lives in [`reference/sweep.md`](reference/sweep.md), read on demand.
 
-Scripts live in plugin's install directory, resolve vault root itself — see `## Scripts` in `wiki-conventions` for full reference (vault-root resolution, `${CLAUDE_PLUGIN_ROOT}`, common tasks, script catalogue).
+Scripts live in plugin's install directory, resolve vault root itself — see `## Scripts` in `wiki-conventions` for full reference (vault-root resolution, locating the plugin root, common tasks, script catalogue).
 
 ## Invocation
 
@@ -33,7 +33,7 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
 
 1. **Read** document in full, alongside `<path>`'s folder's `INGESTION.md` if exists (see [`INGESTION.md` folder hint](#ingestionmd-folder-hint)). Hints override defaults below.
 2. **Semantic-chunk.** One page or several? Default one; split when document covers multiple independent ideas deserving own future citation.
-3. **Draft the plan, then discover, then classify.** Write `<plan.json>` now — same file step 4 finishes and step 5 runs; nothing written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, `body` filled in (full shape in step 4); leave `edges` and unjudged frontmatter for step 4. Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/discover.py" --plan <plan.json>` once against whole draft — no per-chunk calls, no scratch files. Uses same BM25 index as `search.py`; returns candidates classified `duplicate`/`refines`/`related`/`distinct` per page, each carrying `summary`, `tags`, `volatility`, `superseded_by` — plus vault tag vocabulary with usage counts for step 4 tag-minting.
+3. **Draft the plan, then discover, then classify.** Write `<plan.json>` now — same file step 4 finishes and step 5 runs; nothing written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, `body` filled in (full shape in step 4); leave `edges` and unjudged frontmatter for step 4. Run `python "<plugin-root>/scripts/discover.py" --plan <plan.json>` once against whole draft — no per-chunk calls, no scratch files. Uses same BM25 index as `search.py`; returns candidates classified `duplicate`/`refines`/`related`/`distinct` per page, each carrying `summary`, `tags`, `volatility`, `superseded_by` — plus vault tag vocabulary with usage counts for step 4 tag-minting.
 
    Hint is starting point — confirm or override against candidate's own `summary`; record only which **op** each plan entry gets. Step 4 owns every write; nothing here calls `Edit` or `wikipage.py`.
    - **`distinct` (or no candidates).** New subject. Keep as `op: "create"`; consider surfaced pages as typed-edge targets in step 4.
@@ -42,7 +42,7 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
      - List-valued keys (`tags`, edge-lists: `refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) **unioned** with existing values when `ingest.py` applies plan — never diff, always full intended membership.
    - **Contradiction.** Candidate conflicts with existing page's claim — semantic judgment hint can't make (only measures lexical overlap), check regardless. **Never overwrite existing page.** Keep new page as `op: "create"`, set `contradicts` and `supersedes` on it pointing at superseded `page_ref`. Superseded page content untouched; only new page carries these edges.
    - Candidate touching multiple existing pages: judge each pairing independently — document can update one while contradicting another.
-4. **Finish the plan.** Fill `edges` and any frontmatter step 3 left open on `<plan.json>` — placement, frontmatter, body, index, commit one downstream call: `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` (step 5). Full shape:
+4. **Finish the plan.** Fill `edges` and any frontmatter step 3 left open on `<plan.json>` — placement, frontmatter, body, index, commit one downstream call: `python "<plugin-root>/scripts/ingest.py" --plan <plan.json>` (step 5). Full shape:
 
    ```jsonc
    {
@@ -102,5 +102,5 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
      - Non-judgment edge: **every page except stub carries `source` edge to stub** — each chunk of multi-chunk split, `op: "update"` same as `create`. Edges merge on update so restating safe; omit only if page already carries it from earlier pass.
    - **Body** for `update` page: write *complete* new body (not diff) when material changes; omit `body` key entirely to leave existing body untouched. For `create`, `body` always required.
    - **`raw_source: true`** derives link from plan's `raw` field. **Ingestion never renames raw file** — file from outside plugin keeps name verbatim; don't add `YYYY-MM-DD-hhmm-` prefix (bound at creation, plugin-created files only). `ingest.py` mechanics: literal `#` separates anchor from path, so `#` in *filename* must be `%23`; unbalanced `)` in filename must be encoded (destination ends at first unbalanced `)`).
-5. **Run it.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest.py" --plan <plan.json>` validates whole plan up front (required fields, `update` `page_ref` exists, `create` target doesn't yet, every edge/`raw_source` resolves — including siblings this plan creates — and when `raw` set, chain of evidence: stub exists and every page links back) before writing, then executes place → frontmatter → body → index → commit in one pass and prints commit SHA. On error: nothing committed, written pages left on disk uncommitted (writes idempotent — fix plan and rerun, don't hand-repair).
+5. **Run it.** `python "<plugin-root>/scripts/ingest.py" --plan <plan.json>` validates whole plan up front (required fields, `update` `page_ref` exists, `create` target doesn't yet, every edge/`raw_source` resolves — including siblings this plan creates — and when `raw` set, chain of evidence: stub exists and every page links back) before writing, then executes place → frontmatter → body → index → commit in one pass and prints commit SHA. On error: nothing committed, written pages left on disk uncommitted (writes idempotent — fix plan and rerun, don't hand-repair).
 6. **Report.** Short manifest only — pages created vs. updated, edges added, `supersedes` pairs recorded. No page-content dumps.
