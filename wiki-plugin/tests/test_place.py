@@ -121,3 +121,42 @@ def test_path_cuts_at_hyphen_boundary():
     slug = result.removeprefix("wiki/concepts/").removesuffix(".md")
     assert slug == "the-quick-brown-fox-jumps-over-the-lazy-dog-and-then-runs-away"
     assert len(slug) <= place.MAX_SLUG_LENGTH
+
+
+# --- folder_to_kind (ADR-0008 singularization) --------------------------------
+
+def test_folder_to_kind_strips_trailing_s():
+    assert place.folder_to_kind("decisions") == "decision"
+    assert place.folder_to_kind("meetings") == "meeting"
+    assert place.folder_to_kind("projects") == "project"
+    assert place.folder_to_kind("issues") == "issue"
+
+
+def test_folder_to_kind_verbatim_when_no_trailing_s():
+    assert place.folder_to_kind("people") == "people"
+    assert place.folder_to_kind("research") == "research"
+
+
+def test_folder_to_kind_canonical_folders_still_work():
+    """Canonical folders like 'concepts' use the same rule (no special-casing)."""
+    assert place.folder_to_kind("concepts") == "concept"
+    assert place.folder_to_kind("sources") == "source"
+
+
+# --- path with extra_kind_folders --------------------------------------------
+
+def test_path_accepts_discovered_kind():
+    extra = {"decision": "decisions"}
+    assert place.path("decision", "My Decision", extra_kind_folders=extra) == \
+        "wiki/decisions/my-decision.md"
+
+
+def test_path_accepts_verbatim_kind():
+    extra = {"people": "people"}
+    assert place.path("people", "Alice", extra_kind_folders=extra) == \
+        "wiki/people/alice.md"
+
+
+def test_path_still_rejects_unknown_kind_without_extra():
+    with pytest.raises(ValueError, match="decision"):
+        place.path("decision", "X")

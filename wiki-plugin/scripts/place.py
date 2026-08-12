@@ -7,6 +7,12 @@ are consistent regardless of who — or which model — is ingesting. Kind
 *values* stay singular (`concept`); kind *folders* pluralize (`concepts/`),
 except `synthesis` — see :data:`KIND_FOLDERS` (ADR-0008).
 
+Custom kind-folders (any `wiki/<folder>/` that exists in the vault beyond the
+four canonical ones) are first-class: :func:`folder_to_kind` derives their
+kind via the same ADR-0008 singularization rule. The vault-level I/O scan that
+enumerates them lives in :meth:`vault.Vault.discovered_kinds`; :func:`path`
+accepts the result via ``extra_kind_folders``.
+
 CLI::
 
     python place.py <kind> "<title>"   # prints the vault-relative path
@@ -68,11 +74,34 @@ def slugify(title: str, max_length: int | None = None) -> str:
     return slug
 
 
-def path(kind: str, title: str) -> str:
-    """Return the vault-relative path for a new page of ``kind`` titled ``title``."""
-    if kind not in KIND_FOLDERS:
+def folder_to_kind(folder: str) -> str:
+    """Derive a kind value from a folder name using the ADR-0008 rule.
+
+    Strips a trailing ``s`` if present (``decisions`` → ``decision``);
+    otherwise returns the folder name verbatim (``people`` → ``people``).
+    Intended for custom kind-folders not already in :data:`FOLDER_KINDS` —
+    canonical folders should be looked up there directly.
+    """
+    if folder.endswith("s"):
+        return folder[:-1]
+    return folder
+
+
+def path(kind: str, title: str, *, extra_kind_folders: dict[str, str] | None = None) -> str:
+    """Return the vault-relative path for a new page of ``kind`` titled ``title``.
+
+    Canonical kinds are resolved from :data:`KIND_FOLDERS`. Custom (discovered)
+    kinds are resolved from ``extra_kind_folders`` (a ``{kind: folder}`` map
+    from :func:`discovered_kinds`). Raises :class:`ValueError` when ``kind``
+    is unknown in both.
+    """
+    if kind in KIND_FOLDERS:
+        folder = KIND_FOLDERS[kind]
+    elif extra_kind_folders is not None and kind in extra_kind_folders:
+        folder = extra_kind_folders[kind]
+    else:
         raise ValueError(f"unknown kind {kind!r}; must be one of {KINDS}")
-    return f"wiki/{KIND_FOLDERS[kind]}/{slugify(title, MAX_SLUG_LENGTH)}.md"
+    return f"wiki/{folder}/{slugify(title, MAX_SLUG_LENGTH)}.md"
 
 
 def _main(argv=None) -> int:  # pragma: no cover - thin CLI wrapper

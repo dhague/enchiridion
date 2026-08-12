@@ -29,13 +29,11 @@ import posixpath
 import re
 import sqlite3
 import time
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
 import page_record
-import place
 import wikipage
 from vault_git import VaultGit
 
@@ -326,14 +324,6 @@ class SearchIndex:
         ``git log`` pass per write, the honest cost of that already-documented
         latency optimisation.
         """
-        folder = posixpath.basename(posixpath.dirname(page_ref))
-        if folder not in place.FOLDER_KINDS:
-            warnings.warn(
-                f"{page_ref!r}: unknown kind-folder {folder!r} — skipped",
-                UserWarning,
-                stacklevel=2,
-            )
-            return
         rec = page_record.page_record(page_ref, text)
         path = self.root / page_ref
         st = path.stat()
