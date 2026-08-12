@@ -35,6 +35,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import page_record
+import place
 import search_index
 from page_record import PageRecord
 from search_index import IndexStats, IndexStatus, SearchHit
@@ -101,6 +102,24 @@ class Vault:
     def load(self, page_ref: str) -> WikiPage:
         """Read the page at ``page_ref`` (vault-relative) into a :class:`WikiPage`."""
         return WikiPage((self.root / page_ref).read_text(encoding="utf-8"))
+
+    def discovered_kinds(self) -> dict[str, str]:
+        """Return ``{kind: folder}`` for every subdirectory of ``wiki/`` that is
+        not already a canonical kind-folder.
+
+        This is the kind-list surface for callers (``wiki-ingest``, ``ingest.py``)
+        that need to present or accept vault-specific kinds beyond the four
+        canonical ones. The folder must pre-exist; the plugin never auto-creates
+        custom kind-folders on its own.
+        """
+        wiki_dir = self.root / "wiki"
+        if not wiki_dir.is_dir():
+            return {}
+        result: dict[str, str] = {}
+        for entry in wiki_dir.iterdir():
+            if entry.is_dir() and entry.name not in place.FOLDER_KINDS:
+                result[place.folder_to_kind(entry.name)] = entry.name
+        return result
 
     def write(self, page_ref: str, page: WikiPage) -> None:
         """Write ``page`` to ``page_ref`` (vault-relative), creating parents as needed.

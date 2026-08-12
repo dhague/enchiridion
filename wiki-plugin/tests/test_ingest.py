@@ -222,6 +222,33 @@ def test_validate_rejects_create_missing_kind(vault_root):
         ingest.validate(plan, vault_root)
 
 
+def test_validate_accepts_discovered_kind(vault_root):
+    """A create with a discovered kind (folder pre-exists in vault) passes validation."""
+    (vault_root / "wiki" / "decisions").mkdir()
+    d = _plan_dict()
+    d["pages"][0]["kind"] = "decision"
+    plan = ingest.IngestPlan.from_dict(d)
+    ingest.validate(plan, vault_root)  # must not raise
+
+
+def test_validate_rejects_discovered_kind_when_folder_missing(vault_root):
+    """A discovered kind without a matching folder in the vault is rejected."""
+    d = _plan_dict()
+    d["pages"][0]["kind"] = "decision"
+    plan = ingest.IngestPlan.from_dict(d)
+    with pytest.raises(ingest.PlanError, match="decision"):
+        ingest.validate(plan, vault_root)
+
+
+def test_resolve_places_page_in_discovered_kind_folder(vault_root):
+    """resolve() returns the correct path for a page in a discovered kind-folder."""
+    (vault_root / "wiki" / "decisions").mkdir()
+    d = _plan_dict()
+    d["pages"][0]["kind"] = "decision"
+    resolved = ingest.resolve(ingest.IngestPlan.from_dict(d), vault_root)
+    assert resolved.pages[0].page_ref == "wiki/decisions/prepared-statements.md"
+
+
 def test_validate_rejects_create_target_already_exists(vault_root):
     d = _plan_dict()
     d["pages"][0]["title"] = "Existing"
