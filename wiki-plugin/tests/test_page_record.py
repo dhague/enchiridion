@@ -50,7 +50,7 @@ def test_kind_derived_from_custom_folder():
     assert page_record.page_record("wiki/people/p.md", text).kind == "people"
 
 
-def test_kind_rejects_old_singular_folder():
+def test_kind_accepts_old_singular_folder():
     """An unmigrated singular folder (wiki/concept/) is now accepted: folder_to_kind
     returns 'concept' verbatim (no trailing s), same kind as wiki/concepts/."""
     text = "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n"
