@@ -16,13 +16,13 @@ Given target dir `<vault>` (path arg, or `cwd` if omitted):
    - **query-from-anywhere** — common for personal/dogfooding vault: plugin stays installed user-scope elsewhere, new vault just needs registration.
    - **dedicated** — vault *is* a Claude Code project with plugin installed project-scope inside it. `init_wiki.py` won't attempt that install (not its job) — only skips writing `settings.json`; tell user to install plugin into `<vault>` and launch Claude Code from `<vault>` root after.
 
-2. **Run the script.** `${CLAUDE_PLUGIN_ROOT}` substituted before you read this — pass straight through as `--plugin-root`:
+2. **Run the script.** `<plugin-root>` is the plugin's install directory — on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value from `.opencode/wiki-knowledge/config.json`. Pass it straight through as `--plugin-root`:
    ```
    # query-from-anywhere:
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/init_wiki.py" "<vault>" --mode query-from-anywhere --plugin-root "${CLAUDE_PLUGIN_ROOT}"
+   python "<plugin-root>/scripts/init_wiki.py" "<vault>" --mode query-from-anywhere --plugin-root "<plugin-root>"
 
    # dedicated:
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/init_wiki.py" "<vault>" --mode dedicated
+   python "<plugin-root>/scripts/init_wiki.py" "<vault>" --mode dedicated
    ```
    Non-zero exit (e.g. `<vault>` already a vault): report stderr, stop — don't scaffold over existing vault by hand.
 

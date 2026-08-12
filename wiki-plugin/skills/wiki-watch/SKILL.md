@@ -14,7 +14,7 @@ Substantive logic in `scripts/watch_raw.py` (event detection, per-file debounce,
 
 2. **Launch `watch_raw.py` in the background**:
    ```
-   python "${CLAUDE_PLUGIN_ROOT}/scripts/watch_raw.py"
+   python "<plugin-root>/scripts/watch_raw.py"
    ```
    using `Bash` with `run_in_background: true`. Accepts `--debounce <seconds>` (default 30) if user asked for different debounce window.
 
@@ -23,12 +23,12 @@ Substantive logic in `scripts/watch_raw.py` (event detection, per-file debounce,
    - Printed `watching <raw/> (debounce=...s, pid=...)`: running normally, continue.
    - Deadline reached with neither line: **surface to user** and stop — watcher startup unconfirmed.
 
-4. **Startup sweep.** Run `python "${CLAUDE_PLUGIN_ROOT}/scripts/ingest_scan.py" --json` once. For each eligible file, dispatch `wiki-ingest` Sonnet subagent via `Task` with file path (and, for `changed-since-ingestion` file, its back-pointers as reconciliation hint) — same shape as existing `/wiki-ingest sweep`'s per-file delegation, but **without** per-file yes/skip/never gate: every eligible file at startup gets ingested. Wait for each manifest, log it (see Logging below), move to next file.
+4. **Startup sweep.** Run `python "<plugin-root>/scripts/ingest_scan.py" --json` once. For each eligible file, dispatch `wiki-ingest` Sonnet subagent via `Task` with file path (and, for `changed-since-ingestion` file, its back-pointers as reconciliation hint) — same shape as existing `/wiki-ingest sweep`'s per-file delegation, but **without** per-file yes/skip/never gate: every eligible file at startup gets ingested. Wait for each manifest, log it (see Logging below), move to next file.
 
 5. **Watch loop.** Poll queue file at `.wiki-knowledge/watch-queue.jsonl` every ~5s (`Read` or `cat` — plain newline-delimited list of vault-relative paths). For each entry:
    - Dispatch `wiki-ingest` Sonnet subagent via `Task` with file path.
    - Wait for manifest and log it.
-   - Remove entry from queue: `python "${CLAUDE_PLUGIN_ROOT}/scripts/watch_raw.py" --dequeue <file-rel-path>`.
+   - Remove entry from queue: `python "<plugin-root>/scripts/watch_raw.py" --dequeue <file-rel-path>`.
 
    Queue is only wake-up signal (file path, nothing more) — `ingest_scan.py`'s eligibility logic already ran once (in `watch_raw.py`, before entry queued), so no re-check needed before dispatching.
 

@@ -154,7 +154,7 @@ Edge is **directional** — reads *this page* → *key* → *target*. Include on
 
 Scripts touching the vault resolve its root themselves (`$WIKI_ROOT`, else nearest ancestor holding `wiki/` directory or `.wiki-root` marker, else cwd — see `vault.py`). Set `WIKI_ROOT` before invoking any. `wikipage.py` and `place.py` exceptions: operate only on what you hand them, no root resolved.
 
-Scripts live in *this plugin's own* install directory, not the vault — invoke via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py`. Works identically in dedicated mode or query-from-anywhere mode.
+Scripts live in *this plugin's own* install directory, not the vault — invoke via `<plugin-root>/scripts/<name>.py`, where `<plugin-root>` is located per host: on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value in `.opencode/wiki-knowledge/config.json` (written by install). Works identically in dedicated mode or query-from-anywhere mode.
 
 ### Script catalogue
 
