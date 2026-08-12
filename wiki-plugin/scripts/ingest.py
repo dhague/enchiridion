@@ -122,7 +122,7 @@ class IngestPlan:
         )
 
 
-def _page_ref(page: PagePlan) -> str | None:
+def _page_ref(page: PagePlan, extra_kind_folders: dict[str, str]) -> str | None:
     """The vault-relative path this page will occupy, or ``None`` when it can't
     be computed yet (an invalid ``kind``/``page_ref`` already recorded as its
     own shape error).
@@ -131,9 +131,13 @@ def _page_ref(page: PagePlan) -> str | None:
     consumer reads :attr:`ResolvedPage.page_ref`.
     """
     if page.op == "create":
-        if page.kind not in place.KINDS or not page.title:
+        if not page.title:
             return None
-        return place.path(page.kind, page.title)
+        if page.kind in place.KINDS:
+            return place.path(page.kind, page.title)
+        if page.kind in extra_kind_folders:
+            return place.path(page.kind, page.title, extra_kind_folders=extra_kind_folders)
+        return None
     return page.page_ref or None
 
 
@@ -256,6 +260,9 @@ class ResolvedPlan:
     pages: list[ResolvedPage] = field(default_factory=list)
     #: ``None`` when resolved without a vault — shape checks only, no reads.
     root: Path | None = None
+    #: ``{kind: folder}`` for vault-discovered kind-folders beyond the four
+    #: canonical ones; empty when resolved without a vault.
+    extra_kind_folders: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Validate this plan, shape then semantic, before any write.
@@ -320,8 +327,9 @@ def resolve(plan: IngestPlan, vault_root: Path | str | None) -> ResolvedPlan:
     """
     root = Path(vault_root) if vault_root is not None else None
     v = Vault(root) if root is not None else None
+    extra_kind_folders = v.discovered_kinds() if v is not None else {}
 
-    refs = [_page_ref(p) for p in plan.pages]
+    refs = [_page_ref(p, extra_kind_folders) for p in plan.pages]
 
     # First page wins, so a link's title matches the earliest plan page
     # claiming that page_ref.
@@ -346,7 +354,7 @@ def resolve(plan: IngestPlan, vault_root: Path | str | None) -> ResolvedPlan:
         exists = root is not None and (root / page_ref).exists()
         pages.append(ResolvedPage(plan_page, page_ref, page, exists, loaded))
 
-    return ResolvedPlan(plan=plan, pages=pages, root=root)
+    return ResolvedPlan(plan=plan, pages=pages, root=root, extra_kind_folders=extra_kind_folders)
 
 
 def _shape_errors(resolved: ResolvedPlan) -> list[str]:
@@ -374,7 +382,7 @@ def _shape_errors(resolved: ResolvedPlan) -> list[str]:
                 errors.append(f"{prefix}.page_ref must not be set for op=create")
             if not page.kind:
                 errors.append(f"{prefix}.kind is required for op=create")
-            elif page.kind not in place.KINDS:
+            elif page.kind not in place.KINDS and page.kind not in resolved.extra_kind_folders:
                 errors.append(f"{prefix}.kind {page.kind!r} is not a valid kind")
             if page.body is None:
                 errors.append(f"{prefix}.body is required for op=create")

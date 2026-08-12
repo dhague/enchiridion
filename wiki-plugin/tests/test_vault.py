@@ -356,6 +356,35 @@ def test_vault_tag_vocabulary_counts_across_pages(small_vault):
     assert v.tag_vocabulary() == [("python", 2), ("testing", 1)]
 
 
+def test_vault_discovered_kinds_returns_custom_folders(tmp_path):
+    (tmp_path / "wiki" / "decisions").mkdir(parents=True)
+    (tmp_path / "wiki" / "meetings").mkdir(parents=True)
+    v = Vault(tmp_path, _auto_migrate=False)
+    assert v.discovered_kinds() == {"decision": "decisions", "meeting": "meetings"}
+
+
+def test_vault_discovered_kinds_excludes_canonical_folders(tmp_path):
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "wiki" / "decisions").mkdir(parents=True)
+    v = Vault(tmp_path, _auto_migrate=False)
+    result = v.discovered_kinds()
+    assert "concept" not in result
+    assert result == {"decision": "decisions"}
+
+
+def test_vault_discovered_kinds_empty_when_no_wiki_dir(tmp_path):
+    v = Vault(tmp_path, _auto_migrate=False)
+    assert v.discovered_kinds() == {}
+
+
+def test_vault_discovered_kinds_ignores_files(tmp_path):
+    (tmp_path / "wiki").mkdir()
+    (tmp_path / "wiki" / "decisions").mkdir()
+    (tmp_path / "wiki" / "README.md").write_text("")
+    v = Vault(tmp_path, _auto_migrate=False)
+    assert v.discovered_kinds() == {"decision": "decisions"}
+
+
 # --- CLI ------------------------------------------------------------------
 
 

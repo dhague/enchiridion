@@ -6,8 +6,10 @@ here rather than re-parsing keys, so the schema changes in exactly one place.
 
 Every path this module touches is vault-relative — a page reference
 (``wiki/concepts/a.md``), ADR-0009. ``kind`` is derived from the page's
-folder via :data:`place.FOLDER_KINDS` (kind-folders pluralize, kind values
-stay singular — ADR-0008); ``edges`` recovers each of :data:`EDGE_KEYS`'
+folder via :func:`place.folder_to_kind` (ADR-0008 singularization rule):
+canonical folders resolve from :data:`place.FOLDER_KINDS`; custom folders are
+singularized and used verbatim. Pages in any ``wiki/<folder>/`` are supported
+without a skip-and-warn guard. ``edges`` recovers each of :data:`EDGE_KEYS`'
 targets, resolved from the page's own directory to true vault-relative by
 construction; ``superseded_by`` is derived by inverting every other page's
 ``supersedes`` edge, never read from frontmatter.
@@ -15,7 +17,6 @@ construction; ``superseded_by`` is derived by inverting every other page's
 from __future__ import annotations
 
 import posixpath
-import warnings
 from dataclasses import dataclass, field, replace
 
 import place
@@ -76,16 +77,19 @@ def page_record(page_ref: str, text: str) -> PageRecord:
             targets = [_link_target(item, page_dir) for item in value]
         edges.append((key, targets))
 
-    # The kind-folder is the directory a page reference sits in
-    # (`wiki/concepts/a.md` → `concepts`). A page not under a kind-folder
-    # (e.g. `wiki/foo.md`, or an unmigrated singular folder) falls out of
-    # FOLDER_KINDS and is a hard error, never a silently-inferred kind.
+    # The kind-folder is the directory directly under `wiki/` that holds this
+    # page (`wiki/concepts/a.md` → folder `concepts`). A page not at that
+    # exact depth (e.g. `wiki/foo.md` or `wiki/concepts/nested/deep.md`) is a
+    # structural error. Canonical folders resolve from FOLDER_KINDS; any other
+    # folder is singularized via ADR-0008's rule (strip trailing `s`).
     folder = posixpath.basename(posixpath.dirname(page_ref))
-    if folder not in place.FOLDER_KINDS:
-        raise ValueError(f"{page_ref!r}: unknown kind-folder {folder!r}")
+    grandparent = posixpath.dirname(posixpath.dirname(page_ref))
+    if grandparent != "wiki":
+        raise ValueError(f"{page_ref!r}: not directly under a wiki kind-folder")
+    kind = place.FOLDER_KINDS.get(folder, place.folder_to_kind(folder))
     return PageRecord(
         page_ref=page_ref,
-        kind=place.FOLDER_KINDS[folder],
+        kind=kind,
         title=str(data.get("title", "")),
         summary=str(data.get("summary", "")),
         tags=list(data.get("tags") or []),
@@ -100,19 +104,13 @@ def load_records(pages: dict[str, str]) -> dict[str, PageRecord]:
     relative), filling in ``superseded_by`` by inverting the ``supersedes``
     edges.
 
-    Pages in unknown kind-folders (e.g. custom vault extensions) are silently
-    skipped with a :class:`UserWarning` rather than aborting the whole load.
+    Pages in any ``wiki/<folder>/`` are decoded and included; custom
+    kind-folders are fully supported via :func:`place.folder_to_kind`.
+    Pages at the wrong depth (not directly under a kind-folder) raise
+    :class:`ValueError`.
     """
     records: dict[str, PageRecord] = {}
     for page_ref, text in pages.items():
-        folder = posixpath.basename(posixpath.dirname(page_ref))
-        if folder not in place.FOLDER_KINDS:
-            warnings.warn(
-                f"{page_ref!r}: unknown kind-folder {folder!r} — skipped",
-                UserWarning,
-                stacklevel=2,
-            )
-            continue
         records[page_ref] = page_record(page_ref, text)
 
     superseded_by: dict[str, list[str]] = {}

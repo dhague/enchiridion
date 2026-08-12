@@ -539,27 +539,23 @@ class TestInlineUpdate:
         idx.upsert_page("wiki/concepts/a.md", path.read_text(encoding="utf-8"))
         assert [h.page_ref for h in idx.search("replaced")] == ["wiki/concepts/a.md"]
 
-    def test_upsert_page_skips_unknown_kind_folder(self, tmp_path):
-        """``upsert_page`` silently skips pages in unknown kind-folders (e.g.
-        ``decisions``) instead of raising ``ValueError`` and aborting the scan
-        (issue #163)."""
+    def test_upsert_page_indexes_custom_kind_folder(self, tmp_path):
+        """``upsert_page`` fully indexes pages in custom kind-folders."""
         path = tmp_path / "wiki" / "decisions" / "gvisor-root-cause.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             _page(page_ref="wiki/decisions/gvisor-root-cause.md"), encoding="utf-8"
         )
         idx = SearchIndex(tmp_path)
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            idx.upsert_page(
-                "wiki/decisions/gvisor-root-cause.md",
-                path.read_text(encoding="utf-8"),
-            )
+        idx.upsert_page(
+            "wiki/decisions/gvisor-root-cause.md",
+            path.read_text(encoding="utf-8"),
+        )
         rows = idx._conn.execute("SELECT page_ref FROM page").fetchall()
-        assert rows == []
+        assert rows == [("wiki/decisions/gvisor-root-cause.md",)]
 
-    def test_upsert_page_warns_on_unknown_kind_folder(self, tmp_path):
-        """A skipped upsert emits a ``UserWarning`` naming the unknown folder."""
+    def test_upsert_page_no_warning_for_custom_kind_folder(self, tmp_path):
+        """Custom kind-folder pages are no longer a warning condition."""
         path = tmp_path / "wiki" / "decisions" / "some-decision.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -572,15 +568,10 @@ class TestInlineUpdate:
                 "wiki/decisions/some-decision.md",
                 path.read_text(encoding="utf-8"),
             )
-        assert len(caught) == 1
-        assert issubclass(caught[0].category, UserWarning)
-        assert "decisions" in str(caught[0].message)
-        assert "skipped" in str(caught[0].message)
+        assert len(caught) == 0
 
-    def test_scan_skips_unknown_kind_folder(self, tmp_path):
-        """A full scan (the ``search.py`` code path from issue #163) completes
-        without raising when a ``wiki/decisions/`` folder is present, and still
-        returns results from valid kind-folders."""
+    def test_scan_includes_custom_kind_folder(self, tmp_path):
+        """A full scan indexes custom-folder pages and they appear in search results."""
         _vault(tmp_path, {
             "wiki/concepts/a.md": _page(page_ref="wiki/concepts/a.md", body="alpha concept"),
             "wiki/decisions/gvisor-root-cause.md": _page(
@@ -588,11 +579,8 @@ class TestInlineUpdate:
             ),
         })
         idx = SearchIndex(tmp_path)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            hits = idx.search("alpha")
-        assert [h.page_ref for h in hits] == ["wiki/concepts/a.md"]
-        assert any("decisions" in str(w.message) for w in caught)
+        hits = idx.search("decision")
+        assert [h.page_ref for h in hits] == ["wiki/decisions/gvisor-root-cause.md"]
 
     def test_remove_page_clears_index_row(self, tmp_path):
         path = tmp_path / "wiki" / "concepts" / "a.md"
