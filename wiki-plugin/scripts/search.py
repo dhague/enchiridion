@@ -1,5 +1,10 @@
 """Search the wiki vault via the lexical index.
 
+**Superseded by `enchiridion search`** (#150): skills and hooks now call the
+Go binary via `bin/enchiridion`, not this CLI. It is kept only until the
+remaining subcommands migrate, because `discover.py` and `superseded_by.py`
+still share `search_index.py` with it — see ADR-0011.
+
 Default mode is a query: positional ``text`` plus any metadata filter.
 ``--reindex`` / ``--status`` switch to index management. ``--json`` emits
 :class:`search_index.SearchHit` records as JSON Lines; the default is a

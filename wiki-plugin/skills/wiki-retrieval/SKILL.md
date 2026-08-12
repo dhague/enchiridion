@@ -23,12 +23,12 @@ Search `wiki/**` only. `raw/` holds immutable originals a `source/` page already
 
 Given a question:
 
-1. **Expand the query.** Before searching, write **5–8 alternative phrasings** of key terms: synonyms, jargon form, plain-English form, singular/plural, acronym and expansion, verb and noun forms. Single word choice must not decide whether a page is found — vault tags are emergent, so target page may name the thing differently. Expansions become the term list passed to `search.py` below.
+1. **Expand the query.** Before searching, write **5–8 alternative phrasings** of key terms: synonyms, jargon form, plain-English form, singular/plural, acronym and expansion, verb and noun forms. Single word choice must not decide whether a page is found — vault tags are emergent, so target page may name the thing differently. Expansions become the term list passed to `enchiridion search` below.
 
-2. **Single search call.** One call to `scripts/search.py` does the work — composes BM25 text matching with metadata filters, ranks results, defaults to excluding superseded pages. Pass **only term list** from step 1 as single space-separated string (`search.py` tokenizes and phrase-quotes each term). Use `--json` and read the records:
+2. **Single search call.** One call to `bin/enchiridion search` does the work — composes BM25 text matching with metadata filters, ranks results, defaults to excluding superseded pages. Pass **only term list** from step 1 as single space-separated string (it tokenizes and phrase-quotes each term). Use `--json` and read the records:
 
    ```bash
-   python "<plugin-root>/scripts/search.py" \
+   "<plugin-root>/bin/enchiridion" search \
        "<term1> <term2> <term3>" \
        --kind concept \
        --since 2026-07-01 --date-field source_date \
@@ -42,7 +42,7 @@ Given a question:
    - `--include-superseded` only when discussing history, not answering "what is current". Default excludes superseded.
    - `--raw` is escape hatch for callers who need FTS5 operators (`NEAR`, `OR`, prefix `*`). Don't reach for it without specific reason.
 
-   First call to `search.py` triggers `(mtime_ns, size)` staleness scan over `wiki/**` (~50 ms at 2000 pages, measured) so `git pull`, Obsidian edits, and manual changes are caught.
+   First call to `enchiridion search` triggers `(mtime_ns, size)` staleness scan over `wiki/**` (~50 ms at 2000 pages, measured) so `git pull`, Obsidian edits, and manual changes are caught.
 
 3. **Expand frontier, frontmatter-first.** Hits are candidates, not answers. Judge each by **`summary`** field — that is what `summary` exists for — discard ones that don't bear on question. **Only candidate surviving summary judgment earns full `Read` of its body.** Most frontier should die at summary; body read is expensive and never the first move.
 
