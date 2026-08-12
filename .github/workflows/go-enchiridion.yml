@@ -1,0 +1,91 @@
+name: go-enchiridion
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build, vet, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: enchiridion-go/go.mod
+
+      - name: Build
+        working-directory: enchiridion-go
+        run: go build ./...
+
+      - name: Vet
+        working-directory: enchiridion-go
+        run: go vet ./...
+
+      - name: Test
+        working-directory: enchiridion-go
+        run: go test ./...
+
+      - name: Lint bootstrap shell script
+        run: shellcheck -s sh enchiridion-go/bootstrap/install.sh
+
+  goreleaser-check:
+    name: Validate release pipeline (snapshot build, all 6 targets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: enchiridion-go/go.mod
+
+      - name: Run GoReleaser (snapshot, no publish)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+          workdir: enchiridion-go
+
+  release:
+    name: Release
+    needs: [test, goreleaser-check]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: enchiridion-go/go.mod
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+          workdir: enchiridion-go
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
