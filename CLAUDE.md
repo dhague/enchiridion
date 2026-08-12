@@ -6,6 +6,8 @@
 
 Issues live in this repo's GitHub Issues (github.com/dhague/enchiridion), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+**`gh` CLI hygiene:** Always use `gh <entity> view <n> --json title,body` (not bare `gh <entity> view`) — plain output hits a pager and GraphQL deprecation warnings can swallow results. Fetch multiple issues chained with `;` instead of `&&`. Don't grep files with guessed term spellings before reading them; use `Read` first.
+
 ### Triage labels
 
 Canonical five-role vocabulary, each label string equal to its role name. See `docs/agents/triage-labels.md`. **Not all five exist yet** — only `ready-for-agent` and `needs-triage` do. Before applying `needs-info` or `ready-for-human`, check `gh label list` and create the label first if missing.
