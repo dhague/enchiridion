@@ -44,7 +44,7 @@ KINDS = tuple(KIND_FOLDERS)
 #: the Windows 255-char path limit (#70).
 MAX_SLUG_LENGTH = 64
 
-_APOSTROPHE = re.compile("['\\u2018\\u2019]")
+_APOSTROPHE = re.compile(r"['']")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 _MIN_WORD_CUT = 8
 
