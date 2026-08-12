@@ -80,3 +80,7 @@ Rest of `wiki-plugin/scripts/` inventory: `page_record.py` (sole reader of the f
 
 - `.mcp.json` configures a pyright language server for `wiki-plugin/scripts/`; use the `LSP` tool (goToDefinition/findReferences/hover/etc.) to navigate it.
 - When running the /handoff or /improve-codebase-architecture skills, store the resulting documents in the repo's temp folder
+
+## Caveman
+
+The plugin's agent and skills files are compressed with /caveman-compress.

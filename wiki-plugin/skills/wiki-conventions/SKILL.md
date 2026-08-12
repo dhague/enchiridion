@@ -5,17 +5,17 @@ description: The single source of truth for the wiki vault — folder structure,
 
 # Wiki conventions
 
-This skill is the **shared contract** between ingestion (`wiki-ingest`, Sonnet) and retrieval (`wiki-researcher`, Haiku). Both agents preload it. Ingestion writes to these rules; retrieval reads assuming them. If the two ever disagree about where a page lives, what a field means, or what an edge type asserts, this file is the tiebreaker — change it here, once, and both sides move together.
+Shared contract between ingestion (`wiki-ingest`, Sonnet) and retrieval (`wiki-researcher`, Haiku). Both agents preload it. Ingestion writes to these rules; retrieval reads assuming them. If the two disagree about where a page lives, what a field means, or what an edge type asserts, this file wins — change here, once, both sides move.
 
-Two halves make up the contract. The **fixed half** — folder structure, schema shape, link format, edge vocabulary — is enumerated below and never varies per vault. The **emergent half** — `tags` — is generated at ingestion and deliberately *not* enumerated here (see [Tags](#tags)).
+Two halves: **fixed half** — folder structure, schema shape, link format, edge vocabulary — never varies per vault. **Emergent half** — `tags` — generated at ingestion, not enumerated here (see [Tags](#tags)).
 
 ## Terminology
 
-The wiki's units are **pages**, not "notes". A page is one markdown file under `wiki/`, carrying frontmatter plus a body. This also keeps `raw/notes/` (a raw-capture type) unambiguous.
+Wiki units are **pages**, not "notes". A page is one markdown file under `wiki/`, carrying frontmatter + body. Keeps `raw/notes/` (a raw-capture type) unambiguous.
 
 ## Vault structure
 
-The vault is a **git repository**. Its layout is opinionated and **plugin-fixed** — the same in every vault, never tuned per-vault:
+Vault is a **git repository**. Layout is opinionated and **plugin-fixed** — same in every vault:
 
 ```
 <vault root>/
@@ -28,32 +28,32 @@ The vault is a **git repository**. Its layout is opinionated and **plugin-fixed*
     └── <user-extensible>/    ← emails/ meetings/ notes/ clippings/ documents/ … an OPEN set
 ```
 
-- The four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent — the two properties a plugin-fixed structure requires. Domain- or topic-axed trees fail decidability (a page fits two sibling folders equally) and are not used. (Folder-vs-value naming convention: see [Naming](#naming).)
-- **Multi-membership never spawns a second folder.** A page that touches several subjects is filed once, by primary function; every other facet rides on **tags + typed edges**. The summaries in the search index and the typed-edge graph are the real retrieval surface — the folder tree is only a thin, decidable filing handle.
-- `raw/` is a **sibling** of `wiki/`, not a child — the immutable-originals-vs-generated split. The search index walks `wiki/**` only; it never lists `raw/`.
-- `raw/` is an **inbox** that a deterministic script scans for new files, so its subfolders are **user-extensible** — the five above are typical defaults, not a closed set, and there is no mandated catch-all.
+- Four **kind-folders** under `wiki/` are the fixed set. **Kind** is the only axis both decidable from a page's content *and* domain-independent. Domain- or topic-axed trees fail decidability and are not used. (See [Naming](#naming) for folder-vs-value convention.)
+- **Multi-membership never spawns a second folder.** Page touching several subjects filed once, by primary function; every other facet rides on **tags + typed edges**. Folder tree is only a thin, decidable filing handle.
+- `raw/` is **sibling** of `wiki/`, not child — immutable-originals-vs-generated split. Search index walks `wiki/**` only; never lists `raw/`.
+- `raw/` is **inbox** scanned by deterministic script; subfolders are **user-extensible** — no mandated catch-all.
 
 ### Placement algorithm
 
-Ingestion runs this **top-to-bottom, first match wins**, so placement is deterministic. The kinds split into *origin-defined* (`source`, `synthesis` — where the page came from, mutually exclusive) and *subject-defined* (`entity`, `concept` — what it's about):
+**Top-to-bottom, first match wins** — placement is deterministic. Kinds split into *origin-defined* (`source`, `synthesis`) and *subject-defined* (`entity`, `concept`):
 
-1. Is it a stand-in for an ingested raw artifact? → **`sources/`** (must carry a `raw_source:` field → its `raw/` file).
-2. Is it a saved query result synthesized from other pages? → **`synthesis/`**.
-3. Is it primarily a named thing linked repeatedly? → **`entities/`**.
-4. Otherwise → **`concepts/`** (the default).
+1. Stand-in for an ingested raw artifact? → **`sources/`** (must carry `raw_source:` field → its `raw/` file).
+2. Saved query result synthesized from other pages? → **`synthesis/`**.
+3. Primarily a named thing linked repeatedly? → **`entities/`**.
+4. Otherwise → **`concepts/`** (default).
 
 ### The chain of evidence
 
-**Every raw file an ingestion produces pages from gets a `sources/` stand-in, and every page that pass produces or updates carries a `source` edge back to it.** So a reader can always walk *page → `sources/` stub → `raw/` artifact* and reach the thing a claim actually came from — the one path that has to exist for a citation to be checkable.
+**Every raw file a pass produces pages from gets a `sources/` stand-in, and every page produced carries a `source` edge back to it.** Reader can always walk *page → `sources/` stub → `raw/` artifact* — the one path that makes a citation checkable.
 
-- **No exemption for distillation.** When a raw file's value is entirely the knowledge inside it, and that knowledge lands in `concepts/`/`entities/` pages, the stub is still created. It just becomes a **thin stub**: `title`, a one-paragraph `summary`, and the required `raw_source` link — nothing more. It does not duplicate the distilled content; its whole job is to be the addressable link target. A raw file that *is* the citable reference (a runbook, a spec) still gets a fuller `sources/` page. Same schema either way; only the body's substance differs.
-- **The `source` back-edge is not judgment.** Unlike `refines`/`contradicts`/`example-of`/`related`, which are weighed per page, this edge is mandatory on every page of the pass — each page of a multi-chunk split, and a page **updated in place** as much as a newly created one.
-- **Enforced, not merely conventional.** `ingest.py` validates both halves before it writes anything: a plan naming a `raw` artifact must place a `sources/` page whose `raw_source` resolves to it, and every other page in that plan must carry a `source` edge to that stub. A plan that doesn't is rejected, so a violation can never reach a commit. The stub may equally be one an earlier pass already left on disk.
-- **A raw file ingestion declines outright** — spam, an exact duplicate, junk — produces no pages, so there is nothing for this rule to govern.
+- **No exemption for distillation.** When raw file's value lands in `concepts/`/`entities/` pages, stub still created — just a **thin stub**: `title`, one-paragraph `summary`, required `raw_source` link. Its job is to be the addressable link target.
+- **`source` back-edge is not judgment.** Unlike `refines`/`contradicts`/`example-of`/`related` (weighed per page), this edge is mandatory on every page of the pass — each page of a multi-chunk split, and a page **updated in place** as much as newly created.
+- **Enforced, not merely conventional.** `ingest.py` validates both halves before writing: plan naming a `raw` artifact must place a `sources/` page whose `raw_source` resolves to it, and every other page in that plan must carry a `source` edge to that stub. Plan that doesn't is rejected.
+- **Raw file ingestion declines outright** — spam, exact duplicate, junk — produces no pages; rule doesn't apply.
 
-**Decidability bar:** given only a page's title + summary, the correct folder is the same every time, with no tie-break needed. If two folders are ever a genuine toss-up, the axis is wrong — the fix is to merge them and push the distinction to tags, never to add a folder.
+**Decidability bar:** given only title + summary, correct folder is same every time, no tie-break needed. If two folders are ever a genuine toss-up, the axis is wrong — fix is to merge them and push distinction to tags.
 
-**Subject tie-break:** a page plausibly *about* two subjects is filed by its primary function; the other subject becomes a tag or a typed edge.
+**Subject tie-break:** page plausibly *about* two subjects filed by primary function; other subject becomes tag or typed edge.
 
 ### The `raw/` layer
 
@@ -61,13 +61,13 @@ Ingestion runs this **top-to-bottom, first match wins**, so placement is determi
 
 ### Naming
 
-- **Kind-folders pluralize** (`concepts/`, `entities/`, `sources/`; `synthesis/` has no distinct plural, so it's unchanged) — **kind values stay singular** (`concept`, `entity`, `source`, `synthesis`).
-- **Page filenames** are the lowercase **kebab-slug of the title, with no date prefix** — `concepts/prepared-statements.md`. Git carries the ingestion date and `source_date` carries the valid-time; a filename date would be a third, drifting clock.
-- **Raw filenames** preserve their external identity unchanged. Plugin-authored raw files (created by ingestion, not sourced from outside) carry a `YYYY-MM-DD-hhmm-` prefix at creation, so their date is known at source. External raw files renamed outside the tool are repaired by the deferred linter; the core build never renames an existing raw file.
+- **Kind-folders pluralize** (`concepts/`, `entities/`, `sources/`; `synthesis/` unchanged) — **kind values stay singular** (`concept`, `entity`, `source`, `synthesis`).
+- **Page filenames** — lowercase **kebab-slug of the title, no date prefix** — `concepts/prepared-statements.md`. Git carries ingestion date; `source_date` carries valid-time; a filename date would be a third, drifting clock.
+- **Raw filenames** preserve external identity unchanged. Plugin-authored raw files carry `YYYY-MM-DD-hhmm-` prefix at creation. External raw files renamed outside tool are repaired by deferred linter; core build never renames existing raw file.
 
 ## Frontmatter schema
 
-Every page opens with a YAML frontmatter block. **Only fields that require judgment live here** — anything git can tell us is derived on demand, never authored (see [Derived from git](#derived-from-git)).
+Every page opens with YAML frontmatter block. **Only fields requiring judgment live here** — anything git can tell us is derived on demand (see [Derived from git](#derived-from-git)).
 
 ```yaml
 ---
@@ -96,40 +96,40 @@ related:
 
 Field notes:
 
-- **`title`** — the human-readable name; the filename is its kebab-slug.
-- **`summary`** — the single most important field. Retrieval judges a candidate page by its `summary` before ever reading the body, and the search index matches it. One line, ≤ ~20 words, written well at ingestion.
+- **`title`** — human-readable name; filename is its kebab-slug.
+- **`summary`** — single most important field. Retrieval judges a candidate page by its `summary` before reading body; search index matches it. One line, ≤ ~20 words, written well at ingestion.
 - **`tags`** — emergent, not controlled. See [Tags](#tags).
-- **`source_date`** — the **valid time**: when the knowledge is *from* (the document's own date, the meeting's date). This is a judgment git cannot reconstruct, and it is what temporal queries key off. Distinct from when the page was committed.
-- **`raw_source`** — a **single markdown link into `raw/`** (title = the artifact's literal filename, destination = the percent-encoded path), **required on `sources/` pages and omitted on every other kind**. It points at the immutable artifact this page stands in for — one link, not a list, since a `sources/` page stands in for exactly one artifact. Distinct from the `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; the edge points at another `wiki/` page. The two were split onto different keys (`raw_source:` vs `source:`) precisely so nothing has to guess which is meant. Example: `"[my file.txt](../../raw/notes/my%20file.txt)"`.
-- **`volatility`** — `stable` | `evolving` | `volatile`. Drives conditional decay at retrieval: `stable` facts do not age out, `volatile` ones are flagged as possibly current-only. A blanket recency prior is wrong on exactly the facts that were `stable`, which is why this is authored, not inferred.
-- **`supersedes`** — optional list of markdown links to the pages this page replaces. A **recorded fact**, stronger than any "newer wins" guess: retrieval prefers a `supersedes` relationship over recency. On a contradiction, ingestion **appends a new page and records `supersedes`; it does not overwrite** the old one.
-- **typed-edge keys** (`refines`, `contradicts`, `example-of`, `source`, `related`) — each an optional list of markdown links to the target pages; see [Typed edges](#typed-edges).
+- **`source_date`** — **valid time**: when the knowledge is *from* (document's own date, meeting's date). Judgment git cannot reconstruct; what temporal queries key off. Distinct from commit date.
+- **`raw_source`** — **single markdown link into `raw/`** (title = artifact's literal filename, destination = percent-encoded path), **required on `sources/` pages, omitted on every other kind**. Points at the immutable artifact this page stands in for. Distinct from `source`-type *edge* (see [Typed edges](#typed-edges)): this field points into `raw/`; edge points at another `wiki/` page. Split onto different keys (`raw_source:` vs `source:`) so nothing has to guess which is meant. Example: `"[my file.txt](../../raw/notes/my%20file.txt)"`.
+- **`volatility`** — `stable` | `evolving` | `volatile`. Drives conditional decay at retrieval: `stable` facts don't age out, `volatile` ones flagged as possibly current-only. Authored, not inferred.
+- **`supersedes`** — optional list of markdown links to pages this page replaces. **Recorded fact**, stronger than any "newer wins" guess. On contradiction, ingestion **appends new page and records `supersedes`; does not overwrite** the old one.
+- **typed-edge keys** (`refines`, `contradicts`, `example-of`, `source`, `related`) — each optional list of markdown links to target pages; see [Typed edges](#typed-edges).
 
 ### Derived from git
 
-**Deliberately absent from the schema:** `updated_at` and `ingested_at`. Git's commit history is the authoritative, trust-free record of when a page was first added and last touched — a hand-maintained timestamp an agent forgets to bump is worse than none. Derive both from `git log` on demand.
+**Deliberately absent from schema:** `updated_at` and `ingested_at`. Git's commit history is authoritative record of when a page was first added and last touched — hand-maintained timestamp an agent forgets to bump is worse than none. Derive from `git log` on demand.
 
-This gives a clean **bitemporal** model with no field able to lie: `source_date` is **valid time** (authored), the git commit date is **transaction time** (derived). Never add a frontmatter field for anything git already knows.
+Clean **bitemporal** model: `source_date` is **valid time** (authored), git commit date is **transaction time** (derived). Never add frontmatter field for anything git already knows.
 
 ## Tags
 
-Tags are the **emergent half** of the contract — generated at ingestion, not conformed to a fixed list. When ingesting, **reuse an existing tag** where one fits and **mint a new one** only where nothing fits. `discover.py --plan` hands back the vault's whole tag vocabulary with usage counts alongside every candidate, so reuse-first is something the discovery call gives you, not a discipline to go grep pages for. There is no controlled vocabulary to enumerate here and no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not from a closed set. This is why the folder structure is spelled out above and the tag set is not.
+Tags are **emergent half** of contract — generated at ingestion, not conformed to a fixed list. **Reuse existing tag** where one fits; **mint new one** only where nothing fits. `discover.py --plan` returns vault's whole tag vocabulary with usage counts alongside every candidate — reuse-first is something the discovery call gives you. No controlled vocabulary, no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not a closed set.
 
 ## Links
 
 Links between pages are **relative markdown links — not wikilinks.**
 
-- **Standard link:** `[prepared statements](../concepts/prepared-statements.md)`. The path is relative to the linking file's own location, so a link from `entities/` to `concepts/` climbs one level (`../concepts/…`).
-- **Anchors:** append a heading fragment — `[the budget rule](../wiki-retrieval/SKILL.md#termination-budget)` / `[…](../concepts/caching.md#ttl)`. The fragment is the GitHub-style slug of the target heading.
-- **Image embeds:** the leading-bang form — `![cache diagram](../raw/diagrams/2026-03-01-cache.png)`. Embeds may point into `raw/` (e.g. an extracted figure); ordinary links between pages stay within `wiki/`.
+- **Standard link:** `[prepared statements](../concepts/prepared-statements.md)`. Path relative to linking file's location; `entities/` to `concepts/` climbs one level (`../concepts/…`).
+- **Anchors:** append heading fragment — `[the budget rule](../wiki-retrieval/SKILL.md#termination-budget)` / `[…](../concepts/caching.md#ttl)`. Fragment is GitHub-style slug of target heading.
+- **Image embeds:** leading-bang form — `![cache diagram](../raw/diagrams/2026-03-01-cache.png)`. Embeds may point into `raw/`; ordinary links between pages stay within `wiki/`.
 
-All links are **position-spliced** on move/rename by `vault.py move` (both inbound links across the vault and outbound links inside a moved page — the splicing itself lives in `wikipage.py`), so a page can be re-filed without hand-editing references. Links into `raw/` are **percent-encoded** to handle special characters in filenames: encode space, `#`, `%`, `(`, `)`, `<`, `>`; everything else (unicode, `&`, `'`, `,`, `+`) stays literal. This keeps any filename linkable without restricting the set of permitted characters. Obsidian cannot follow a destination containing a literal space, so encoding is essential for interoperability.
+All links **position-spliced** on move/rename by `vault.py move` (both inbound links across vault and outbound links inside moved page — splicing lives in `wikipage.py`). Links into `raw/` are **percent-encoded**: encode space, `#`, `%`, `(`, `)`, `<`, `>`; everything else (unicode, `&`, `'`, `,`, `+`) stays literal. Obsidian cannot follow destination containing literal space, so encoding is essential for interoperability.
 
-**Frontmatter relationships use the same link form.** The `raw_source` field, the `supersedes` key, and every typed-edge key hold this identical `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse the leading `[` as a flow sequence. `raw_source` holds a **single** such link; `supersedes` and the typed-edge keys hold a **list** (one link per item, `- "[…](…)"`). Writing them as real markdown links keeps every relationship clickable in plain markdown viewers and in Obsidian's Properties panel with no loss of semantics, and lets `wikipage.py` rewrite frontmatter and body links by the same rule.
+**Frontmatter relationships use the same link form.** `raw_source` field, `supersedes` key, and every typed-edge key hold `[title](relative/path.md)` markdown, always **quoted** (`"[…](…)"`) so YAML doesn't parse leading `[` as flow sequence. `raw_source` holds **single** link; `supersedes` and typed-edge keys hold **list** (`- "[…](…)"`). Real markdown links keep every relationship clickable in plain markdown viewers and in Obsidian's Properties panel, and lets `wikipage.py` rewrite frontmatter and body links by same rule.
 
 ## Typed edges
 
-Typed edges are the **highest-leverage output of ingestion** — retrieval cannot recover an edge type that was never recorded. **Each edge type is its own frontmatter key**, holding a list of markdown links to the target pages:
+Typed edges are **highest-leverage output of ingestion** — retrieval cannot recover an edge type never recorded. **Each edge type is its own frontmatter key**, holding list of markdown links to target pages:
 
 ```yaml
 refines:
@@ -138,41 +138,39 @@ source:
   - "[Deploy runbook](../sources/deploy-github-actions.md)"
 ```
 
-The edge is **directional** — it reads *this page* → *key* → *target*. Include only the keys that have edges; omit the rest.
+Edge is **directional** — reads *this page* → *key* → *target*. Include only keys that have edges; omit rest.
 
 | Type | Reads as | Use when |
 |---|---|---|
-| **`refines`** | *this page refines the target* | This page sharpens, extends, or adds precision to the target's idea. The target is the broader/earlier statement; this page is the finer one. |
-| **`contradicts`** | *this page contradicts the target* | This page's claim conflicts with the target's. Record the edge even before the conflict is resolved; when it *is* resolved by replacement, also set `supersedes`. |
-| **`example-of`** | *this page is an example of the target* | This page is a concrete instance / case study of the general concept the target describes. |
-| **`source`** | *this page is sourced from the target* | This page draws its content from the target **page**. Two uses: a `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from, and — **mandatorily**, see [The chain of evidence](#the-chain-of-evidence) — every page an ingestion produces points at that raw file's `sources/` stub. Distinct from the `raw_source:` field — see [field notes](#frontmatter-schema). |
-| **`related`** | *this page is associatively related to the target* | A real connection that is none of the above. The catch-all — prefer a sharper type whenever one fits, because retrieval can follow a specific type purposefully and can only wander a `related` one. |
+| **`refines`** | *this page refines the target* | Sharpens, extends, or adds precision to target's idea. Target is broader/earlier statement; this page is finer. |
+| **`contradicts`** | *this page contradicts the target* | Claim conflicts with target's. Record edge even before conflict is resolved; when resolved by replacement, also set `supersedes`. |
+| **`example-of`** | *this page is an example of the target* | Concrete instance / case study of general concept target describes. |
+| **`source`** | *this page is sourced from the target* | Page draws content from target **page**. Two uses: `synthesis/` page lists under `source:` each `wiki/` page it was synthesized from, and — **mandatorily**, see [The chain of evidence](#the-chain-of-evidence) — every page an ingestion produces points at that raw file's `sources/` stub. Distinct from `raw_source:` field — see [field notes](#frontmatter-schema). |
+| **`related`** | *this page is associatively related to the target* | Real connection that is none of the above. Catch-all — prefer sharper type whenever one fits; retrieval can follow specific type purposefully but can only wander a `related` one. |
 
-**Guidance for ingestion:** assign the most specific type that is true; reach for `related` only when no sharper type applies. The one exception to "judge it per page" is the mandatory `source` back-edge above. Under-assigning edges is a silent quality loss — the graph is only as navigable as the edges recorded. **Guidance for retrieval:** follow the edges the question implies (a "how does X work in practice" question follows `example-of`; a "is this still true" question follows `contradicts`/`supersedes`), within the stated hop budget.
+**Ingestion guidance:** assign most specific type that is true; reach for `related` only when no sharper type applies. Exception to "judge per page" is mandatory `source` back-edge. Under-assigning edges is silent quality loss — graph only as navigable as edges recorded. **Retrieval guidance:** follow edges the question implies (a "how does X work in practice" follows `example-of`; "is this still true" follows `contradicts`/`supersedes`), within stated hop budget.
 
 ## Scripts
 
-Scripts that touch the vault resolve its root themselves (`$WIKI_ROOT`, else the nearest ancestor holding a `wiki/` directory or a `.wiki-root` marker, else cwd — see `vault.py`). Set `WIKI_ROOT` before invoking any of them. `wikipage.py` and `place.py` are the exceptions: they operate only on what you hand them, so no root is resolved.
+Scripts touching the vault resolve its root themselves (`$WIKI_ROOT`, else nearest ancestor holding `wiki/` directory or `.wiki-root` marker, else cwd — see `vault.py`). Set `WIKI_ROOT` before invoking any. `wikipage.py` and `place.py` exceptions: operate only on what you hand them, no root resolved.
 
-The scripts themselves live in *this plugin's own* install directory, not the vault — invoke them via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py` (the placeholder is substituted before you ever see this text, so the commands below are already the resolved absolute path). This works identically whether cwd is inside the plugin's own repo (dedicated mode) or a separate vault repo (query-from-anywhere mode).
+Scripts live in *this plugin's own* install directory, not the vault — invoke via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py`. Works identically in dedicated mode or query-from-anywhere mode.
 
 ### Script catalogue
 
-Everything an agent invokes, plus the two libraries this file's own contracts name. Other modules in `scripts/` are internal implementation, reached through these.
-
 | Script | Call it for | Usage |
 |---|---|---|
-| `discover.py` | Discovery before ingesting — BM25 overlap classification for every page a draft plan proposes, plus the vault's tag vocabulary. Call during ingestion step 3, before writing the real `IngestPlan`. | `discover.py --plan <draft-plan.json> [--limit N] [--duplicate-threshold F] [--related-threshold F]` → `{"pages": [{"title", "candidates": [{page_ref, title, score, hint, summary, tags, volatility, superseded_by}]}], "vocabulary": [{"tag", "count"}]}`. A single-page mode (`--title`/`--summary`/`--body-file`, same candidate shape) remains for ad-hoc checks outside a plan. |
+| `discover.py` | Discovery before ingesting — BM25 overlap classification for every page a draft plan proposes, plus vault's tag vocabulary. Call during ingestion step 3, before writing real `IngestPlan`. | `discover.py --plan <draft-plan.json> [--limit N] [--duplicate-threshold F] [--related-threshold F]` → `{"pages": [{"title", "candidates": [{page_ref, title, score, hint, summary, tags, volatility, superseded_by}]}], "vocabulary": [{"tag", "count"}]}`. Single-page mode (`--title`/`--summary`/`--body-file`) for ad-hoc checks. |
 | `search.py` | Any vault search. | `search.py "<terms>" [--tag T] [--tag-any T] [--kind K] [--since DATE] [--until DATE] [--date-field FIELD] [--volatility V] [--limit N] [--include-superseded] [--raw] [--json]`. Also `--reindex [--full]` and `--status`. |
-| `superseded_by.py` | Filtering a retrieval candidate set for currency — resolving each candidate to its current page. Call during retrieval step 4, once the frontier is expanded. | `superseded_by.py <page_ref> [<page_ref> ...] [--json]` → one `{seed, active, chain}` per candidate; `active == seed` means current, otherwise `active` is the chain's head (walked past the candidate set if needed) and `chain` lists the hops. |
-| `ingest.py` | Executing an `IngestPlan` — resolve, validate, write, commit — after the agent assembles a plan (ingestion or synthesis save). | `ingest.py --plan <path>`; add `--dry-run` to resolve and validate the plan and print the pages it would write, writing and committing nothing. `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to that file's folder's `.ingestignore` instead — the sweep's `never` answer, mutually exclusive with `--plan`. |
-| `ingest_scan.py` | Sweeping `raw/` for files needing ingestion (never-ingested, changed-since-ingestion) — `/wiki-ingest` sweep mode or `/wiki-watch` startup. | `ingest_scan.py [folder] --json`. |
-| `watch_raw.py` | Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, and queue file — launched in the background by `/wiki-watch`. | `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. `watch_raw.py [--vault ROOT] --dequeue <raw_rel>` removes one entry from the watch queue instead of watching — `/wiki-watch`'s per-file cleanup after dispatch. |
-| `vault.py` | Resolving the vault root, or moving a page (rewrites all inbound links across the vault and outbound links inside the page). Imported by most other scripts. | Bare invocation (or `vault.py root`) prints the resolved root. `vault.py move <old-page-ref> <new-page-ref>`. |
-| `init_wiki.py` | Scaffolding a new empty vault: folders, `.gitignore`, git init, optional `settings.json`. Called from `/wiki-init`. | `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. |
-| `save-session-to-vault.py` | Capturing the current session's transcript as a raw file in the vault. Called from `/save-conversation`. | `save-session-to-vault.py [--slug "<phrase>"]`. |
-| `wikipage.py` | Frontmatter edits during ingestion (discovery-driven updates, edge refinement). Pure-functional page model: get/set/merge, body access, link iteration. Imported by `vault.py`, `page_record.py`, `commit.py`, `chain_of_evidence.py`, `ingest.py`, `ingest_scan.py`, `search_index.py`. | `wikipage.py get <file> <key>` · `set <file> <key> <value> [--json]` (overwrite any field) · `merge <file> <key> <json-list>` (unions list-valued keys — `tags`, edge keys — no read-then-write needed). |
-| `page_record.py` | (library only) The single module that reads the frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges across all pages. Imported by `Vault.pages()`, `ingest_scan.py`, `search_index.py`. | No CLI. |
-| `place.py` | Computing a new page's vault-relative path from kind and title. Used by `ingest.py`; call directly to preview a planned path. | `place.py <kind> "<title>"`. |
-| `commit.py` | Writing one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns the SHA. Called by `ingest.py`; call directly for hand-assembled commits. | `commit.py --manifest <path>`. |
-| `chain_of_evidence.py` | (library only) Enforcing the page → source stub → raw file chain. Imported by `ingest.py` (pre-flight validation) and `commit.py` (commit-time gate). | No CLI. `check(staged, raw)` → list of errors. |
+| `superseded_by.py` | Filtering retrieval candidate set for currency — resolving each candidate to its current page. Call during retrieval step 4, once frontier is expanded. | `superseded_by.py <page_ref> [<page_ref> ...] [--json]` → one `{seed, active, chain}` per candidate; `active == seed` means current. |
+| `ingest.py` | Executing an `IngestPlan` — resolve, validate, write, commit — after agent assembles plan. | `ingest.py --plan <path>`; add `--dry-run` to validate and print without writing. `ingest.py --ignore <raw_rel> [--ignore-comment <text>]` appends to folder's `.ingestignore`. |
+| `ingest_scan.py` | Sweeping `raw/` for files needing ingestion (never-ingested, changed-since-ingestion). | `ingest_scan.py [folder] --json`. |
+| `watch_raw.py` | Long-running filesystem watcher over `raw/` with per-file debounce, exclusive lock, queue file — launched by `/wiki-watch`. | `watch_raw.py [--vault ROOT] [--debounce SECONDS] [--poll-interval SECONDS]`. `watch_raw.py [--vault ROOT] --dequeue <raw_rel>` removes one queue entry. |
+| `vault.py` | Resolving vault root, or moving a page (rewrites all inbound links across vault and outbound links inside moved page). | Bare invocation (or `vault.py root`) prints resolved root. `vault.py move <old-page-ref> <new-page-ref>`. |
+| `init_wiki.py` | Scaffolding new empty vault: folders, `.gitignore`, git init, optional `settings.json`. | `init_wiki.py <path> --mode {query-from-anywhere|dedicated} [--plugin-root DIR]`. |
+| `save-session-to-vault.py` | Capturing current session's transcript as raw file in vault. Called from `/save-conversation`. | `save-session-to-vault.py [--slug "<phrase>"]`. |
+| `wikipage.py` | Frontmatter edits during ingestion. Pure-functional page model: get/set/merge, body access, link iteration. | `wikipage.py get <file> <key>` · `set <file> <key> <value> [--json]` · `merge <file> <key> <json-list>` (unions list-valued keys — `tags`, edge keys). |
+| `page_record.py` | (library only) Reads frontmatter schema into typed `PageRecord` objects: derives `kind` from folder, `superseded_by` by inverting `supersedes` edges. | No CLI. |
+| `place.py` | Computing new page's vault-relative path from kind and title. | `place.py <kind> "<title>"`. |
+| `commit.py` | Writing one structured git commit per ingestion/edit manifest: stages paths, gates on chain-of-evidence, returns SHA. | `commit.py --manifest <path>`. |
+| `chain_of_evidence.py` | (library only) Enforcing page → source stub → raw file chain. Imported by `ingest.py` (pre-flight) and `commit.py` (commit-time gate). | No CLI. `check(staged, raw)` → list of errors. |
