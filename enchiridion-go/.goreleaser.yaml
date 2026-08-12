@@ -1,0 +1,42 @@
+version: 2
+
+project_name: enchiridion
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: enchiridion
+    main: ./cmd/enchiridion
+    binary: enchiridion
+    ldflags:
+      - -s -w -X github.com/dhague/enchiridion/enchiridion-go/internal/version.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: enchiridion
+    formats: [binary]
+    name_template: >-
+      {{ .Binary }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+
+release:
+  github:
+    owner: dhague
+    name: enchiridion
