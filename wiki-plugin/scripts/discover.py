@@ -159,6 +159,24 @@ def discover_plan(
 # --- CLI ---------------------------------------------------------------------
 
 
+def _parse_comma_list(s: str) -> list[str]:
+    """Comma-separated, whitespace-trimmed, empty entries dropped."""
+    return [part.strip() for part in s.split(",") if part.strip()]
+
+
+def _tags_containing(vocabulary: Sequence[tuple[str, int]], substrings: Sequence[str]) -> list[str]:
+    """Vault tags whose name contains any of ``substrings``, case-insensitive
+    OR match. Order follows ``vocabulary`` (most-used first)."""
+    needles = [s.lower() for s in substrings]
+    return [tag for tag, _ in vocabulary if any(needle in tag.lower() for needle in needles)]
+
+
+def _tag_counts(vocabulary: Sequence[tuple[str, int]], tags: Sequence[str]) -> list[tuple[str, int]]:
+    """Exact-match page count per requested tag, 0 if absent (safe to mint)."""
+    counts = dict(vocabulary)
+    return [(tag, counts.get(tag, 0)) for tag in tags]
+
+
 def _candidate_json(c: DiscoveryCandidate) -> dict:
     return {
         "page_ref": c.page_ref,
@@ -188,6 +206,16 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - thin 
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"max candidates per page (default {DEFAULT_LIMIT})")
     parser.add_argument("--duplicate-threshold", type=float, default=DUPLICATE_THRESHOLD)
     parser.add_argument("--related-threshold", type=float, default=RELATED_THRESHOLD)
+    parser.add_argument(
+        "--tags-containing", default=None,
+        help="comma-separated substrings (case-insensitive OR match); with --plan, replaces the "
+        "full tag-vocabulary JSON dump with the plain-text list of matching vault tags",
+    )
+    parser.add_argument(
+        "--tag-count", default=None,
+        help="comma-separated exact tag names; with --plan, replaces the full tag-vocabulary "
+        "JSON dump with plain-text per-tag page counts (0 if the tag doesn't exist yet)",
+    )
     args = parser.parse_args(argv)
 
     root = vault_mod.resolve_vault_root()
@@ -202,16 +230,23 @@ def _main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - thin 
             duplicate_threshold=args.duplicate_threshold,
             related_threshold=args.related_threshold,
         )
-        payload = {
+        pages_payload = {
             "pages": [
                 {"title": title, "candidates": [_candidate_json(c) for c in candidates]}
                 for title, candidates in per_page
             ],
-            "vocabulary": [
-                {"tag": tag, "count": n} for tag, n in Vault(root).tag_vocabulary()
-            ],
         }
-        print(json.dumps(payload, indent=2))
+        vocabulary = Vault(root).tag_vocabulary()
+        if args.tags_containing is not None or args.tag_count is not None:
+            print(json.dumps(pages_payload, indent=2))
+            if args.tags_containing:
+                print(_tags_containing(vocabulary, _parse_comma_list(args.tags_containing)))
+            if args.tag_count:
+                for tag, count in _tag_counts(vocabulary, _parse_comma_list(args.tag_count)):
+                    print(f"{tag} count: {count}")
+        else:
+            payload = {**pages_payload, "vocabulary": [{"tag": tag, "count": n} for tag, n in vocabulary]}
+            print(json.dumps(payload, indent=2))
         return 0
 
     body = ""
