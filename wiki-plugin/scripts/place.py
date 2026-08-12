@@ -1,6 +1,6 @@
-"""Compute a new page’s vault-relative path: kind-folder + kebab-slug of title.
+"""Compute a new page's vault-relative path: kind-folder + kebab-slug of title.
 
-*Which* kind a page belongs to is judgment (wiki-conventions’ placement
+*Which* kind a page belongs to is judgment (wiki-conventions' placement
 algorithm) and stays with the ingesting agent. Turning a chosen kind + title
 into `wiki/<kind-folder>/<slug>.md` is mechanics, and lives here so filenames
 are consistent regardless of who — or which model — is ingesting. Kind
@@ -23,7 +23,7 @@ import re
 import sys
 
 #: Kind value -> its `wiki/` folder name (ADR-0008: folders pluralize, values
-#: stay singular — `synthesis` has no distinct plural, so it’s unchanged).
+#: stay singular — `synthesis` has no distinct plural, so it's unchanged).
 #: The single source of truth for the mapping; no other module may hardcode
 #: a kind-folder string.
 KIND_FOLDERS = {
@@ -34,7 +34,7 @@ KIND_FOLDERS = {
 }
 
 #: Folder name -> kind value, for readers going the other direction
-#: (:mod:`page_record` deriving a page’s kind from its path).
+#: (:mod:`page_record` deriving a page's kind from its path).
 FOLDER_KINDS = {folder: kind for kind, folder in KIND_FOLDERS.items()}
 
 #: The fixed kind-value set (wiki-conventions, "Vault structure").
@@ -62,7 +62,7 @@ def _truncate_slug(slug: str, max_length: int) -> str:
 
 def slugify(title: str, max_length: int | None = None) -> str:
     """Return ``title`` as a lowercase kebab-slug. Apostrophes are dropped
-    rather than hyphenated ("What’s" -> "whats", not "what-s"); every other
+    rather than hyphenated ("What's" -> "whats", not "what-s"); every other
     run of non-alphanumerics collapses to one hyphen; ends are stripped.
     *max_length*, if given, truncates via :func:`_truncate_slug`.
     """
