@@ -17,7 +17,15 @@ from pathlib import Path
 
 import pytest
 
-from discover import DiscoveryCandidate, _classify, check, discover_plan
+from discover import (
+    DiscoveryCandidate,
+    _classify,
+    _parse_comma_list,
+    _tag_counts,
+    _tags_containing,
+    check,
+    discover_plan,
+)
 import ingest
 from ingest import PagePlan
 
@@ -303,3 +311,132 @@ class TestCandidatePageRefIsUsableVerbatim:
             }
         )
         ingest.validate(plan, vault_root)  # no raise — both uses accepted verbatim
+
+
+# --- #158: --tags-containing / --tag-count -----------------------------------
+
+
+class TestParseCommaList:
+    def test_splits_and_trims(self):
+        assert _parse_comma_list(" a, b ,c") == ["a", "b", "c"]
+
+    def test_drops_empty_entries(self):
+        assert _parse_comma_list("a,,b,") == ["a", "b"]
+
+
+class TestTagsContaining:
+    """Case-insensitive substring OR match against vault tag names."""
+
+    VOCAB = [("access-management", 7), ("node-access", 3), ("csm-ticket", 2), ("sourdough", 1)]
+
+    def test_matches_any_substring(self):
+        assert _tags_containing(self.VOCAB, ["access"]) == ["access-management", "node-access"]
+
+    def test_is_case_insensitive(self):
+        assert _tags_containing(self.VOCAB, ["ACCESS"]) == ["access-management", "node-access"]
+
+    def test_ors_multiple_substrings(self):
+        assert _tags_containing(self.VOCAB, ["access", "csm"]) == [
+            "access-management",
+            "node-access",
+            "csm-ticket",
+        ]
+
+    def test_no_match_returns_empty(self):
+        assert _tags_containing(self.VOCAB, ["zzz"]) == []
+
+
+class TestTagCounts:
+    """Exact-match lookup; 0 signals safe-to-mint."""
+
+    def test_existing_tag_returns_its_count(self):
+        vocab = [("access-management", 7)]
+        assert _tag_counts(vocab, ["access-management"]) == [("access-management", 7)]
+
+    def test_missing_tag_returns_zero(self):
+        vocab = [("access-management", 7)]
+        assert _tag_counts(vocab, ["user-provisioning"]) == [("user-provisioning", 0)]
+
+    def test_preserves_requested_order(self):
+        vocab = [("a", 1), ("b", 2)]
+        assert _tag_counts(vocab, ["b", "a"]) == [("b", 2), ("a", 1)]
+
+
+class TestVocabularyCLIWithTagFlags:
+    """#158: with either flag, --plan's vocabulary portion becomes plain
+    text; the pages/candidates JSON payload is untouched."""
+
+    def _plan_path(self, vault_root):
+        plan_path = vault_root / "draft-plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "title": "test plan",
+                    "pages": [
+                        {"op": "create", "title": "Connection Pooling in Postgres", "body": "", "frontmatter": {"summary": ""}},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return plan_path
+
+    def test_tags_containing_switches_vocabulary_to_plain_text(self, vault_root, monkeypatch, capsys):
+        import discover as discover_mod
+
+        _write_page(vault_root, "concepts/tagged-one.md", "Tagged One", "s", "b")
+        # give the fixture pages a shared tag via wikipage frontmatter directly
+        (vault_root / "wiki" / "concepts" / "tagged-one.md").write_text(
+            "---\ntitle: Tagged One\nsummary: s\ntags: [access-management]\n---\nb\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(discover_mod.vault_mod, "resolve_vault_root", lambda: vault_root)
+        discover_mod._main(["--plan", str(self._plan_path(vault_root)), "--tags-containing", "access"])
+        out = capsys.readouterr().out
+
+        # First line(s) are the JSON pages payload; JSON parses off the front.
+        decoder = json.JSONDecoder()
+        payload, end = decoder.raw_decode(out)
+        assert "pages" in payload
+        assert "vocabulary" not in payload
+
+        remainder = out[end:].strip()
+        assert remainder == "['access-management']"
+
+    def test_tag_count_switches_vocabulary_to_plain_text(self, vault_root, monkeypatch, capsys):
+        import discover as discover_mod
+
+        (vault_root / "wiki" / "concepts").mkdir(parents=True, exist_ok=True)
+        (vault_root / "wiki" / "concepts" / "tagged-one.md").write_text(
+            "---\ntitle: Tagged One\nsummary: s\ntags: [access-management]\n---\nb\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(discover_mod.vault_mod, "resolve_vault_root", lambda: vault_root)
+        discover_mod._main([
+            "--plan", str(self._plan_path(vault_root)),
+            "--tag-count", "access-management, user-provisioning",
+        ])
+        out = capsys.readouterr().out
+
+        decoder = json.JSONDecoder()
+        payload, end = decoder.raw_decode(out)
+        assert "pages" in payload
+        assert "vocabulary" not in payload
+
+        lines = out[end:].strip().splitlines()
+        assert lines == [
+            "access-management count: 1",
+            "user-provisioning count: 0",
+        ]
+
+    def test_neither_flag_preserves_full_json_vocabulary(self, vault_root, monkeypatch, capsys):
+        """No-flag behavior is unchanged: full JSON vocabulary dump."""
+        import discover as discover_mod
+
+        monkeypatch.setattr(discover_mod.vault_mod, "resolve_vault_root", lambda: vault_root)
+        discover_mod._main(["--plan", str(self._plan_path(vault_root))])
+        payload = json.loads(capsys.readouterr().out)
+        assert "vocabulary" in payload
+        assert isinstance(payload["vocabulary"], list)
