@@ -88,3 +88,22 @@ Rest of `wiki-plugin/scripts/` inventory: `page_record.py` (sole reader of the f
 ## Caveman
 
 The plugin's agent and skills files are compressed with /caveman-compress.
+
+# Golang conventions
+
+## Stack
+- Go 1.22+
+- Standard library preferred
+- Packages: [list key dependencies like chi, pgx, grpc, etc.]
+
+## Conventions
+- Error handling: wrap with %w and context message
+- Logging: slog (structured, JSON in prod)
+- Tests: table-driven, t.Parallel() in unit tests
+- No init() functions
+- Interfaces defined in the package that uses them, not the package that implements them
+
+## Commands
+- Build: `go build ./...`
+- Test: `go test -race ./...`
+- Lint: `golangci-lint run`
