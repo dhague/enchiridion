@@ -44,12 +44,7 @@ const gitignore = "*.rsls\n" +
 // IsVault reports whether root already looks like a vault — either vault
 // marker being present is enough.
 func IsVault(root string) bool {
-	for _, marker := range vault.Markers {
-		if _, err := os.Stat(filepath.Join(root, marker)); err == nil {
-			return true
-		}
-	}
-	return false
+	return vault.HasMarker(root)
 }
 
 func settingsJSON(pluginRoot string) (string, error) {

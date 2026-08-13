@@ -23,6 +23,11 @@ jobs:
         with:
           go-version-file: enchiridion-go/go.mod
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Build
         working-directory: enchiridion-go
         run: go build ./...

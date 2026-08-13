@@ -1,6 +1,7 @@
 package searchindex
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,17 +28,33 @@ import (
 // the plugin's `search_index.py` — so the test needs no virtualenv and pins
 // the *schema contract*, not one implementation's helper functions.
 
+// skipOrFail lets the tokenizer/schema drift guard actually guard something
+// in CI: a missing python3 or an FTS5-less sqlite3 build must fail the build
+// there, not quietly skip and go green by accident of the runner image.
+// Locally (no CI env var) it still skips, so the compat tests don't block a
+// contributor who hasn't got python3 installed.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	msg := fmt.Sprintf(format, args...)
+	if os.Getenv("CI") != "" {
+		t.Fatal(msg)
+	}
+	t.Skip(msg)
+}
+
 func pythonBin(t *testing.T) string {
 	t.Helper()
 	path, err := exec.LookPath("python3")
 	if err != nil {
-		t.Skip("python3 not on PATH; skipping cross-implementation compatibility test")
+		skipOrFail(t, "python3 not on PATH; cannot run cross-implementation compatibility test")
+		return ""
 	}
 	out, err := exec.Command(path, "-c",
 		"import sqlite3;c=sqlite3.connect(':memory:');c.execute('CREATE VIRTUAL TABLE t USING fts5(x)')").
 		CombinedOutput()
 	if err != nil {
-		t.Skipf("python3's sqlite3 has no FTS5 (%s); skipping compatibility test", strings.TrimSpace(string(out)))
+		skipOrFail(t, "python3's sqlite3 has no FTS5 (%s)", strings.TrimSpace(string(out)))
+		return ""
 	}
 	return path
 }

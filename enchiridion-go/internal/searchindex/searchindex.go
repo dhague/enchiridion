@@ -287,7 +287,9 @@ func (i *Index) fullRebuild() (Stats, error) {
 // -- core index walk -------------------------------------------------------
 
 // Reindex re-indexes the vault. full wipes first; otherwise the delta scan
-// runs. Both call the same per-page path.
+// runs. Both call the same per-page path. DurationMS is computed once here,
+// covering whichever path ran in full — for the full-rebuild path that
+// includes the drop/recreate, not just the walk.
 func (i *Index) Reindex(full bool) (Stats, error) {
 	start := time.Now()
 	var (
@@ -311,7 +313,6 @@ func (i *Index) Reindex(full bool) (Stats, error) {
 // truth and the next scan reconciles, so the index needs no all-or-nothing
 // semantic to protect.
 func (i *Index) scan() (Stats, error) {
-	start := time.Now()
 	var stats Stats
 
 	indexed, err := i.indexedFingerprints()
@@ -360,20 +361,12 @@ func (i *Index) scan() (Stats, error) {
 		stats.Removed++
 	}
 
-	if err := i.recomputeSupersededBy(); err != nil {
-		return stats, err
-	}
-	if stats.Pages, err = i.countPages(); err != nil {
-		return stats, err
-	}
-	stats.DurationMS = float64(time.Since(start).Microseconds()) / 1000
-	return stats, nil
+	return i.finishReindex(stats)
 }
 
 // reindexWalk is the full walk, no diff — every file upserted. The
 // schema-mismatch rebuild path.
 func (i *Index) reindexWalk() (Stats, error) {
-	start := time.Now()
 	var stats Stats
 
 	refs, err := vault.PageRefs(i.root)
@@ -391,14 +384,18 @@ func (i *Index) reindexWalk() (Stats, error) {
 		}
 		stats.Inserted++
 	}
+	return i.finishReindex(stats)
+}
+
+// finishReindex is the tail shared by scan and reindexWalk: invert
+// `supersedes` edges, then report the resulting page count.
+func (i *Index) finishReindex(stats Stats) (Stats, error) {
 	if err := i.recomputeSupersededBy(); err != nil {
 		return stats, err
 	}
-	if stats.Pages, err = i.countPages(); err != nil {
-		return stats, err
-	}
-	stats.DurationMS = float64(time.Since(start).Microseconds()) / 1000
-	return stats, nil
+	var err error
+	stats.Pages, err = i.countPages()
+	return stats, err
 }
 
 type fingerprint struct {
@@ -465,14 +462,8 @@ func (i *Index) UpsertPage(pageRef, text string, gitDates map[string]string) err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once Commit succeeds
 
-	for _, stmt := range []string{
-		"DELETE FROM page WHERE page_ref = ?",
-		"DELETE FROM page_tag WHERE page_ref = ?",
-		"DELETE FROM page_fts WHERE page_ref = ?",
-	} {
-		if _, err := tx.Exec(stmt, pageRef); err != nil {
-			return fmt.Errorf("indexing %s: %w", pageRef, err)
-		}
+	if err := deletePageRows(tx, pageRef); err != nil {
+		return fmt.Errorf("indexing %s: %w", pageRef, err)
 	}
 
 	_, err = tx.Exec(
@@ -508,16 +499,25 @@ func (i *Index) RemovePage(pageRef string) error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once Commit succeeds
+	if err := deletePageRows(tx, pageRef); err != nil {
+		return fmt.Errorf("removing %s from index: %w", pageRef, err)
+	}
+	return tx.Commit()
+}
+
+// deletePageRows removes pageRef's rows from every index table, the common
+// prefix of both a replace (UpsertPage) and a drop (RemovePage).
+func deletePageRows(tx *sql.Tx, pageRef string) error {
 	for _, stmt := range []string{
 		"DELETE FROM page WHERE page_ref = ?",
 		"DELETE FROM page_tag WHERE page_ref = ?",
 		"DELETE FROM page_fts WHERE page_ref = ?",
 	} {
 		if _, err := tx.Exec(stmt, pageRef); err != nil {
-			return fmt.Errorf("removing %s from index: %w", pageRef, err)
+			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // recomputeSupersededBy inverts every `supersedes` into the targets'

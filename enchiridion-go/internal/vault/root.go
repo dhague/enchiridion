@@ -16,7 +16,10 @@ import (
 // Markers are the filenames that make a directory a vault root.
 var Markers = []string{"wiki", ".wiki-root"}
 
-func hasMarker(dir string) bool {
+// HasMarker reports whether dir itself carries a vault marker (a `wiki/`
+// directory or a `.wiki-root` sentinel file) — the single check both root
+// resolution and [initwiki.IsVault] build on.
+func HasMarker(dir string) bool {
 	for _, marker := range Markers {
 		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
 			return true
@@ -58,7 +61,7 @@ func ResolveRoot(start string, lookupEnv func(string) (string, bool)) (string, e
 	}
 
 	for dir := startPath; ; {
-		if hasMarker(dir) {
+		if HasMarker(dir) {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)

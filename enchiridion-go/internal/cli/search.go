@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -9,6 +10,37 @@ import (
 	"github.com/dhague/enchiridion/enchiridion-go/internal/searchindex"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/vault"
 )
+
+// dateFieldFlag is a pflag.Value with a fixed choice set, mirroring
+// search.py's `argparse.choices=("source_date", "git_date")` — a bad value
+// is a usage error at flag-parsing time, not a query-time error surfaced
+// only after Search runs. It writes straight into the [searchindex.Query]
+// field it flags, rather than a local var later copied in.
+type dateFieldFlag struct{ target *string }
+
+func (f dateFieldFlag) String() string { return *f.target }
+func (f dateFieldFlag) Type() string   { return "string" }
+func (f dateFieldFlag) Set(value string) error {
+	switch value {
+	case "source_date", "git_date":
+		*f.target = value
+		return nil
+	default:
+		return fmt.Errorf("must be 'source_date' or 'git_date', got %q", value)
+	}
+}
+
+// commaListFlag is a pflag.Value taking a comma-separated string and
+// splitting it straight into the []string [searchindex.Query] field it
+// flags, so --kind/--volatility need no local string var copied in later.
+type commaListFlag struct{ target *[]string }
+
+func (f commaListFlag) String() string { return strings.Join(*f.target, ",") }
+func (f commaListFlag) Type() string   { return "string" }
+func (f commaListFlag) Set(value string) error {
+	*f.target = splitCommaList(value)
+	return nil
+}
 
 // newSearchCommand ports `wiki-plugin/scripts/search.py`, flag for flag, so
 // a migrated SKILL.md's invocation differs only in the program name.
@@ -18,19 +50,13 @@ import (
 // [searchindex.Hit] per line; the default is a compact one-line-per-hit
 // table a Haiku agent can read directly.
 func newSearchCommand() *cobra.Command {
-	var (
-		tags       []string
-		tagsAny    []string
-		kind       string
-		since      string
-		until      string
-		dateField  string
-		volatility string
-		limit      int
+	// query is bound to directly by the flags below (see dateFieldFlag /
+	// commaListFlag), so there is no local-var-per-flag copied field-for-field
+	// into a Query at RunE time.
+	query := searchindex.Query{DateField: "source_date", Limit: 20}
 
-		includeSuperseded bool
-		raw               bool
-		asJSON            bool
+	var (
+		asJSON bool
 
 		reindex bool
 		full    bool
@@ -62,23 +88,10 @@ func newSearchCommand() *cobra.Command {
 				return runReindex(cmd, index, full, asJSON)
 			}
 
-			var text string
 			if len(args) == 1 {
-				text = args[0]
+				query.Text = args[0]
 			}
-			hits, err := index.Search(searchindex.Query{
-				Text:              text,
-				Raw:               raw,
-				TagsAll:           tags,
-				TagsAny:           tagsAny,
-				Kinds:             splitCommaList(kind),
-				Since:             since,
-				Until:             until,
-				DateField:         dateField,
-				Volatility:        splitCommaList(volatility),
-				IncludeSuperseded: includeSuperseded,
-				Limit:             limit,
-			})
+			hits, err := index.Search(query)
 			if err != nil {
 				return err
 			}
@@ -87,22 +100,22 @@ func newSearchCommand() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringArrayVar(&tags, "tag", nil,
+	flags.StringArrayVar(&query.TagsAll, "tag", nil,
 		"filter by tag; repeat for tags_all (AND) and combine with --tag-any for OR")
-	flags.StringArrayVar(&tagsAny, "tag-any", nil,
+	flags.StringArrayVar(&query.TagsAny, "tag-any", nil,
 		"filter by tag (OR semantics across the listed tags)")
-	flags.StringVar(&kind, "kind", "",
+	flags.Var(commaListFlag{&query.Kinds}, "kind",
 		"filter by kind (concept|entity|source|synthesis); comma-separated for multiple")
-	flags.StringVar(&since, "since", "", "ISO date; inclusive lower bound on date_field")
-	flags.StringVar(&until, "until", "", "ISO date; inclusive upper bound on date_field")
-	flags.StringVar(&dateField, "date-field", "source_date",
+	flags.StringVar(&query.Since, "since", "", "ISO date; inclusive lower bound on date_field")
+	flags.StringVar(&query.Until, "until", "", "ISO date; inclusive upper bound on date_field")
+	flags.Var(dateFieldFlag{&query.DateField}, "date-field",
 		"which date the --since/--until bounds apply to (source_date|git_date)")
-	flags.StringVar(&volatility, "volatility", "",
+	flags.Var(commaListFlag{&query.Volatility}, "volatility",
 		"filter by volatility (stable|evolving|volatile); comma-separated for multiple")
-	flags.IntVar(&limit, "limit", 20, "max hits")
-	flags.BoolVar(&includeSuperseded, "include-superseded", false,
+	flags.IntVar(&query.Limit, "limit", 20, "max hits")
+	flags.BoolVar(&query.IncludeSuperseded, "include-superseded", false,
 		"include pages that have been superseded (default: filter them out)")
-	flags.BoolVar(&raw, "raw", false,
+	flags.BoolVar(&query.Raw, "raw", false,
 		"pass the text through as a literal FTS5 expression (escape hatch)")
 	flags.BoolVar(&asJSON, "json", false, "emit results as JSON Lines (one object per line)")
 	flags.BoolVar(&reindex, "reindex", false, "rebuild the index")
