@@ -109,3 +109,7 @@ The plugin's agent and skills files are compressed with /caveman-compress.
 - Build: `go build ./...`
 - Test: `go test -race ./...`
 - Lint: `golangci-lint run`
+
+# Git hygiene
+
+Do your work in a worktree and push to a PR branch. Wait for the user to confirm the branch has been merged before cleaning up.
