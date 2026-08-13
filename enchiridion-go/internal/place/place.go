@@ -49,7 +49,7 @@ const MaxSlugLength = 64
 const minWordCut = 8
 
 var (
-	apostrophe = regexp.MustCompile(`['\x{2019}]`)
+	apostrophe = regexp.MustCompile(`['’]`)
 	nonAlnum   = regexp.MustCompile(`[^a-z0-9]+`)
 )
 

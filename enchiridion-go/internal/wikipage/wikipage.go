@@ -16,6 +16,7 @@ import (
 	"fmt"
 	gopath "path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -87,10 +88,8 @@ func PercentDecode(path string) string {
 	var b strings.Builder
 	for i := 0; i < len(path); i++ {
 		if path[i] == '%' && i+2 < len(path) {
-			hi, hiOK := unhex(path[i+1])
-			lo, loOK := unhex(path[i+2])
-			if hiOK && loOK {
-				b.WriteByte(hi<<4 | lo)
+			if v, err := strconv.ParseUint(path[i+1:i+3], 16, 8); err == nil {
+				b.WriteByte(byte(v))
 				i += 2
 				continue
 			}
@@ -98,18 +97,6 @@ func PercentDecode(path string) string {
 		b.WriteByte(path[i])
 	}
 	return b.String()
-}
-
-func unhex(c byte) (byte, bool) {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0', true
-	case c >= 'a' && c <= 'f':
-		return c - 'a' + 10, true
-	case c >= 'A' && c <= 'F':
-		return c - 'A' + 10, true
-	}
-	return 0, false
 }
 
 // SplitDest splits an encoded link destination into its decoded path and
