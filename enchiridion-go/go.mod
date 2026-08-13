@@ -3,10 +3,13 @@ module github.com/dhague/enchiridion/enchiridion-go
 go 1.26.5
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/ncruces/go-sqlite3 v0.35.3
 	github.com/spf13/cobra v1.10.2
 	github.com/yuin/goldmark v1.8.5
+	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	pgregory.net/rapid v1.3.0
 )
@@ -34,6 +37,5 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

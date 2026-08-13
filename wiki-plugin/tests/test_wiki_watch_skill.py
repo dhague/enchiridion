@@ -36,14 +36,15 @@ def test_frontmatter_has_expected_name_and_description():
     assert "description" in fields and fields["description"]
 
 
-def test_procedure_references_watch_raw_script():
+def test_procedure_references_watch_subcommand():
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "watch_raw.py" in text
+    assert "enchiridion" in text
+    assert "watch" in text
 
 
 def test_procedure_references_ingest_scan_and_wiki_ingest():
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "ingest_scan.py" in text
+    assert "ingest-scan" in text
     assert "wiki-ingest" in text
 
 

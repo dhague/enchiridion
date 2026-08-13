@@ -52,10 +52,10 @@ Given a question:
 
    `source` excluded from fallback — belongs to provenance path, not general expansion. Only follow it when question matches provenance row below.
 
-4. **Filter frontier for currency.** Superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and recorded fact beats any recency guess. Run `scripts/superseded_by.py` with every candidate's `page_ref` as positional arg (`--json` for machine-readable line per candidate); walks each one's `supersedes` inversions in-process and returns each candidate's *active* page:
+4. **Filter frontier for currency.** Superseded page is never an answer — `supersedes` is a *recorded fact* (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)), and recorded fact beats any recency guess. Run `"<plugin-root>/bin/enchiridion" superseded-by` with every candidate's `page_ref` as positional arg (`--json` for machine-readable line per candidate); walks each one's `supersedes` inversions in-process and returns each candidate's *active* page:
 
    ```
-   python superseded_by.py wiki/concepts/a.md wiki/concepts/x.md --json
+   "<plugin-root>/bin/enchiridion" superseded-by wiki/concepts/a.md wiki/concepts/x.md --json
    ```
 
    Each result: `{"seed": ..., "active": ..., "chain": [...]}`. Apply directly — **no need to re-derive by hand:**

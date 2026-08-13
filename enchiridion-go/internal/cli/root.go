@@ -25,6 +25,13 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newSearchCommand())
 	root.AddCommand(newInitCommand())
 	root.AddCommand(newIngestCommand())
+	root.AddCommand(newCommitCommand())
+	root.AddCommand(newDiscoverCommand())
+	root.AddCommand(newIngestScanCommand())
+	root.AddCommand(newSupersededByCommand())
+	root.AddCommand(newSaveSessionCommand())
+	root.AddCommand(newToolCallStatsCommand())
+	root.AddCommand(newWatchCommand())
 
 	return root
 }

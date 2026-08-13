@@ -152,6 +152,61 @@ func fallbackHost() string {
 	return "localhost"
 }
 
+// LastCommitDate returns the last commit date of rel (YYYY-MM-DD), or "" when
+// root isn't a work tree, rel was never committed, or the history can't be
+// walked.
+//
+// **Lenient:** "" is the default, never an error — the sweep reads "fail
+// toward offering" off this, since a missing date must err toward re-offering
+// the file, the only safe direction for a signal that must not lose data.
+func (r *Repo) LastCommitDate(rel string) string {
+	repo, err := r.open()
+	if err != nil {
+		return ""
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	iter, err := repo.Log(&git.LogOptions{
+		From:       head.Hash(),
+		PathFilter: func(path string) bool { return path == rel },
+	})
+	if err != nil {
+		return ""
+	}
+	defer iter.Close()
+	commit, err := iter.Next()
+	if err != nil {
+		return ""
+	}
+	return commit.Author.When.Format(time.DateOnly)
+}
+
+// PorcelainMentions reports whether rel is modified or untracked in the
+// working tree — the `git status --porcelain -- rel` signal. Untracked
+// counts: a brand-new file isn't in git's index at all, and finding it is the
+// point.
+//
+// **Lenient:** false when root isn't a work tree or the status can't be read —
+// the sweep treats "can't tell if dirty" as "clean".
+func (r *Repo) PorcelainMentions(rel string) bool {
+	repo, err := r.open()
+	if err != nil {
+		return false
+	}
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return false
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		return false
+	}
+	_, ok := status[rel]
+	return ok
+}
+
 // CommitDates returns {vault-relative page_ref: YYYY-MM-DD} — the most
 // recent commit date per file, for `.md` files under `wiki/` only.
 //
