@@ -7,3 +7,5 @@
 .mcp.json
 tmp/
 wiki-plugin/.claude/wiki-knowledge/sessions/
+.lsp.json
+opencode.json
