@@ -22,7 +22,7 @@ Raw folder may carry `raw/<folder>/INGESTION.md`: freeform human instructions fo
 
 - **Lookup is document's own folder only.** Ingesting `raw/emails/foo.eml` looks for `raw/emails/INGESTION.md`. **No ancestor walk** — `raw/INGESTION.md` and vault-root not consulted. No precedence question.
 - **Hints win on conflict.** Explicit override, not tiebreaker. Folder's `INGESTION.md` "file as `entities/` pages, one per person" beats default placement algorithm.
-- **Cannot extend frontmatter schema or waive chain of evidence.** `wiki-conventions` schema is fixed contract; hint steers judgment inside procedure — chunking, tag preference, `source_date` derivation, kind, typed edges — never adds frontmatter key, kind, or folder. "List recipients" puts recipients in page **body**; does not mint `recipients:` key. `source/` stub and back-edges not optional — `ingest.py` rejects plan without them regardless.
+- **Cannot extend frontmatter schema or waive chain of evidence.** `wiki-conventions` schema is fixed contract; hint steers judgment inside procedure — chunking, tag preference, `source_date` derivation, kind, typed edges — never adds frontmatter key, kind, or folder. "List recipients" puts recipients in page **body**; does not mint `recipients:` key. `source/` stub and back-edges not optional — `enchiridion ingest` rejects plan without them regardless.
 - **An `INGESTION.md` is never itself ingested.** Instructions, not content — if handed as `<path>`, skip.
 
 Folder may also carry `.ingestignore`, sweep-only policy — see [`reference/sweep.md`](reference/sweep.md); no bearing on this procedure.
@@ -39,10 +39,10 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
    - **`distinct` (or no candidates).** New subject. Keep as `op: "create"`; consider surfaced pages as typed-edge targets in step 4.
    - **`related`.** Worth typed edge (usually `related`, sometimes `example-of`) from new page in step 4, not same subject — keep as `op: "create"`.
    - **`duplicate` or `refines`, no conflict.** Candidate adds to or restates existing page without contradicting. Set plan entry to `op: "update"` targeting `page_ref` — step 4 fills whichever of `summary`/`tags`/`source_date`/`volatility`/`body` changes. Record as `updated`, not `created`, in manifest and commit.
-     - List-valued keys (`tags`, edge-lists: `refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) **unioned** with existing values when `ingest.py` applies plan — never diff, always full intended membership.
+     - List-valued keys (`tags`, edge-lists: `refines`/`contradicts`/`example-of`/`source`/`related`/`supersedes`) **unioned** with existing values when `enchiridion ingest` applies plan — never diff, always full intended membership.
    - **Contradiction.** Candidate conflicts with existing page's claim — semantic judgment hint can't make (only measures lexical overlap), check regardless. **Never overwrite existing page.** Keep new page as `op: "create"`, set `contradicts` and `supersedes` on it pointing at superseded `page_ref`. Superseded page content untouched; only new page carries these edges.
    - Candidate touching multiple existing pages: judge each pairing independently — document can update one while contradicting another.
-4. **Finish the plan.** Fill `edges` and any frontmatter step 3 left open on `<plan.json>` — placement, frontmatter, body, index, commit one downstream call: `python "<plugin-root>/scripts/ingest.py" --plan <plan.json>` (step 5). Full shape:
+4. **Finish the plan.** Fill `edges` and any frontmatter step 3 left open on `<plan.json>` — placement, frontmatter, body, commit one downstream call: `"<plugin-root>/bin/enchiridion" ingest --plan <plan.json>` (step 5). Full shape:
 
    ```jsonc
    {
@@ -57,7 +57,7 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
          "body": "<what this artifact is; thin when its content was distilled into the pages below>",
          "frontmatter": {
            "summary": "<one line, ≤~20 words>",
-           "raw_source": true   // required here, omitted on every other kind — marks this page as the "raw" field's stub; ingest.py composes the actual link
+           "raw_source": true   // required here, omitted on every other kind — marks this page as the "raw" field's stub; `enchiridion ingest` composes the actual link
          },
          "edges": {}
        },
@@ -93,14 +93,14 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
    }
    ```
 
-   Every `edges` value and `raw_source: true` names target by **vault-relative path only** (`"wiki/concepts/foo.md"`, matching `place.KIND_FOLDERS` folders) — never a composed `[Title](../dest.md)` string. `ingest.py` reads each target's title (on disk or from sibling in plan), works out `../` relativisation, percent-encodes destination; never build link string by hand. Exception: *body* links — write as ordinary markdown (`[label](destination)`), encoded or not; `ingest.py` re-encodes on write.
+   Every `edges` value and `raw_source: true` names target by **vault-relative path only** (`"wiki/concepts/foo.md"`, matching `place.KIND_FOLDERS` folders) — never a composed `[Title](../dest.md)` string. `enchiridion ingest` reads each target's title (on disk or from sibling in plan), works out `../` relativisation, percent-encodes destination; never build link string by hand. Exception: *body* links — write as ordinary markdown (`[label](destination)`), encoded or not; `enchiridion ingest` re-encodes on write.
 
    Judgment calls when filling in (folder's `INGESTION.md` may override any, except where noted):
-   - **Kind** (create pages only): per [Placement algorithm](../wiki-conventions/SKILL.md#placement-algorithm), first match wins. `ingest.py` computes kebab-slug from `kind`+`title` — never hand-slugify.
+   - **Kind** (create pages only): per [Placement algorithm](../wiki-conventions/SKILL.md#placement-algorithm), first match wins. `enchiridion ingest` computes kebab-slug from `kind`+`title` — never hand-slugify.
    - **The `source/` stub is not optional** (see [The chain of evidence](../wiki-conventions/SKILL.md#the-chain-of-evidence)) — thin fine, absent not. Prior pass already filed stub: target with `op: "update"`, not second create.
    - **Typed edges** ([vocabulary](../wiki-conventions/SKILL.md#typed-edges)) — judge for **every new or updated page** against every page surfaced in step 3. Assign most specific type true (`related` only as fallback); `contradicts`/`supersedes` decided by step 3, belong on *new* page only — never on superseded page.
      - Non-judgment edge: **every page except stub carries `source` edge to stub** — each chunk of multi-chunk split, `op: "update"` same as `create`. Edges merge on update so restating safe; omit only if page already carries it from earlier pass.
    - **Body** for `update` page: write *complete* new body (not diff) when material changes; omit `body` key entirely to leave existing body untouched. For `create`, `body` always required.
-   - **`raw_source: true`** derives link from plan's `raw` field. **Ingestion never renames raw file** — file from outside plugin keeps name verbatim; don't add `YYYY-MM-DD-hhmm-` prefix (bound at creation, plugin-created files only). `ingest.py` mechanics: literal `#` separates anchor from path, so `#` in *filename* must be `%23`; unbalanced `)` in filename must be encoded (destination ends at first unbalanced `)`).
-5. **Run it.** `python "<plugin-root>/scripts/ingest.py" --plan <plan.json>` validates whole plan up front (required fields, `update` `page_ref` exists, `create` target doesn't yet, every edge/`raw_source` resolves — including siblings this plan creates — and when `raw` set, chain of evidence: stub exists and every page links back) before writing, then executes place → frontmatter → body → index → commit in one pass and prints commit SHA. On error: nothing committed, written pages left on disk uncommitted (writes idempotent — fix plan and rerun, don't hand-repair).
+   - **`raw_source: true`** derives link from plan's `raw` field. **Ingestion never renames raw file** — file from outside plugin keeps name verbatim; don't add `YYYY-MM-DD-hhmm-` prefix (bound at creation, plugin-created files only). `enchiridion ingest` mechanics: literal `#` separates anchor from path, so `#` in *filename* must be `%23`; unbalanced `)` in filename must be encoded (destination ends at first unbalanced `)`).
+5. **Run it.** `"<plugin-root>/bin/enchiridion" ingest --plan <plan.json>` validates whole plan up front (required fields, `update` `page_ref` exists, `create` target doesn't yet, every edge/`raw_source` resolves — including siblings this plan creates — and when `raw` set, chain of evidence: stub exists and every page links back) before writing, then executes place → frontmatter → body → commit in one pass (index not touched — next search's staleness scan picks the pages up) and prints commit SHA. On error: nothing committed, written pages left on disk uncommitted (writes idempotent — fix plan and rerun, don't hand-repair).
 6. **Report.** Short manifest only — pages created vs. updated, edges added, `supersedes` pairs recorded. No page-content dumps.

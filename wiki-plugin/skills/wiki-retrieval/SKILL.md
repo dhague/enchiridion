@@ -108,7 +108,7 @@ Given a question:
    ```
    ````
 
-   Field notes: `summary` is one line, ≤ ~20 words — what *next* retrieval judges this page by, write it as well as you'd want to find it. `source_date` is **today** — synthesis made today even if inputs are older. `volatility` is **most volatile** of cited pages: synthesis only as durable as shakiest input. `source:` lists every page actually cited, as vault-relative paths (`ingest.py` composes actual links when plan runs) — nothing merely skimmed.
+   Field notes: `summary` is one line, ≤ ~20 words — what *next* retrieval judges this page by, write it as well as you'd want to find it. `source_date` is **today** — synthesis made today even if inputs are older. `volatility` is **most volatile** of cited pages: synthesis only as durable as shakiest input. `source:` lists every page actually cited, as vault-relative paths (`enchiridion ingest` composes actual links when plan runs) — nothing merely skimmed.
 
    If neither bar holds, don't mention saving. Offering every answer trains user to say no — how confirmation gate stops working.
 
@@ -164,7 +164,7 @@ For **session holding the conversation** — invoked `wiki-researcher` and got `
            "volatility": "<the candidate's volatility>"
          },
          "edges": {
-           "source": ["wiki/concepts/db-connection-pooling.md"]   // one per cited page — the block's vault-relative paths, unchanged; ingest.py composes the actual link
+           "source": ["wiki/concepts/db-connection-pooling.md"]   // one per cited page — the block's vault-relative paths, unchanged; `enchiridion ingest` composes the actual link
          }
        }
      ]
@@ -174,14 +174,14 @@ For **session holding the conversation** — invoked `wiki-researcher` and got `
    One conversion the block leaves to you:
    - **`body`** — rewrite answer as a page, not a transcript: no "you asked", no search-trajectory line, no "per the vault". Keep citations as inline relative links, keep temporal framing (synthesis inherits inputs' uncertainty and must not launder it into confidence).
 
-   `source:` needs no conversion — block's paths are already vault-relative, exactly what `edges` takes; `ingest.py` composes title, `../` relativisation, and encoding, and its validation rejects target that doesn't resolve to real page.
+   `source:` needs no conversion — block's paths are already vault-relative, exactly what `edges` takes; `enchiridion ingest` composes title, `../` relativisation, and encoding, and its validation rejects target that doesn't resolve to real page.
 
    No `raw` field and no `raw_source` — synthesis page has no raw artifact; stands on `source` edges to other pages. That is the `raw_source:`/`source:` split the schema draws.
 
 4. **Run it and report.**
 
    ```bash
-   python "<plugin-root>/scripts/ingest.py" --plan <plan.json>
+   "<plugin-root>/bin/enchiridion" ingest --plan <plan.json>
    ```
 
    Validates whole plan before touching disk, then writes page and makes one structured commit — printing SHA. Report path and SHA in one line. If it raises, nothing was committed; fix plan and rerun (writes are idempotent).
