@@ -69,7 +69,7 @@ func TestSetLeavesNonLinkScalarsUnquoted(t *testing.T) {
 
 func TestMergeUnionsPreservingOrder(t *testing.T) {
 	src := "---\ntags:\n  - a\n  - b\n---\nbody\n"
-	page, err := MergeStrings(Page{Text: src}, "tags", []string{"b", "c"})
+	page, err := Page{Text: src}.MergeStrings("tags", []string{"b", "c"})
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestMergeUnionsPreservingOrder(t *testing.T) {
 }
 
 func TestMergeOnAbsentKeyBehavesLikeSet(t *testing.T) {
-	page, err := MergeStrings(Page{Text: "---\ntitle: A\n---\nbody\n"}, "tags", []string{"x"})
+	page, err := Page{Text: "---\ntitle: A\n---\nbody\n"}.MergeStrings("tags", []string{"x"})
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
 	}

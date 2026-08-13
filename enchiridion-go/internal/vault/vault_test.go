@@ -47,6 +47,46 @@ func TestLoadAndWriteRoundTrip(t *testing.T) {
 	}
 }
 
+// Exists answers "is there a page here"; Occupied answers "may a create
+// claim this path". A directory splits them.
+func TestExistsVersusOccupiedOnADirectory(t *testing.T) {
+	v := writeVault(t, map[string]string{"wiki/concepts/a.md/nested.md": "x\n"})
+	if v.Exists("wiki/concepts/a.md") {
+		t.Error("Exists = true for a directory")
+	}
+	if !v.Occupied("wiki/concepts/a.md") {
+		t.Error("Occupied = false for a directory; a create must not claim it")
+	}
+	if v.Occupied("wiki/concepts/absent.md") {
+		t.Error("Occupied = true for a path with nothing at it")
+	}
+}
+
+func TestLegacyKindFolders(t *testing.T) {
+	v := writeVault(t, map[string]string{
+		"wiki/concept/old.md":  "x\n", // pre-ADR-0008 singular
+		"wiki/source/old.md":   "x\n", // pre-ADR-0008 singular
+		"wiki/concepts/new.md": "x\n", // canonical
+		"wiki/synthesis/s.md":  "x\n", // its own plural — never legacy
+		"wiki/decisions/d.md":  "x\n", // a custom kind-folder — not legacy
+	})
+	legacy, err := v.LegacyKindFolders()
+	if err != nil {
+		t.Fatalf("LegacyKindFolders: %v", err)
+	}
+	if strings.Join(legacy, ",") != "concept,source" {
+		t.Errorf("LegacyKindFolders = %v, want [concept source]", legacy)
+	}
+}
+
+func TestLegacyKindFoldersOnAMigratedVault(t *testing.T) {
+	v := writeVault(t, map[string]string{"wiki/concepts/a.md": "x\n"})
+	legacy, err := v.LegacyKindFolders()
+	if err != nil || len(legacy) != 0 {
+		t.Errorf("LegacyKindFolders = %v, %v; want none, nil", legacy, err)
+	}
+}
+
 func TestLoadWikiPagesNeverWalksRaw(t *testing.T) {
 	v := writeVault(t, map[string]string{
 		"wiki/concepts/a.md": "a\n",

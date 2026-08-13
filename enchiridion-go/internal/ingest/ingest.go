@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	gopath "path"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -18,6 +17,15 @@ import (
 // MaxPathLength caps a full path (vault root plus vault-relative path), for
 // Windows' 255-char limit (#70).
 const MaxPathLength = 255
+
+// The two verbs a plan page may carry. Named because placement, frontmatter
+// projection, both validation passes and execution each branch on them, and
+// a typo in one of those literals would be a silently wrong branch rather
+// than a compile error.
+const (
+	opCreate = "create"
+	opUpdate = "update"
+)
 
 // ErrPlan is returned when a plan fails shape or semantic validation. The
 // wrapped message lists every problem found, not just the first.
@@ -36,9 +44,10 @@ type ResolvedPage struct {
 	// create starts blank, an update from its on-disk copy, so a re-ingest's
 	// existing edges and the fresh plan's edges are both visible at once.
 	Page *wikipage.Page
-	// Exists records whether PageRef was already taken when the plan was
-	// resolved — a create may not claim it.
-	Exists bool
+	// Occupied records whether anything was already at PageRef when the plan
+	// was resolved — a create may not claim it. A *directory* counts, which
+	// is why this is not the same question as Loaded.
+	Occupied bool
 	// Loaded records whether an existing page was read as this page's base.
 	// An update needs one; a create never has one.
 	Loaded bool
@@ -61,6 +70,19 @@ type Resolved struct {
 	ExtraKindFolders map[string]string
 }
 
+// vault returns a handle on the vault this plan resolved against, or nil when
+// it resolved without one.
+//
+// A [vault.Vault] is just a pinned root, so minting one per use costs
+// nothing and beats carrying a field that a directly-constructed Resolved
+// (the test path) would leave nil.
+func (r *Resolved) vault() *vault.Vault {
+	if r.Root == "" {
+		return nil
+	}
+	return vault.New(r.Root)
+}
+
 // Resolve turns plan into the exact pages the vault will hold.
 //
 // Pure apart from vault reads: placement, frontmatter projection and link
@@ -72,6 +94,19 @@ func Resolve(plan Plan, root string) (*Resolved, error) {
 	extraKindFolders := map[string]string{}
 	if root != "" {
 		v = vault.New(root)
+		// Refuse an unmigrated vault outright rather than filing pages into
+		// the plural folders while the old ones sit in the singular — see
+		// [vault.Vault.LegacyKindFolders].
+		legacy, err := v.LegacyKindFolders()
+		if err != nil {
+			return nil, err
+		}
+		if len(legacy) > 0 {
+			return nil, fmt.Errorf(
+				"%s holds pre-ADR-0008 kind-folders (wiki/%s); run the #114 migration "+
+					"(python wiki-plugin/scripts/migrate_kind_folders_0114.py) before ingesting",
+				root, strings.Join(legacy, ", wiki/"))
+		}
 		discovered, err := v.DiscoveredKinds()
 		if err != nil {
 			return nil, err
@@ -106,7 +141,7 @@ func Resolve(plan Plan, root string) (*Resolved, error) {
 
 		base := wikipage.Page{}
 		loaded := false
-		if planPage.Op == "update" && v != nil && v.Exists(pageRef) {
+		if planPage.Op == opUpdate && v != nil && v.Exists(pageRef) {
 			existing, err := v.Load(pageRef)
 			if err != nil {
 				return nil, err
@@ -121,11 +156,11 @@ func Resolve(plan Plan, root string) (*Resolved, error) {
 		page = applyBody(page, planPage.Body)
 
 		resolved.Pages = append(resolved.Pages, ResolvedPage{
-			Plan:    planPage,
-			PageRef: pageRef,
-			Page:    &page,
-			Exists:  v != nil && v.Exists(pageRef),
-			Loaded:  loaded,
+			Plan:     planPage,
+			PageRef:  pageRef,
+			Page:     &page,
+			Occupied: v != nil && v.Occupied(pageRef),
+			Loaded:   loaded,
 		})
 	}
 	return resolved, nil
@@ -138,7 +173,7 @@ func Resolve(plan Plan, root string) (*Resolved, error) {
 // The **only** caller of [place.Path] in this package — every other consumer
 // reads [ResolvedPage.PageRef].
 func pageRef(page PagePlan, extraKindFolders map[string]string) string {
-	if page.Op != "create" {
+	if page.Op != opCreate {
 		return page.PageRef
 	}
 	if page.Title == "" {
@@ -187,7 +222,7 @@ func applyFrontmatter(
 		return page, err
 	}
 
-	merging := planPage.Op == "update"
+	merging := planPage.Op == opUpdate
 	for key, value := range planPage.Frontmatter.All {
 		if key == "raw_source" && value == true {
 			if plan.Raw == "" {
@@ -212,7 +247,7 @@ func applyFrontmatter(
 			links[i] = wikipage.ComposeLink(resolveTitle(ref, titles, v), ref, pageDir)
 		}
 		if merging {
-			page, err = wikipage.MergeStrings(page, key, links)
+			page, err = page.MergeStrings(key, links)
 		} else {
 			page, err = page.Set(key, links)
 		}
@@ -258,7 +293,7 @@ func (r *Resolved) shapeErrors() []string {
 		page := rp.Plan
 		prefix := fmt.Sprintf("pages[%d]", i)
 
-		if page.Op != "create" && page.Op != "update" {
+		if page.Op != opCreate && page.Op != opUpdate {
 			problems = append(problems,
 				fmt.Sprintf("%s.op must be 'create' or 'update', got %q", prefix, page.Op))
 			continue
@@ -267,7 +302,7 @@ func (r *Resolved) shapeErrors() []string {
 			problems = append(problems, prefix+".title is required")
 		}
 
-		if page.Op == "create" {
+		if page.Op == opCreate {
 			if page.PageRef != "" {
 				problems = append(problems, prefix+".page_ref must not be set for op=create")
 			}
@@ -292,7 +327,10 @@ func (r *Resolved) shapeErrors() []string {
 			}
 		}
 
-		if rawSource, present := page.Frontmatter.Get("raw_source"); present {
+		// An explicit null reads as absent, matching Python's
+		// `frontmatter.get("raw_source") is not None` — a plan valid there
+		// must not be rejected here.
+		if rawSource, present := page.Frontmatter.Get("raw_source"); present && rawSource != nil {
 			switch {
 			case rawSource != true:
 				problems = append(problems, fmt.Sprintf(
@@ -313,14 +351,14 @@ func (r *Resolved) semanticErrors() []string {
 	if r.Root == "" {
 		return nil
 	}
-	v := vault.New(r.Root)
+	v := r.vault()
 	var problems []string
 
 	// A page this same plan is about to create counts as resolvable too, so
 	// sibling new pages can link to each other before either exists on disk.
 	prospective := map[string]bool{}
 	for _, rp := range r.Pages {
-		if rp.Op() == "create" && rp.PageRef != "" {
+		if rp.Op() == opCreate && rp.PageRef != "" {
 			prospective[rp.PageRef] = true
 		}
 	}
@@ -328,23 +366,23 @@ func (r *Resolved) semanticErrors() []string {
 	for i, rp := range r.Pages {
 		page := rp.Plan
 		prefix := fmt.Sprintf("pages[%d]", i)
-		if page.Op != "create" && page.Op != "update" {
+		if page.Op != opCreate && page.Op != opUpdate {
 			continue
 		}
 
 		switch {
-		case page.Op == "create" && rp.PageRef != "":
-			if rp.Exists {
+		case page.Op == opCreate && rp.PageRef != "":
+			if rp.Occupied {
 				problems = append(problems,
 					fmt.Sprintf("%s: create target %s already exists", prefix, rp.PageRef))
 			}
-			full := filepath.Join(r.Root, filepath.FromSlash(rp.PageRef))
+			full := v.Path(rp.PageRef)
 			if len(full) > MaxPathLength {
 				problems = append(problems, fmt.Sprintf(
 					"%s: path %s exceeds %d chars (%d chars with vault root)",
 					prefix, rp.PageRef, MaxPathLength, len(full)))
 			}
-		case page.Op == "update" && rp.PageRef != "" && !rp.Loaded:
+		case page.Op == opUpdate && rp.PageRef != "" && !rp.Loaded:
 			problems = append(problems,
 				fmt.Sprintf("%s.page_ref %s does not exist", prefix, rp.PageRef))
 		}
@@ -412,7 +450,7 @@ func (r *Resolved) Execute(git commit.Git) (string, error) {
 	if r.Root == "" {
 		return "", fmt.Errorf("%w: cannot execute a plan resolved without a vault root", ErrPlan)
 	}
-	v := vault.New(r.Root)
+	v := r.vault()
 
 	var created, updated []string
 	var superseded []commit.Supersession
@@ -424,7 +462,7 @@ func (r *Resolved) Execute(git commit.Git) (string, error) {
 		if err := v.Write(resolved.PageRef, *resolved.Page); err != nil {
 			return "", err
 		}
-		if resolved.Op() != "create" {
+		if resolved.Op() != opCreate {
 			updated = append(updated, resolved.PageRef)
 			continue
 		}

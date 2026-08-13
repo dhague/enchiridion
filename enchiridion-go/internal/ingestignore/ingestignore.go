@@ -75,9 +75,9 @@ func Append(folder, pattern, comment string) error {
 	if comment != "" {
 		line += "  # " + comment
 	}
-	if err := os.MkdirAll(folder, 0o755); err != nil {
-		return err
-	}
+	// The folder is deliberately not created: a raw file being withdrawn from
+	// the sweep lives in it already, so a missing folder means a mistyped
+	// path, and silently minting `raw/emials/.ingestignore` would bury that.
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err

@@ -1,3 +1,5 @@
+package vault
+
 // This file is the I/O half of the vault, ported from
 // `wiki-plugin/scripts/vault.py` in #151: every read and write inside the
 // vault, plus the cross-page operations ([Vault.MovePage],
@@ -13,7 +15,6 @@
 // correctness lives in the unconditional staleness scan every search runs
 // (ADR-0006). Callers that need to search open a `searchindex.Index`
 // directly, as `enchiridion search` does.
-package vault
 
 import (
 	"fmt"
@@ -39,34 +40,91 @@ type Vault struct {
 //
 // Unlike the Python constructor this runs no kind-folder migration: the
 // one-off #114 singular→plural migration lives with the rest of the
-// remaining subcommands (#152). A vault that still needs it must be opened
-// by the Python layer once first.
+// remaining subcommands (#152). Callers that *write* pages must ask
+// [Vault.LegacyKindFolders] first — see there for why silence isn't an
+// option.
 func New(root string) *Vault { return &Vault{Root: root} }
 
-// path is the absolute filesystem path for a vault-relative page ref.
-func (v *Vault) path(pageRef string) string {
+// LegacyKindFolders returns any singular kind-folders left over from before
+// ADR-0008, sorted — `wiki/concept/` where the vault should now hold
+// `wiki/concepts/`.
+//
+// Python's `Vault.__init__` self-heals these by running the #114 migration.
+// The Go port can't yet (that migration is #152), and staying quiet would be
+// worse than either: [place.Path] resolves canonical kinds from
+// [place.KindFolders], so an unmigrated vault would take new pages into
+// `wiki/concepts/` while the old ones sit in `wiki/concept/` — one vault
+// silently split across two spellings of the same kind. So a writer asks
+// this and refuses instead.
+func (v *Vault) LegacyKindFolders() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(v.Root, "wiki"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var legacy []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// A folder is legacy when it is the singular of a canonical kind but
+		// not itself canonical: `concept` (→ `concepts`), never `synthesis`,
+		// whose folder and kind are the same word.
+		if _, canonical := place.FolderKinds[entry.Name()]; canonical {
+			continue
+		}
+		if folder, isKind := place.KindFolders[entry.Name()]; isKind && folder != entry.Name() {
+			legacy = append(legacy, entry.Name())
+		}
+	}
+	sort.Strings(legacy)
+	return legacy, nil
+}
+
+// Path is the absolute filesystem path for a vault-relative page ref.
+//
+// The one place a page ref crosses from ADR-0009's `/`-separated vault
+// spelling into an OS path; every caller that needs to open, stat, or size a
+// page goes through here rather than joining by hand.
+func (v *Vault) Path(pageRef string) string {
 	return filepath.Join(v.Root, filepath.FromSlash(pageRef))
 }
 
 // Load reads the page at pageRef (vault-relative) into a [wikipage.Page].
 func (v *Vault) Load(pageRef string) (wikipage.Page, error) {
-	text, err := os.ReadFile(v.path(pageRef))
+	text, err := os.ReadFile(v.Path(pageRef))
 	if err != nil {
 		return wikipage.Page{}, err
 	}
 	return wikipage.Page{Text: string(text)}, nil
 }
 
-// Exists reports whether pageRef names an existing file in the vault.
+// Exists reports whether pageRef names an existing *file* in the vault — a
+// page that could be loaded. A directory sitting at that path is not a page,
+// so this is false.
 func (v *Vault) Exists(pageRef string) bool {
-	info, err := os.Stat(v.path(pageRef))
+	info, err := os.Stat(v.Path(pageRef))
 	return err == nil && !info.IsDir()
+}
+
+// Occupied reports whether anything at all sits at pageRef, directory
+// included.
+//
+// The counterpart to [Vault.Exists], for the one question where a directory
+// still counts: whether a create may claim this path. A slug colliding with a
+// directory has to fail validation, not mid-write with a bare OS error after
+// earlier pages are already on disk.
+func (v *Vault) Occupied(pageRef string) bool {
+	_, err := os.Stat(v.Path(pageRef))
+	return err == nil
 }
 
 // Write writes page to pageRef (vault-relative), creating parent directories
 // as needed.
 func (v *Vault) Write(pageRef string, page wikipage.Page) error {
-	path := v.path(pageRef)
+	path := v.Path(pageRef)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -110,7 +168,7 @@ func (v *Vault) LoadWikiPages() (map[string]string, error) {
 	}
 	pages := make(map[string]string, len(refs))
 	for _, ref := range refs {
-		text, err := os.ReadFile(v.path(ref))
+		text, err := os.ReadFile(v.Path(ref))
 		if err != nil {
 			return nil, err
 		}
@@ -227,8 +285,8 @@ func (v *Vault) MovePage(oldRef, newRef string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if v.path(oldRef) != v.path(newRef) {
-		if err := os.Remove(v.path(oldRef)); err != nil {
+	if v.Path(oldRef) != v.Path(newRef) {
+		if err := os.Remove(v.Path(oldRef)); err != nil {
 			return nil, err
 		}
 	}

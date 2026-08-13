@@ -1,3 +1,5 @@
+package wikipage
+
 // This file is the mutating half of the page model, ported from
 // `wiki-plugin/scripts/wikipage.py` in #151: frontmatter get/set/merge, link
 // composition, and outbound-link move-planning. Still no I/O —
@@ -20,7 +22,6 @@
 //     existing keys keep their position and new ones append), because a
 //     reordering edit would make every ingest diff unreadable — only
 //     incidental formatting may change.
-package wikipage
 
 import (
 	"bytes"
@@ -182,7 +183,7 @@ func (p Page) Merge(key string, values []any) (Page, error) {
 
 // MergeStrings is [Page.Merge] over a string list — the shape every caller
 // with typed-edge links or tags already has.
-func MergeStrings(p Page, key string, values []string) (Page, error) {
+func (p Page) MergeStrings(key string, values []string) (Page, error) {
 	boxed := make([]any, len(values))
 	for i, value := range values {
 		boxed[i] = value

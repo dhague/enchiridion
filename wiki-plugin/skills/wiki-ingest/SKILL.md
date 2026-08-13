@@ -93,7 +93,7 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
    }
    ```
 
-   Every `edges` value and `raw_source: true` names target by **vault-relative path only** (`"wiki/concepts/foo.md"`, matching `place.KIND_FOLDERS` folders) — never a composed `[Title](../dest.md)` string. `enchiridion ingest` reads each target's title (on disk or from sibling in plan), works out `../` relativisation, percent-encodes destination; never build link string by hand. Exception: *body* links — write as ordinary markdown (`[label](destination)`), encoded or not; `enchiridion ingest` re-encodes on write.
+   Every `edges` value and `raw_source: true` names target by **vault-relative path only** (`"wiki/concepts/foo.md"`, matching the kind-folders in [Vault structure](../wiki-conventions/SKILL.md)) — never a composed `[Title](../dest.md)` string. `enchiridion ingest` reads each target's title (on disk or from sibling in plan), works out `../` relativisation, percent-encodes destination; never build link string by hand. Exception: *body* links — write as ordinary markdown (`[label](destination)`), encoded or not; `enchiridion ingest` re-encodes on write.
 
    Judgment calls when filling in (folder's `INGESTION.md` may override any, except where noted):
    - **Kind** (create pages only): per [Placement algorithm](../wiki-conventions/SKILL.md#placement-algorithm), first match wins. `enchiridion ingest` computes kebab-slug from `kind`+`title` — never hand-slugify.

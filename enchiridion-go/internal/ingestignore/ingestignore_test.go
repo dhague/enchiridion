@@ -62,13 +62,16 @@ func TestAppendPreservesExistingContent(t *testing.T) {
 	}
 }
 
-func TestAppendCreatesMissingFolder(t *testing.T) {
-	folder := filepath.Join(t.TempDir(), "emails")
-	if err := Append(folder, "doc.eml", ""); err != nil {
-		t.Fatalf("Append: %v", err)
+// The folder always exists in a real call — the file being withdrawn is
+// sitting in it. A missing one means a mistyped path, and must not be
+// papered over by creating it.
+func TestAppendRefusesMissingFolder(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "emials")
+	if err := Append(folder, "doc.eml", ""); err == nil {
+		t.Error("Append into a folder that doesn't exist: want an error, got nil")
 	}
-	if text := readIgnore(t, folder); text != "doc.eml\n" {
-		t.Errorf("file = %q", text)
+	if _, err := os.Stat(folder); err == nil {
+		t.Error("Append created the mistyped folder")
 	}
 }
 

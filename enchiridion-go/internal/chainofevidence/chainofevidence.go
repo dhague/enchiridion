@@ -67,7 +67,7 @@ func Check(staged map[string]wikipage.Page, raw string) ([]string, error) {
 			raw, place.KindFolders["source"])}, nil
 	}
 
-	var errors []string
+	var problems []string
 	for _, pageRef := range refs {
 		if pageRef == stubRef {
 			continue
@@ -86,11 +86,11 @@ func Check(staged map[string]wikipage.Page, raw string) ([]string, error) {
 			}
 		}
 		if !found {
-			errors = append(errors,
+			problems = append(problems,
 				fmt.Sprintf("%s needs a source edge to the stub %s", pageRef, stubRef))
 		}
 	}
-	return errors, nil
+	return problems, nil
 }
 
 func sortedRefs(staged map[string]wikipage.Page) []string {

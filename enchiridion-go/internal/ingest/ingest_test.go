@@ -301,6 +301,60 @@ func TestSemanticValidationRejectsExistingCreateTarget(t *testing.T) {
 	}
 }
 
+// A slug colliding with a *directory* has to fail validation like any other
+// occupied target. Catching it at write time instead would break the
+// validate-everything-before-any-write guarantee, leaving earlier pages of
+// the plan on disk. `ingest.py` catches this via `Path.exists()`.
+func TestSemanticValidationRejectsDirectoryAtCreateTarget(t *testing.T) {
+	root := newVault(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "wiki", "concepts", "a.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := validationErrors(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b"}]}`, root)
+	if !strings.Contains(got, "create target wiki/concepts/a.md already exists") {
+		t.Errorf("got %q", got)
+	}
+}
+
+// `ingest.py` reads raw_source with `.get(...) is not None`, so an explicit
+// null is absent, not a bad value. A plan valid there must not be rejected
+// here.
+func TestShapeValidationTreatsNullRawSourceAsAbsent(t *testing.T) {
+	got := validationErrors(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b",
+	   "frontmatter":{"raw_source":null}}]}`, "")
+	if got != "" {
+		t.Errorf("null raw_source should read as absent, got %q", got)
+	}
+}
+
+// An unmigrated vault (pre-ADR-0008 singular kind-folders) must be refused,
+// not quietly filed into the plural folders alongside the old pages.
+func TestResolveRefusesUnmigratedKindFolders(t *testing.T) {
+	root := newVault(t, map[string]string{
+		"wiki/concept/old.md": "---\ntitle: Old\n---\nold\n",
+	})
+	_, err := Resolve(decodePlan(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b"}]}`), root)
+	if err == nil {
+		t.Fatal("ingest into an unmigrated vault: want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "wiki/concept") ||
+		!strings.Contains(err.Error(), "migration") {
+		t.Errorf("error = %v, want it to name the folder and the migration", err)
+	}
+}
+
+// `synthesis` is its own plural, so it must never read as legacy.
+func TestResolveAcceptsSynthesisFolder(t *testing.T) {
+	root := newVault(t, map[string]string{"wiki/synthesis/s.md": "---\ntitle: S\n---\ns\n"})
+	if _, err := Resolve(decodePlan(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b"}]}`), root); err != nil {
+		t.Errorf("Resolve: %v", err)
+	}
+}
+
 func TestSemanticValidationRejectsMissingUpdateTarget(t *testing.T) {
 	got := validationErrors(t, `{"title":"T","pages":[
 	  {"op":"update","title":"A","page_ref":"wiki/concepts/gone.md"}]}`, newVault(t, nil))

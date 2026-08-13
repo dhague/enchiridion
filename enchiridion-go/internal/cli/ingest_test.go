@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,6 +107,36 @@ func TestIngestPrintsOnlyTheCommitSHA(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "wiki", "concepts", "prepared-statements.md")); err != nil {
 		t.Errorf("page was not written: %v", err)
+	}
+}
+
+// A raw filename with a space and parens is the shape the encoding rules
+// exist for, and it is also the shape a stager can mistake for a glob or
+// split on whitespace. This checks the whole path end to end: the raw
+// artifact lands in the same commit as the pages it produced, under its
+// verbatim name.
+func TestIngestStagesNewRawFileWithAwkwardName(t *testing.T) {
+	root := ingestVault(t, map[string]string{"raw/deploy notes (v2).md": "raw\n"})
+	initRepo(t, root)
+
+	plan := `{"title":"D","raw":"raw/deploy notes (v2).md","pages":[
+	  {"op":"create","title":"Deploy Notes (v2)","kind":"source","body":"stub\n",
+	   "frontmatter":{"raw_source":true}}]}`
+	if out, err := runIngest(t, "--plan", writePlan(t, plan)); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+
+	// Ask real git what the commit contains, rather than trusting the same
+	// library that wrote it.
+	listing, err := exec.Command("git", "-C", root, "show", "--name-only", "--format=", "HEAD").Output()
+	if err != nil {
+		t.Skipf("no system git to cross-check with: %v", err)
+	}
+	files := string(listing)
+	for _, want := range []string{"raw/deploy notes (v2).md", "wiki/sources/deploy-notes-v2.md"} {
+		if !strings.Contains(files, want) {
+			t.Errorf("commit is missing %q; it contains:\n%s", want, files)
+		}
 	}
 }
 
