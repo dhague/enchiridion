@@ -9,3 +9,4 @@ tmp/
 wiki-plugin/.claude/wiki-knowledge/sessions/
 .lsp.json
 opencode.json
+enchiridion-go/.claude/wiki-knowledge/sessions/ #TODO: make sure this is always vault-relative, not absolute
