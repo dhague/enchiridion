@@ -113,7 +113,7 @@ Clean **bitemporal** model: `source_date` is **valid time** (authored), git comm
 
 ## Tags
 
-Tags are **emergent half** of contract — generated at ingestion, not conformed to a fixed list. **Reuse existing tag** where one fits; **mint new one** only where nothing fits. `discover.py --plan` returns vault's whole tag vocabulary with usage counts alongside every candidate — reuse-first is something the discovery call gives you. No controlled vocabulary, no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not a closed set.
+Tags are **emergent half** of contract — generated at ingestion, not conformed to a fixed list. **Reuse existing tag** where one fits; **mint new one** only where nothing fits. `discover.py --plan` returns vault's tag vocabulary alongside every candidate — reuse-first is something the discovery call gives you. Prefer `--tags-containing`/`--tag-count`, derived from the draft's own candidate tags, over the full vocabulary dump — see the `discover.py` catalogue entry. No controlled vocabulary, no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not a closed set.
 
 ## Links
 
