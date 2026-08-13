@@ -16,7 +16,7 @@ no commits in the real vault.
 ## Files
 
 - `snapshot_vault.sh` — `cp -r`s `$WIKI_ROOT` (or an explicit path) into a
-  fresh temp dir and reindexes it (`search.py --reindex --full`). Prints
+  fresh temp dir and reindexes it (`enchiridion search --reindex --full`). Prints
   the snapshot path on stdout.
 - `fixed-test-note.md` — the committed test document, ~150 words,
   comparable in size to the run that triggered #98. References two

@@ -23,6 +23,11 @@ jobs:
         with:
           go-version-file: enchiridion-go/go.mod
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Build
         working-directory: enchiridion-go
         run: go build ./...
@@ -35,8 +40,8 @@ jobs:
         working-directory: enchiridion-go
         run: go test ./...
 
-      - name: Lint bootstrap shell script
-        run: shellcheck -s sh enchiridion-go/bootstrap/install.sh
+      - name: Lint the plugin's shell entrypoints
+        run: shellcheck -s sh wiki-plugin/bootstrap/install.sh wiki-plugin/bin/enchiridion
 
   goreleaser-check:
     name: Validate release pipeline (snapshot build, all 6 targets)

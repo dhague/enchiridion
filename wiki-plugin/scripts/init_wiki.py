@@ -1,6 +1,10 @@
 """Scaffold a brand-new, empty wiki vault: folders, git repo, .gitignore,
 and (for query-from-anywhere mode) the plugin-registration ``settings.json``.
 
+**Superseded by `enchiridion init`** (#150): `/wiki-init` now calls the Go
+binary via `bin/enchiridion`, not this script. It is kept until the Python
+layer is retired wholesale — see ADR-0011.
+
 One-time setup, distinct from ``wiki-ingest``, which fills a vault that
 already exists — :func:`init_wiki` refuses to run against a directory that
 already looks like one (:func:`is_vault`).

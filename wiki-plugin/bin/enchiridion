@@ -1,0 +1,47 @@
+#!/bin/sh
+# The one entrypoint every migrated skill and hook calls:
+#
+#   "${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "<terms>" --json
+#
+# Resolves the platform binary — lazy-fetching it on first use via
+# bootstrap/install.sh (docs/adr/0013) — and execs it with every argument
+# passed through untouched. The plugin's own version, read from
+# .claude-plugin/plugin.json, selects the release to fetch, so a plugin
+# upgrade pulls the matching binary without anything else being edited.
+#
+# Two escape hatches, both for development against an unreleased binary:
+#
+#   ENCHIRIDION_BIN      absolute path to a binary to use as-is; nothing is
+#                        downloaded. Set this to `go build`'s output when
+#                        working on enchiridion-go.
+#   ENCHIRIDION_VERSION  release version to fetch, overriding plugin.json.
+#
+# Deliberately POSIX sh for the same reason the bootstrap is: it must not
+# depend on Python (the dependency this rewrite exists to remove) or on
+# anything less universal than /bin/sh.
+
+set -eu
+
+plugin_root=$(unset CDPATH; cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -n "${ENCHIRIDION_BIN:-}" ]; then
+    exec "$ENCHIRIDION_BIN" "$@"
+fi
+
+version=${ENCHIRIDION_VERSION:-}
+if [ -z "$version" ]; then
+    manifest="$plugin_root/.claude-plugin/plugin.json"
+    [ -f "$manifest" ] || {
+        echo "enchiridion: $manifest not found — cannot determine which release to fetch" >&2
+        exit 1
+    }
+    # One `"version": "X.Y.Z"` line, no JSON parser required.
+    version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
+    [ -n "$version" ] || {
+        echo "enchiridion: no \"version\" in $manifest" >&2
+        exit 1
+    }
+fi
+
+binary=$("$plugin_root/bootstrap/install.sh" "$plugin_root" "$version")
+exec "$binary" "$@"
