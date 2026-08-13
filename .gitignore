@@ -3,10 +3,12 @@
 
 # Per-session transcript_path state written by the wiki-knowledge plugin's
 # SessionStart hook (wiki-plugin/hooks/store_transcript_path.py) — see #23.
-.claude/wiki-knowledge/sessions/
+# The hooks write relative to whatever cwd a command ran in, so this is
+# matched at any depth rather than listing each subdirectory that has caught
+# one.
+**/.claude/wiki-knowledge/sessions/
 .mcp.json
 tmp/
-wiki-plugin/.claude/wiki-knowledge/sessions/
 .lsp.json
 opencode.json
 enchiridion-go/.claude/wiki-knowledge/sessions/ #TODO: make sure this is always vault-relative, not absolute

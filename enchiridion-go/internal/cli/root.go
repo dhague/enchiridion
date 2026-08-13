@@ -2,7 +2,7 @@
 //
 // Per docs/adr/0011, migration from the Python script layer is incremental
 // per subcommand: #149 laid down the dispatch skeleton, #150 hung `search`
-// and `init` off it, and the remaining subcommands land in #151-#153. Each
+// and `init` off it, #151 added `ingest`, and the rest land in #152-#153. Each
 // subcommand is a flag-for-flag port of the Python script it replaces, so a
 // migrated SKILL.md's invocation differs only in the program name.
 package cli
@@ -24,6 +24,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newSearchCommand())
 	root.AddCommand(newInitCommand())
+	root.AddCommand(newIngestCommand())
 
 	return root
 }
