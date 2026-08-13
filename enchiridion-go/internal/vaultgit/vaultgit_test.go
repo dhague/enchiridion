@@ -103,6 +103,104 @@ func TestCommitDatesIsLenientOnAnEmptyRepo(t *testing.T) {
 	}
 }
 
+func TestLastCommitDateReturnsDateForACommittedPath(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writePage(t, root, "raw/notes.md", "raw\n")
+	commitAll(t, repo, "first")
+
+	got := repo.LastCommitDate("raw/notes.md")
+	if len(got) != len("2026-01-02") {
+		t.Fatalf("LastCommitDate = %q, want a YYYY-MM-DD date", got)
+	}
+}
+
+func TestLastCommitDateTracksTheLatestCommit(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writePage(t, root, "raw/notes.md", "v1\n")
+	commitAll(t, repo, "first")
+
+	first := repo.LastCommitDate("raw/notes.md")
+	writePage(t, root, "raw/notes.md", "v2\n")
+	commitAll(t, repo, "second")
+
+	// Same-day commits are indistinguishable at day granularity, so this only
+	// asserts the path is still resolvable after a second commit — the
+	// strictly-newer comparison is what the sweep does with these dates.
+	if got := repo.LastCommitDate("raw/notes.md"); got != first {
+		t.Errorf("LastCommitDate changed %q -> %q across same-day commits", first, got)
+	}
+}
+
+func TestLastCommitDateIsEmptyForAnUntrackedPath(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if got := repo.LastCommitDate("raw/nope.md"); got != "" {
+		t.Fatalf("LastCommitDate = %q, want empty for a never-committed path", got)
+	}
+}
+
+func TestLastCommitDateIsLenientOnANonRepo(t *testing.T) {
+	if got := New(t.TempDir()).LastCommitDate("raw/notes.md"); got != "" {
+		t.Fatalf("LastCommitDate = %q, want empty on a non-repo", got)
+	}
+}
+
+func TestPorcelainMentionsAnUntrackedFile(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writePage(t, root, "raw/notes.md", "raw\n")
+	if !repo.PorcelainMentions("raw/notes.md") {
+		t.Fatal("an untracked file did not report as dirty")
+	}
+}
+
+func TestPorcelainMentionsAModifiedFile(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writePage(t, root, "raw/notes.md", "raw\n")
+	commitAll(t, repo, "first")
+	writePage(t, root, "raw/notes.md", "raw, edited\n")
+	if !repo.PorcelainMentions("raw/notes.md") {
+		t.Fatal("a modified file did not report as dirty")
+	}
+}
+
+func TestPorcelainMentionsACommittedUnchangedFileIsClean(t *testing.T) {
+	root := t.TempDir()
+	repo := New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writePage(t, root, "raw/notes.md", "raw\n")
+	commitAll(t, repo, "first")
+	if repo.PorcelainMentions("raw/notes.md") {
+		t.Fatal("a clean committed file reported as dirty")
+	}
+}
+
+func TestPorcelainMentionsIsLenientOnANonRepo(t *testing.T) {
+	if New(t.TempDir()).PorcelainMentions("raw/notes.md") {
+		t.Fatal("a non-repo reported a path as dirty")
+	}
+}
+
 func writePage(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

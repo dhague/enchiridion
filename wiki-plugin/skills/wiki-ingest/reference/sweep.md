@@ -6,7 +6,7 @@ Read only when `/wiki-ingest` invoked with **folder** (under `raw/`, with or wit
 
 ## Procedure
 
-1. **Run the scan.** `python "<plugin-root>/scripts/ingest_scan.py" <folder-or-empty>` (or `--json` for machine-readable output) prints every file needing ingestion with reason:
+1. **Run the scan.** `"<plugin-root>/bin/enchiridion" ingest-scan <folder-or-empty>` (or `--json` for machine-readable output) prints every file needing ingestion with reason:
    - `never-ingested` — no page's `raw_source` points at it (fresh file).
    - `changed-since-ingestion` — at least one page already points at it, but raw file strictly newer than that page's `git_date` *or* `git status --porcelain` reports it modified/untracked. Candidate's `back_pointers` carry vault-relative paths of pages already pointing at it; pass those to `wiki-ingest` agent as reconciliation hint so it doesn't rediscover via search.
 2. **Print list, then ask.** Miscount — file missing from list, or one that shouldn't be there — easier to catch before anything written. Offer **all / none / choose**:

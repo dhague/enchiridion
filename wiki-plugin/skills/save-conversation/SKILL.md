@@ -8,9 +8,9 @@ Captures session transcript into `$WIKI_ROOT/raw/conversations/`, files it into 
 
 ## Procedure
 
-1. Run capture script with `WIKI_ROOT` set to target vault (per deployment-mode resolution in `scripts/vault.py` — script runs outside vault, can't use marker-directory discovery from cwd). Script lives in plugin's install directory; invoke via `<plugin-root>`:
+1. Run capture script with `WIKI_ROOT` set to target vault (per deployment-mode resolution — script runs outside vault, can't use marker-directory discovery from cwd). Script lives in plugin's install directory; invoke via `<plugin-root>`:
    ```
-   WIKI_ROOT="<path to vault>" python "<plugin-root>/scripts/save-session-to-vault.py" --slug "<short phrase>"
+   WIKI_ROOT="<path to vault>" "<plugin-root>/bin/enchiridion" save-session --slug "<short phrase>"
    ```
    `--slug`: short phrase naming what session **covered**, judged from whole conversation — not how it opened. Session that started "look at issue 33" and became filename design argument is `wayfinder-33-raw-filename-slugs`, not `look-at-issue-33`. Few words right; script caps it.
    - Script **sanitizes rather than trusts** phrase (lowercased, `[^a-z0-9]+` → `-`, capped) — printed path differs from what you passed. Read path from stdout; never reconstruct from phrase.
