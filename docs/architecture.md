@@ -2,6 +2,8 @@
 
 Point-in-time snapshot of the `wiki-knowledge` plugin's Python codebase, agents, and skills, as of plugin version `0.7.1`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
+**The Python script layer is being replaced by a Go binary**, one subcommand at a time ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)). `search` and `init` have migrated: what these diagrams show as the Search cluster and `init_wiki.py` now runs as `enchiridion search` / `enchiridion init` out of `enchiridion-go/`, invoked through `wiki-plugin/bin/enchiridion`. The shapes are unchanged — the Go packages keep the Python modules' seams — but the diagrams below are not redrawn per migrated subcommand. `wiki-plugin/skills/wiki-conventions/SKILL.md`'s script catalogue is the live answer to which capability runs on which implementation.
+
 Diagrams:
 
 1. **Module dependency graph** — how `wiki-plugin/scripts/*.py` (and `hooks/`) depend on each other, clustered by responsibility.
@@ -113,7 +115,7 @@ flowchart LR
 
 Notes:
 
-- `/wiki-init` calls `init_wiki.py` (Vault ops) directly — no agent involved, it's pure scaffolding.
+- `/wiki-init` calls `enchiridion init` (ported from `init_wiki.py`) directly — no agent involved, it's pure scaffolding.
 - `/wiki-watch` runs `watch_raw.py` and `ingest_scan.py` (Watch cluster) itself, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
 - `/save-conversation` runs `save-session-to-vault.py` (Session capture cluster) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
 - Script clusters here are the same eight named in the module dependency graph above.

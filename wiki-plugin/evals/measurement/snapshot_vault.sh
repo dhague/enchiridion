@@ -24,6 +24,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="$(mktemp -d -t wiki-vault-snapshot-XXXXXX)"
 
 cp -r "$SRC/." "$DEST/"
-WIKI_ROOT="$DEST" python3 "$SCRIPT_DIR/../../scripts/search.py" --reindex --full >&2
+WIKI_ROOT="$DEST" "$SCRIPT_DIR/../../bin/enchiridion" search --reindex --full >&2
 
 echo "$DEST"

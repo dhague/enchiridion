@@ -1,9 +1,10 @@
 // Package cli wires up the enchiridion CLI's subcommand dispatch.
 //
 // Per docs/adr/0011, migration from the Python script layer is incremental
-// per subcommand — this scaffolding ticket (#149) adds no subcommand logic
-// of its own, only the dispatch skeleton later tickets (#150-#153) hang
-// real subcommands off.
+// per subcommand: #149 laid down the dispatch skeleton, #150 hung `search`
+// and `init` off it, and the remaining subcommands land in #151-#153. Each
+// subcommand is a flag-for-flag port of the Python script it replaces, so a
+// migrated SKILL.md's invocation differs only in the program name.
 package cli
 
 import (
@@ -21,6 +22,8 @@ func NewRootCommand() *cobra.Command {
 	}
 
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newSearchCommand())
+	root.AddCommand(newInitCommand())
 
 	return root
 }

@@ -75,7 +75,22 @@ python -m pytest
 pyright
 
 # Run scripts standalone (set WIKI_ROOT or cd into a vault)
-WIKI_ROOT=<path_to_vault> python scripts/search.py "connection pooling" --limit 10
+WIKI_ROOT=<path_to_vault> python scripts/ingest_scan.py --json
+```
+
+The script layer is being replaced, one subcommand at a time, by a single
+static Go binary that needs no Python
+([ADR-0011](docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)).
+`search` and `init` have migrated; the plugin lazy-fetches the binary on
+first use via `wiki-plugin/bin/enchiridion`.
+
+```bash
+cd enchiridion-go
+go test ./...
+
+# Run the migrated subcommands against a locally built binary
+go build -o /tmp/enchiridion ./cmd/enchiridion
+WIKI_ROOT=<path_to_vault> /tmp/enchiridion search "connection pooling" --limit 10
 ```
 
 ## Architecture

@@ -10,3 +10,6 @@ wiring/opencode/node_modules/
 
 # Resilio Sync scratch artifacts.
 *.rsls
+
+# Lazy-fetched enchiridion binaries (ADR-0013) — a cache, never committed.
+.enchiridion-cache/
