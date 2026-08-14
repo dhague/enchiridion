@@ -32,6 +32,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newSaveSessionCommand())
 	root.AddCommand(newToolCallStatsCommand())
 	root.AddCommand(newWatchCommand())
+	root.AddCommand(newHookCommand())
 
 	return root
 }

@@ -60,9 +60,9 @@ flowchart TB
         tool_call_stats["tool_call_stats.py"]
     end
 
-    subgraph hooks["hooks/"]
-        log_tool_calls["log_tool_calls.py"]
-        store_transcript_path["store_transcript_path.py"]
+    subgraph hooks["hooks (Go)"]
+        log_tool_calls["enchiridion hook post-tool-use"]
+        store_transcript_path["enchiridion hook session-start"]
     end
 
     ingestion --> core
@@ -90,7 +90,7 @@ Cluster contents:
 - **Watch** — `watch_raw.py` (event-driven `raw/` watcher: debounce, lock file, queue file).
 - **One-off / migration** — `migrate_kind_folders_0114.py` (singular→plural kind-folder migration, self-healing via `Vault.__init__`).
 - **Stats** — `tool_call_stats.py` (summarizes a session's hook-logged tool calls).
-- **hooks/** — `log_tool_calls.py`, `store_transcript_path.py`. These aren't imported by anything; they run as Claude Code hook events and write JSON files that Session capture and Stats later read. The dashed edges mark that producer→consumer relationship, not a Python import.
+- **hooks** — `enchiridion hook session-start` / `hook post-tool-use`, the Go replacements for the deleted `hooks/store_transcript_path.py` and `hooks/log_tool_calls.py` (#153). They aren't imported by anything; they run as Claude Code hook events and write JSON files that Session capture and Stats later read. The dashed edges mark that producer→consumer relationship, not a Python import.
 
 ## Skill → agent → script-cluster flow
 

@@ -16,6 +16,14 @@
 #                        working on enchiridion-go.
 #   ENCHIRIDION_VERSION  release version to fetch, overriding plugin.json.
 #
+# And one for callers that must not pay for a download:
+#
+#   ENCHIRIDION_NO_FETCH set to anything to use the cached binary if there is
+#                        one and fail immediately if there isn't, instead of
+#                        fetching. The PostToolUse hook sets it — it fires on
+#                        every tool call, so it must never retry a failing
+#                        download hundreds of times a session.
+#
 # Deliberately POSIX sh for the same reason the bootstrap is: it must not
 # depend on Python (the dependency this rewrite exists to remove) or on
 # anything less universal than /bin/sh.

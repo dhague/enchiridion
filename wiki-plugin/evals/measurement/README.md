@@ -1,8 +1,9 @@
 # Measurement harness (#104)
 
 Produces a like-for-like before/after tool-call figure for changes to
-`wiki-ingest`, using the instrumentation from #100 (`hooks/log_tool_calls.py`
-+ `scripts/tool_call_stats.py`, printed by `ingest.py` after every commit).
+`wiki-ingest`, using the instrumentation from #100 (`enchiridion hook
+post-tool-use` + `enchiridion tool-call-stats`, printed by `enchiridion
+ingest` after every commit).
 
 ## Why a snapshot, not the eval fixture
 

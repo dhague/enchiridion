@@ -30,6 +30,10 @@ func ingestVault(t *testing.T, files map[string]string) string {
 		t.Fatal(err)
 	}
 	t.Setenv("WIKI_ROOT", root)
+	// Cleared so a test run inside a real hooked Claude Code session doesn't
+	// pick up that session's tool-call log and print its cost summary. Tests
+	// that want the summary set it back.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	return root
 }
 
@@ -224,5 +228,52 @@ func TestIngestIgnoreRejectsPathOutsideRaw(t *testing.T) {
 		if _, err := runIngest(t, "--ignore", rel); err == nil {
 			t.Errorf("--ignore %q: want an error, got nil", rel)
 		}
+	}
+}
+
+// #151 deferred the post-commit cost summary to #153, since it reads a log
+// only the hooks write. With the hooks ported, ingest reports it again.
+func TestIngestPrintsTheToolCallSummaryAfterTheSHA(t *testing.T) {
+	root := ingestVault(t, map[string]string{"raw/doc.md": "raw\n"})
+	initRepo(t, root)
+	project := t.TempDir()
+	t.Setenv("CLAUDE_PROJECT_DIR", project)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "abc123")
+	logPath := filepath.Join(project, ".claude", "wiki-knowledge", "sessions", "abc123-tool-calls.jsonl")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte(`{"tool":"Bash","prompt_id":"pr_1"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runIngest(t, "--plan", writePlan(t, cliPlan))
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+
+	lines := strings.SplitN(strings.TrimSpace(out), "\n", 2)
+	if len(strings.TrimSpace(lines[0])) != 40 {
+		t.Fatalf("first line = %q, want the commit SHA", lines[0])
+	}
+	if len(lines) < 2 || !strings.Contains(lines[1], "Total tool calls: 1") {
+		t.Errorf("summary missing from output:\n%s", out)
+	}
+}
+
+// No log — an ingest run outside a hooked session — prints the SHA and
+// nothing else, so capturing stdout still works.
+func TestIngestOmitsTheSummaryWhenNoLogExists(t *testing.T) {
+	root := ingestVault(t, map[string]string{"raw/doc.md": "raw\n"})
+	initRepo(t, root)
+	t.Setenv("CLAUDE_PROJECT_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "abc123")
+
+	out, err := runIngest(t, "--plan", writePlan(t, cliPlan))
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if len(strings.TrimSpace(out)) != 40 {
+		t.Errorf("stdout = %q, want a bare 40-char SHA", out)
 	}
 }

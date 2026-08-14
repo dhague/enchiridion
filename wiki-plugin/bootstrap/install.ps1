@@ -44,6 +44,12 @@ if (Test-Path $BinaryPath) {
     exit 0
 }
 
+# Cache-only mode, for callers that must never pay for a download — see the
+# same guard in install.sh.
+if ($env:ENCHIRIDION_NO_FETCH) {
+    Die "no cached binary for $NormalizedVersion and `$env:ENCHIRIDION_NO_FETCH is set — not fetching"
+}
+
 Write-Information "enchiridion bootstrap: fetching $NormalizedVersion for windows/$GoArch" -InformationAction Continue
 
 # This is a cache, not a rollback mechanism (docs/adr/0013) — drop every

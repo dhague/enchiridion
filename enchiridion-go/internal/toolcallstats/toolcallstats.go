@@ -1,5 +1,5 @@
 // Package toolcallstats summarises the tool-call log written by the
-// log_tool_calls hook. Ported from `wiki-plugin/scripts/tool_call_stats.py`.
+// PostToolUse hook. Ported from `wiki-plugin/scripts/tool_call_stats.py`.
 //
 // Makes a run's cost visible: total tool calls, a per-tool histogram, and a
 // prompt count with calls-per-prompt.

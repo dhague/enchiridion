@@ -1,6 +1,6 @@
 """Per-session state: maps a Claude Code session_id to its transcript_path.
 
-The `SessionStart` hook (``hooks/store_transcript_path.py``) writes;
+The `SessionStart` hook (``enchiridion hook session-start``) writes;
 ``skills/save-conversation`` reads by ``$CLAUDE_CODE_SESSION_ID``, so it never
 guesses which concurrently running session is "current".
 

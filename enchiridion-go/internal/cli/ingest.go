@@ -11,6 +11,7 @@ import (
 
 	"github.com/dhague/enchiridion/enchiridion-go/internal/ingest"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/ingestignore"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/toolcallstats"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/vault"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
 )
@@ -18,10 +19,8 @@ import (
 // newIngestCommand ports `wiki-plugin/scripts/ingest.py`, flag for flag, so a
 // migrated SKILL.md's invocation differs only in the program name.
 //
-// One deliberate omission: the Python CLI prints a tool-call cost summary
-// after committing when `$CLAUDE_CODE_SESSION_ID` is set. That reads a log
-// the hooks write, and the hooks are ported in #153 — so it lands with them
-// rather than being half-wired here.
+// The post-commit tool-call cost summary #151 deferred landed with the hooks
+// that write its log (#153) — see printToolCallSummary.
 func newIngestCommand() *cobra.Command {
 	var (
 		planPath      string
@@ -98,7 +97,26 @@ func runPlan(cmd *cobra.Command, root, planPath string, dryRun bool) error {
 		return err
 	}
 	cmd.Println(sha)
+	printToolCallSummary(cmd)
 	return nil
+}
+
+// printToolCallSummary reports what this run cost, after the SHA, when the
+// PostToolUse hook has been logging calls for the session.
+//
+// Best-effort and silent on failure: a missing or unreadable log just means
+// the run happened outside a hooked session, which is not an ingest error.
+// The SHA stays the first line either way, so callers can still capture it.
+func printToolCallSummary(cmd *cobra.Command) {
+	sessionID := os.Getenv("CLAUDE_CODE_SESSION_ID")
+	if sessionID == "" {
+		return
+	}
+	events, err := toolcallstats.ReadLog(sessionID, "")
+	if err != nil || len(events) == 0 {
+		return
+	}
+	cmd.Println(toolcallstats.FormatSummary(toolcallstats.Summarize(events)))
 }
 
 // ignoreRawFile appends rawRel to its own folder's `.ingestignore`.
