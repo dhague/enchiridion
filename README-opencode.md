@@ -35,12 +35,10 @@ Running the installer writes:
   `wiki-plugin/wiring/opencode/plugins/`, OpenCode's equivalent of the
   Claude Code session-tracking hook (used by `save-conversation`).
 
-  > **`/save-conversation` does not currently work on OpenCode.** The tracker
-  > still records session ids, but the reader that turned one into a raw file
-  > was Python and went with the rest of that layer; `enchiridion
-  > save-session` reads only `$CLAUDE_CODE_SESSION_ID` so far. Tracked at
-  > [#188](https://github.com/dhague/enchiridion/issues/188). Every other
-  > skill works.
+  > The tracker records session ids and injects `$OPENCODE_SESSION_ID` into
+  > every shell OpenCode spawns; `enchiridion save-session` reads both, and
+  > fetches the transcript itself via `opencode export <session id>`, so
+  > `/save-conversation` needs the `opencode` CLI on `PATH`.
 - `.opencode/wiki-knowledge/config.json` — a marker file carrying
   `plugin_root`, the OpenCode replacement for Claude Code's
   `${CLAUDE_PLUGIN_ROOT}` substitution.
