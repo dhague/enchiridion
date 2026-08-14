@@ -1,0 +1,48 @@
+name: tag-release
+
+# Derives the release tag from wiki-plugin/.claude-plugin/plugin.json instead
+# of relying on a human (or agent) to tag manually. The v0.8.0 release raced:
+# a tag was pushed against a stale main before the version-bump PR (#197)
+# merged, producing binaries that still reported 0.7.6. Tagging only here,
+# gated on the tag not already existing, makes this the single place a
+# release tag is created and ties it to the commit that actually carries the
+# bumped version.
+on:
+  push:
+    branches: [main]
+    paths:
+      - wiki-plugin/.claude-plugin/plugin.json
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Tag release from plugin.json version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(jq -r .version wiki-plugin/.claude-plugin/plugin.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push if new
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q "refs/tags/$tag$"; then
+            echo "Tag $tag already exists on origin, skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
