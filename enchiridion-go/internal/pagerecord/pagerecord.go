@@ -24,6 +24,7 @@ import (
 
 	"github.com/dhague/enchiridion/enchiridion-go/internal/place"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/wikipage"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/wikitime"
 )
 
 // EdgeKeys lists the frontmatter keys that hold markdown links to other
@@ -148,7 +149,7 @@ func New(pageRef, text string) (PageRecord, error) {
 		Title:      scalar(data["title"]),
 		Summary:    scalar(data["summary"]),
 		Tags:       stringList(data["tags"]),
-		SourceDate: scalar(data["source_date"]),
+		SourceDate: sourceDate(data["source_date"]),
 		Volatility: scalar(data["volatility"]),
 		Edges:      edges,
 	}, nil
@@ -172,13 +173,31 @@ func frontmatterMap(text string) (map[string]any, error) {
 	return data, nil
 }
 
+// sourceDate renders the frontmatter `source_date` scalar in its canonical
+// YYYY-MM-DD spelling, truncating any clock (wikitime.ParseDate — the one
+// parse/render pair for valid-time fields, #192). A value that isn't a valid
+// date at all is stored verbatim: the read path tolerates legacy and
+// hand-written values, while the write paths (ingest, `page set`) reject
+// them. Storing the canonical spelling is what keeps `--since`/`--until` —
+// raw lexicographic comparisons against this column — correct, and the
+// timestamp truncation is what fixes a time-of-day silently escaping an
+// upper bound.
+func sourceDate(v any) string {
+	if date, ok := wikitime.ParseDate(v); ok {
+		return date
+	}
+	return scalar(v)
+}
+
 // scalar renders a frontmatter value as a string, mirroring Python's
 // `str(data.get(key, ""))` — a missing key and an explicit null both give "".
 //
-// An unquoted `source_date: 2026-07-20` is resolved to a timestamp by both
-// YAML implementations; Python's `str(date)` spells it back as the ISO date,
-// so the date case is spelled out here rather than left to Go's default
-// time formatting, which would put a non-comparable string in the index.
+// `source_date` never reaches here — [sourceDate] canonicalises it first.
+// A YAML timestamp that lands in any other field (an out-of-schema key, a
+// date-looking tag) is rendered as it would be by Python's `str(date)`:
+// ISO for a date-only, RFC3339 for a timestamp — never Go's default
+// "2026-01-15 00:00:00 +0000 UTC", which would put a non-comparable string
+// in the index.
 func scalar(v any) string {
 	switch v := v.(type) {
 	case nil:

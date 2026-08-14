@@ -126,6 +126,28 @@ func TestPageGetKeepsATimestampsTime(t *testing.T) {
 	}
 }
 
+// `source_date` is the one field with a canonical spelling (#192): valid time,
+// a date not an instant, so a clock on it truncates to YYYY-MM-DD on the way
+// out. Other keys keep the Python-faithful rendering above.
+func TestPageGetTruncatesSourceDateToItsDate(t *testing.T) {
+	for _, tc := range []struct{ scalar, want string }{
+		{"2026-01-15", "2026-01-15"},
+		{"2026-01-15 10:30:00", "2026-01-15"},
+		{"2026-01-15T10:30:00Z", "2026-01-15"},
+		{"2026-01-15T10:30:00-08:00", "2026-01-15"},
+	} {
+		path := pageFile(t, "---\ntitle: T\nsource_date: "+tc.scalar+"\n---\nbody\n")
+
+		out, err := runSubcommand(t, "page", "get", path, "source_date")
+		if err != nil {
+			t.Fatalf("page get source_date (%s): %v\n%s", tc.scalar, err, out)
+		}
+		if got := strings.TrimSpace(out); got != tc.want {
+			t.Errorf("page get source_date (%s) = %q, want %q", tc.scalar, got, tc.want)
+		}
+	}
+}
+
 // Python printed a YAML bool as `True`/`False`, not Go's `true`/`false`.
 func TestPageGetPrintsABoolPythonStyle(t *testing.T) {
 	path := pageFile(t, "---\ntitle: T\ndraft: true\npublished: false\n---\nbody\n")
@@ -193,6 +215,55 @@ func TestPageSetWithoutJSONKeepsTheValueAString(t *testing.T) {
 	if text := readFile(t, path); !strings.Contains(text, `summary: "42"`) &&
 		!strings.Contains(text, "summary: '42'") {
 		t.Errorf("a bare value should stay a string:\n%s", text)
+	}
+}
+
+// The write half of #192: `page set source_date` writes the canonical
+// YYYY-MM-DD spelling, truncating a clock — the value drifts into compliance
+// on next touch, with no bulk rewrite.
+func TestPageSetTruncatesSourceDateOnWrite(t *testing.T) {
+	path := pageFile(t, "---\ntitle: T\n---\nbody\n")
+
+	if out, err := runSubcommand(t, "page", "set", path, "source_date", "2026-07-20T14:30:00Z"); err != nil {
+		t.Fatalf("page set source_date: %v\n%s", err, out)
+	}
+	text := readFile(t, path)
+	// yaml.v3 double-quotes a date-looking scalar (ADR-0012 allows the quote
+	// divergence), so match the value, not the quote style.
+	if !strings.Contains(text, `source_date: "2026-07-20"`) && !strings.Contains(text, "source_date: 2026-07-20") {
+		t.Errorf("source_date not truncated to its date:\n%s", text)
+	}
+	if strings.Contains(text, "14:30") {
+		t.Errorf("source_date still carries its time:\n%s", text)
+	}
+}
+
+// A `source_date` that isn't a valid date is refused on write — the same
+// rejection ingest's validation applies, so no write path can store a value
+// that `--since`/`--until` would silently mis-sort.
+func TestPageSetRejectsANonDateSourceDate(t *testing.T) {
+	path := pageFile(t, "---\ntitle: T\n---\nbody\n")
+
+	out, err := runSubcommand(t, "page", "set", path, "source_date", "summer 2026")
+	if err == nil {
+		t.Fatalf("page set source_date 'summer 2026': want an error, got nil\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "source_date must be a valid date") {
+		t.Errorf("error = %q, want it to name the valid-date rule", err)
+	}
+}
+
+// An explicit null passes through and reads back as absent, exactly as it
+// does at ingest — it clears the field rather than tripping the date rule.
+func TestPageSetJSONNullClearsSourceDate(t *testing.T) {
+	path := pageFile(t, "---\ntitle: T\nsource_date: 2026-01-01\n---\nbody\n")
+
+	if out, err := runSubcommand(t, "page", "set", path, "source_date", "null", "--json"); err != nil {
+		t.Fatalf("page set source_date null: %v\n%s", err, out)
+	}
+	text := readFile(t, path)
+	if strings.Contains(text, "2026-01-01") {
+		t.Errorf("source_date should be cleared:\n%s", text)
 	}
 }
 
