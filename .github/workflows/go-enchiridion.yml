@@ -74,6 +74,11 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      # Build-provenance attestations (#183): id-token mints the Sigstore OIDC
+      # token, attestations writes the resulting statement. Deliberately scoped
+      # to this job only — the test jobs above need neither.
+      id-token: write
+      attestations: write
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -94,3 +99,24 @@ jobs:
           workdir: enchiridion-go
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Attest what GoReleaser just published, so a downloaded binary can be
+      # traced to this workflow, commit, and repo (`gh attestation verify`).
+      #
+      # This is NOT code signing (#154, deferred): an attestation says nothing
+      # to macOS Gatekeeper or Windows SmartScreen. It is the free,
+      # credential-free half of the same trust story, worth having on its own
+      # for a binary that bin/enchiridion downloads and executes unattended
+      # (docs/adr/0013).
+      #
+      # subject-checksums, not a subject-path glob. With `formats: [binary]`
+      # the released artifacts are not top-level files in dist/ at all — the
+      # only things `dist/enchiridion_*` matches are GoReleaser's per-target
+      # intermediate build directories (enchiridion_darwin_amd64_v1/ and
+      # friends). checksums.txt is the one place that names exactly the six
+      # published artifacts, and its `sha256  name` lines are the format this
+      # input expects.
+      - name: Attest build provenance for the released binaries
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: enchiridion-go/dist/checksums.txt
