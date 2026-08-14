@@ -1,7 +1,7 @@
 /** Session-tracker plugin for OpenCode: records every session_id as it is
  * created so /save-conversation can find the current session without guessing.
  *
- * Mirrors the Claude Code `SessionStart` hook (`hooks/store_transcript_path.py`):
+ * Mirrors the Claude Code `SessionStart` hook (`enchiridion hook session-start`):
  * state is one JSON file per session_id under the project's own
  * `.opencode/wiki-knowledge/sessions/` (gitignored), so parallel sessions
  * sharing a project don't clobber each other. OpenCode keeps transcripts in

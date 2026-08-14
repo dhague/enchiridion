@@ -1,4 +1,4 @@
-"""Summarise the tool-call log written by hooks/log_tool_calls.py.
+"""Summarise the tool-call log written by ``enchiridion hook post-tool-use``.
 
 Makes a run's cost visible: total tool calls, a per-tool histogram, and a
 prompt count with calls-per-prompt.

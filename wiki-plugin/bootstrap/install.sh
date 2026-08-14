@@ -60,6 +60,14 @@ if [ -x "$binary_path" ]; then
     exit 0
 fi
 
+# Cache-only mode, for callers that must never pay for a download: the
+# PostToolUse hook fires on every single tool call, so if the release asset is
+# missing or the machine is offline it would otherwise re-attempt (and re-fail)
+# two curls per call, all session, with nobody reading the stderr.
+if [ -n "${ENCHIRIDION_NO_FETCH:-}" ]; then
+    die "no cached binary for $version and \$ENCHIRIDION_NO_FETCH is set — not fetching"
+fi
+
 echo "enchiridion bootstrap: fetching $version for $goos/$goarch" >&2
 
 # This is a cache, not a rollback mechanism (docs/adr/0013) — drop every

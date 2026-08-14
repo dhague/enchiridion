@@ -12,6 +12,12 @@ rem   ENCHIRIDION_BIN      absolute path to a binary to use as-is; nothing is
 rem                        downloaded. Set this to `go build`'s output when
 rem                        working on enchiridion-go.
 rem   ENCHIRIDION_VERSION  release version to fetch, overriding plugin.json.
+rem
+rem And one for callers that must not pay for a download:
+rem
+rem   ENCHIRIDION_NO_FETCH set to anything to use the cached binary if there is
+rem                        one and fail immediately if there isn't, instead of
+rem                        fetching.
 
 set "plugin_root=%~dp0.."
 

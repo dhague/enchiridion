@@ -16,7 +16,7 @@ Captures session transcript into `$WIKI_ROOT/raw/conversations/`, files it into 
    - Script **sanitizes rather than trusts** phrase (lowercased, `[^a-z0-9]+` → `-`, capped) — printed path differs from what you passed. Read path from stdout; never reconstruct from phrase.
    - Name **bound at first save**. Re-save reuses existing file, rewrites in place, ignores new `--slug` — raw files never renamed. Session changed topic: start new session, don't rename.
 
-   Looks up session transcript by `$CLAUDE_CODE_SESSION_ID`, using path `SessionStart` hook (`hooks/store_transcript_path.py`) recorded at session start. Writes markdown transcript to vault's `raw/conversations/` inbox, prints vault-relative path (e.g. `raw/conversations/2026-07-28-1430-charting-wayfinder-33-1dc3e094.md`).
+   Looks up session transcript by `$CLAUDE_CODE_SESSION_ID`, using path `SessionStart` hook (`enchiridion hook session-start`) recorded at session start. Writes markdown transcript to vault's `raw/conversations/` inbox, prints vault-relative path (e.g. `raw/conversations/2026-07-28-1430-charting-wayfinder-33-1dc3e094.md`).
    - Non-zero exit (nothing to save, no transcript recorded, not enough conversation): report and stop.
 2. Ingest file just written: delegate to `wiki-ingest` agent (`Task` with `subagent_type: "wiki-ingest"`) with prompt `Ingest <path> into the vault.`, using exact path from step 1.
 3. Relay ingest manifest (pages created/updated) to user.
