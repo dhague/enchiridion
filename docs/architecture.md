@@ -15,6 +15,8 @@ Two seams worth keeping straight, since both are *different* from the Python era
 - **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does.
 - **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the cobra command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section).
 
+**How this stays current.** The redraw keeps the diagrams hand-drawn rather than generated, and the opening warning stays honest about that. Mechanical generation was weighed and set aside: `go list` can emit the raw import graph, but the value of this file is the responsibility *clustering* and the reasoning about the seams — the parts tooling cannot produce. The class diagrams are kept for the same reason: they are the cheap, nameable API contract of each package, and a reader who finds a stale method name is told to trust the code. The cost is the warning above: the next structural change to the package set should touch this file again.
+
 ## Package dependency graph
 
 Packages are grouped into the same responsibility clusters as the retired scripts, plus a composite root. An arrow between clusters means at least one package in the source cluster imports at least one package in the target cluster; individual package-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are the `cli` package importing every cluster — it is the composition root, one cobra file per subcommand, and the wiring that used to live in a `__main__` per script now passes through it.
@@ -289,7 +291,7 @@ classDiagram
     initwiki ..> Repo : scaffold commit
 ```
 
-No `SearchIndex` relationship here on purpose: the Python `Vault`'s search facade was not ported — `searchindex` imports `vault`, so the arrow now runs the other way and `enchiridion search` opens the index itself (see the Search diagram).
+No `SearchIndex` relationship here on purpose — the first *two seams* note above: `searchindex` imports `vault`, so the old facade arrow is reversed, and `enchiridion search` opens the index itself.
 
 ### Search
 
@@ -372,7 +374,7 @@ classDiagram
     Index ..> Vault : imports — staleness scan reads pages
 ```
 
-Search correctness lives in the staleness scan `Index.Search` runs before matching — an unconditional `(mtime_ns, size)` check over `Vault.PagesWithText()` — so the FTS5 table can never go stale because a caller forgot an inline update. There is no `ForRoot` per-root cache and no `Vault` facade: the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
+Search correctness lives in the staleness scan `Index.Search` runs before matching — an unconditional `(mtime_ns, size)` fingerprint check over every `vault.PageRefs`-listed page (`os.Stat`/`os.ReadFile`, not `Vault.PagesWithText()`) — so the FTS5 table can never go stale because a caller forgot an inline update. There is no `ForRoot` per-root cache and no `Vault` facade (the *two seams* above): the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
 
 ### Ingestion pipeline
 
@@ -478,15 +480,15 @@ classDiagram
         +Chain []string
         +Resolve(seeds, records)$ []Resolution
     }
-    class ScanCandidate {
+    class IngestCandidate {
         <<struct · ingestscan>>
         +RawRel string
         +Reason string
         +BackPointers []string
     }
-    class ScanResult {
+    class Result {
         <<struct · ingestscan>>
-        +Eligible []ScanCandidate
+        +Eligible []IngestCandidate
         +Ignored []string
     }
     class ScanGit {
@@ -529,14 +531,14 @@ classDiagram
     Searcher ..> Index : implemented by searchindex.Index
     Candidate --> Searcher : Check()/Discover() search via
     supersededby ..> PageRecord : Resolve() walks supersedes edges
-    ScanResult "1" --> "*" ScanCandidate : Eligible
+    Result "1" --> "*" IngestCandidate : Eligible
     ingestscan ..> ScanGit : Scan() takes a Git
     ScanGit ..> Repo : satisfied by vaultgit.Repo
     ingestscan ..> Vault : raw/ reads
-    ingestscan ..> ingestignore : LoadIngestignore()
+    ingestscan ..> ingestignore : LoadIngestignore() reads via Parse()
 ```
 
-The pipeline is `Resolve → Validate → Execute → commit`; validation reads only resolved facts and execution writes only resolved pages, so the checked plan and the written plan cannot diverge. The chain-of-evidence check is run twice — pre-flight by validation (a courtesy) and again by `commit.Commit` as the hard gate — so a hand-built manifest can't route around it. `discover` is the one place this cluster reaches into Search: `Check` classifies overlap candidates against the index via a `Searcher`, which is how `cli`'s single open `Index` reaches it without a vault root.
+The pipeline is `Resolve → Validate → Execute → commit`; validation reads only resolved facts and execution writes only resolved pages, so the checked plan and the written plan cannot diverge. The chain-of-evidence check is run twice — pre-flight by validation (a courtesy) and again by `commit.Commit` as the hard gate — so a hand-built manifest can't route around it. `discover` is the one place this cluster reaches into Search: `Check` classifies overlap candidates against the index via a `Searcher`, which is how `cli`'s single open `Index` reaches it without a vault root. Two types here share a name with another in the same diagram, so the ingestscan ones carry a prefix — `IngestCandidate` is `ingestscan.Candidate` (vs `discover.Candidate` above) and `ScanGit` is `ingestscan.Git` (vs `commit.Git`); the stereotypes name the real package either way.
 
 ### Session capture
 
