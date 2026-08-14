@@ -18,7 +18,7 @@ Substantive logic in the `watch` subcommand of the Go binary (`<plugin-root>/bin
    ```
    using `Bash` with `run_in_background: true`. Accepts `--debounce <seconds>` (default 30) if user asked for different debounce window.
 
-3. **Poll for startup**, up to ~10s deadline (checking every ~0.5s) — slow machine or cold Python/watchdog import can take longer than a couple seconds. Check background output each poll:
+3. **Poll for startup**, up to ~10s deadline (checking every ~0.5s) — slow machine or a first-run binary fetch can take longer than a couple seconds. Check background output each poll:
    - Printed `another watcher is already running (lock at ...)` and exited: **surface to user** and stop — do not start second watcher against same vault.
    - Printed `watching <raw/> (debounce=...s, pid=...)`: running normally, continue.
    - Deadline reached with neither line: **surface to user** and stop — watcher startup unconfirmed.

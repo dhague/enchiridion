@@ -78,7 +78,7 @@ func TestPageGetPrintsAScalar(t *testing.T) {
 	}
 }
 
-func TestPageGetPrintsAListAsPythonRepr(t *testing.T) {
+func TestPageGetPrintsAListAsBracketRepr(t *testing.T) {
 	path := pageFile(t, "---\ntitle: T\ntags:\n  - alpha\n  - beta\n---\nbody\n")
 
 	out, err := runSubcommand(t, "page", "get", path, "tags")
@@ -86,14 +86,14 @@ func TestPageGetPrintsAListAsPythonRepr(t *testing.T) {
 		t.Fatalf("page get: %v\n%s", err, out)
 	}
 	if got := strings.TrimSpace(out); got != "['alpha', 'beta']" {
-		t.Errorf("page get tags = %q, want Python list repr", got)
+		t.Errorf("page get tags = %q, want bracket list repr", got)
 	}
 }
 
-// A YAML timestamp decodes to a time.Time here but to a date in ruamel, so
-// the default Go rendering would print "2026-01-15 00:00:00 +0000 UTC" where
-// `wikipage.py get created` printed "2026-01-15".
-func TestPageGetPrintsADateAsPythonDid(t *testing.T) {
+// A YAML timestamp decodes to a time.Time, so the default Go rendering
+// would print "2026-01-15 00:00:00 +0000 UTC" where `page get created`
+// prints "2026-01-15".
+func TestPageGetPrintsABareDate(t *testing.T) {
 	path := pageFile(t, "---\ntitle: T\ncreated: 2026-01-15\n---\nbody\n")
 
 	out, err := runSubcommand(t, "page", "get", path, "created")
@@ -105,9 +105,8 @@ func TestPageGetPrintsADateAsPythonDid(t *testing.T) {
 	}
 }
 
-// A timestamp is not a date, and Python printed its time — zone-less in the
-// space-separated form, zoned in ISO form with the offset. Both verified
-// against `wikipage.py get` before it was deleted.
+// A timestamp is not a date, so its time renders too — zone-less in the
+// space-separated form, zoned in ISO form with the offset.
 func TestPageGetKeepsATimestampsTime(t *testing.T) {
 	for _, tc := range []struct{ scalar, want string }{
 		{"2026-01-15 10:30:00", "2026-01-15 10:30:00"},
@@ -128,7 +127,7 @@ func TestPageGetKeepsATimestampsTime(t *testing.T) {
 
 // `source_date` is the one field with a canonical spelling (#192): valid time,
 // a date not an instant, so a clock on it truncates to YYYY-MM-DD on the way
-// out. Other keys keep the Python-faithful rendering above.
+// out. Other keys keep the rendering above.
 func TestPageGetTruncatesSourceDateToItsDate(t *testing.T) {
 	for _, tc := range []struct{ scalar, want string }{
 		{"2026-01-15", "2026-01-15"},
@@ -148,8 +147,8 @@ func TestPageGetTruncatesSourceDateToItsDate(t *testing.T) {
 	}
 }
 
-// Python printed a YAML bool as `True`/`False`, not Go's `true`/`false`.
-func TestPageGetPrintsABoolPythonStyle(t *testing.T) {
+// A bool renders as `True`/`False`, not Go's `true`/`false`.
+func TestPageGetPrintsABoolAsTrueFalse(t *testing.T) {
 	path := pageFile(t, "---\ntitle: T\ndraft: true\npublished: false\n---\nbody\n")
 
 	for key, want := range map[string]string{"draft": "True", "published": "False"} {

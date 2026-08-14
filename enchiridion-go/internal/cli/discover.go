@@ -144,7 +144,7 @@ func runDiscoverPlan(cmd *cobra.Command, index *searchindex.Index, planPath stri
 	}
 	if tagsContain != "" {
 		matches := discover.TagsContaining(vocab, splitCommaList(tagsContain))
-		cmd.Println(pythonListRepr(matches))
+		cmd.Println(bracketListRepr(matches))
 	}
 	if tagCount != "" {
 		counts := discover.TagCounts(vocab, splitCommaList(tagCount))
@@ -155,8 +155,8 @@ func runDiscoverPlan(cmd *cobra.Command, index *searchindex.Index, planPath stri
 	return nil
 }
 
-// printIndentedJSON writes value as indented JSON, the discover.py output
-// shape (`json.dumps(payload, indent=2)`).
+// printIndentedJSON writes value as two-space-indented JSON, the shape
+// `discover --json` emits.
 func printIndentedJSON(cmd *cobra.Command, value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -166,9 +166,9 @@ func printIndentedJSON(cmd *cobra.Command, value any) error {
 	return nil
 }
 
-// pythonListRepr renders a []string the way Python's `print(["a", "b"])`
-// does — the plain-text form `--tags-containing` emits.
-func pythonListRepr(items []string) string {
+// bracketListRepr renders a []string as `['a', 'b']` — the plain-text form
+// `--tags-containing` emits.
+func bracketListRepr(items []string) string {
 	if len(items) == 0 {
 		return "[]"
 	}

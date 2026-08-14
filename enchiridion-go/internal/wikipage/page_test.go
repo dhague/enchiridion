@@ -43,8 +43,7 @@ func TestSetAppendsNewKeyAtEnd(t *testing.T) {
 }
 
 // A block sequence must render as `  - "…"` — the conventions-spec
-// indentation ruamel.yaml is pinned to on the Python side, so a vault edited
-// by either implementation looks the same.
+// indentation.
 func TestSetRendersLinkListAtSpecIndentation(t *testing.T) {
 	page, err := Page{Text: "---\ntitle: A\n---\nbody\n"}.Set(
 		"source", []string{"[Stub](../sources/stub.md)"})

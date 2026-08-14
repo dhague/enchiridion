@@ -10,8 +10,8 @@ import (
 	"github.com/dhague/enchiridion/enchiridion-go/internal/hooks"
 )
 
-// newHookCommand replaces the Python hook scripts, one child subcommand per
-// hook event. Each reads the hook payload as JSON on stdin.
+// newHookCommand has one child subcommand per hook event. Each reads the
+// hook payload as JSON on stdin.
 //
 // Hooks fire automatically rather than being agent-invoked, so they **fail
 // open** (#153): every handler error is swallowed and the command exits 0, and

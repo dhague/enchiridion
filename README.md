@@ -62,7 +62,7 @@ Every page has YAML frontmatter with a typed edge graph (`refines`, `contradicts
 
 ## Development
 
-The script layer is a single static Go binary that needs no Python
+The script layer is a single static Go binary
 ([ADR-0011](docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)). The
 plugin lazy-fetches it on first use via `wiki-plugin/bin/enchiridion`;
 `ENCHIRIDION_BIN` points that entrypoint at a local build instead.
@@ -79,7 +79,7 @@ WIKI_ROOT=<path_to_vault> /tmp/enchiridion search "connection pooling" --limit 1
 WIKI_ROOT=<path_to_vault> /tmp/enchiridion ingest-scan --json
 ```
 
-`wiki-plugin/scripts/` holds only OpenCode install-time tooling now
+`wiki-plugin/scripts/` holds only OpenCode install-time tooling
 (`generate-opencode.py`, `install-opencode.py`) — see
 [README-opencode.md](README-opencode.md). It has its own small test suite:
 

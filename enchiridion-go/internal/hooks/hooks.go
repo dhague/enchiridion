@@ -1,6 +1,4 @@
-// Package hooks implements the plugin's automatic hook handlers, replacing the
-// Python `wiki-plugin/hooks/store_transcript_path.py` and `log_tool_calls.py`
-// (deleted in #153).
+// Package hooks implements the plugin's automatic hook handlers.
 //
 // Both read a Claude Code hook payload as JSON on stdin and write per-session
 // state under the *project's* `.claude/wiki-knowledge/sessions/`, resolved from

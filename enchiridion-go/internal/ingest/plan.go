@@ -85,8 +85,8 @@ type Plan struct {
 
 // DecodePlan reads one plan from JSON.
 //
-// Action defaults to `ingest`, matching the Python dataclass default, so a
-// plan that omits it still commits under a verb.
+// Action defaults to `ingest`, so a plan that omits it still commits under
+// a verb.
 func DecodePlan(r io.Reader) (Plan, error) {
 	var plan Plan
 	if err := json.NewDecoder(r).Decode(&plan); err != nil {
@@ -129,8 +129,7 @@ func (m OrderedMap[V]) All(yield func(key string, value V) bool) {
 }
 
 // UnmarshalJSON decodes a JSON object, recording key order as it goes. A
-// duplicate key keeps its first position and takes the last value, matching
-// how a Python dict literal built from the same JSON behaves.
+// duplicate key keeps its first position and takes the last value.
 func (m *OrderedMap[V]) UnmarshalJSON(data []byte) error {
 	m.Keys = nil
 	m.Values = map[string]V{}

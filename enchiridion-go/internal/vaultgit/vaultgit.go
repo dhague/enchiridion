@@ -1,12 +1,9 @@
-// Package vaultgit is the one package for git facts about the vault, ported
-// from `wiki-plugin/scripts/vault_git.py` (#126).
+// Package vaultgit is the one package for git facts about the vault (#126).
 //
-// The Go port swaps the Python module's `subprocess.run(["git", ...])` calls
-// for embedded go-git: a hidden `git`-on-PATH dependency would undercut the
-// whole point of the rewrite for the non-coding-agent hosts it targets
-// (ADR-0011). The interface, and each caller's absent-git policy, is
-// otherwise unchanged — what was "git is missing from PATH" is now "root is
-// not a git work tree", and the two surfaces still read:
+// It uses embedded go-git rather than shelling out to a `git` binary: a
+// hidden `git`-on-PATH dependency would undercut the whole point of a
+// single static binary for the non-coding-agent hosts it targets
+// (ADR-0011). Each caller's absent-git policy reads as one of two surfaces:
 //
 //   - **Strict** — [Repo.Init], [Repo.Add], [Repo.Commit]: return an error
 //     when the operation can't be performed. This is `commit`'s "git is a
@@ -118,11 +115,10 @@ func (r *Repo) Commit(message string) (string, error) {
 // local git config.
 //
 // An unconfigured identity falls back to a user@hostname signature rather
-// than failing. That mirrors the `git` binary the Python implementation
-// shelled out to, which derives the same fallback when `user.name`/
-// `user.email` are unset — and ADR-0003 already says attribution comes from
-// ingested content, not git identity, so the committer here is bookkeeping,
-// not provenance.
+// than failing — the same fallback the `git` CLI itself derives when
+// `user.name`/`user.email` are unset. ADR-0003 already says attribution
+// comes from ingested content, not git identity, so the committer here is
+// bookkeeping, not provenance.
 func (r *Repo) signature(repo *git.Repository) (*object.Signature, error) {
 	cfg, err := repo.ConfigScoped(config.SystemScope)
 	if err != nil {

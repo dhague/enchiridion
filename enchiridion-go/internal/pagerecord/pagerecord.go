@@ -189,15 +189,14 @@ func sourceDate(v any) string {
 	return scalar(v)
 }
 
-// scalar renders a frontmatter value as a string, mirroring Python's
-// `str(data.get(key, ""))` — a missing key and an explicit null both give "".
+// scalar renders a frontmatter value as a string — a missing key and an
+// explicit null both give "".
 //
 // `source_date` never reaches here — [sourceDate] canonicalises it first.
 // A YAML timestamp that lands in any other field (an out-of-schema key, a
-// date-looking tag) is rendered as it would be by Python's `str(date)`:
-// ISO for a date-only, RFC3339 for a timestamp — never Go's default
-// "2026-01-15 00:00:00 +0000 UTC", which would put a non-comparable string
-// in the index.
+// date-looking tag) is rendered ISO for a date-only, RFC3339 for a
+// timestamp — never Go's default "2026-01-15 00:00:00 +0000 UTC", which
+// would put a non-comparable string in the index.
 func scalar(v any) string {
 	switch v := v.(type) {
 	case nil:

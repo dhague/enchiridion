@@ -367,9 +367,8 @@ func (r *Resolved) shapeErrors() []string {
 			}
 		}
 
-		// An explicit null reads as absent, matching Python's
-		// `frontmatter.get("raw_source") is not None` — a plan valid there
-		// must not be rejected here.
+		// An explicit null reads as absent, so a plan with
+		// `raw_source: null` is treated the same as one that omits it.
 		if rawSource, present := page.Frontmatter.Get("raw_source"); present && rawSource != nil {
 			switch {
 			case rawSource != true:

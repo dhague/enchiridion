@@ -22,8 +22,7 @@ import (
 )
 
 // LogPath returns the tool-call log path for sessionID under stateDir. An
-// empty stateDir resolves the session state directory, matching the Python
-// `state_dir or sessions_dir()` default.
+// empty stateDir resolves the session state directory.
 func LogPath(sessionID, stateDir string) string {
 	if stateDir == "" {
 		stateDir = sessionstate.SessionsDir("", "", nil)
@@ -65,7 +64,7 @@ type ToolCount struct {
 type Summary struct {
 	Total int
 	// ByTool is the per-tool histogram, most-called first (ties broken by
-	// first-seen order, matching Python's Counter.most_common).
+	// first-seen order).
 	ByTool []ToolCount
 	// Prompts is the prompt-count proxy; see the package comment.
 	Prompts int

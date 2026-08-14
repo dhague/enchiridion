@@ -1,27 +1,23 @@
 package wikipage
 
-// This file is the mutating half of the page model, ported from
-// `wiki-plugin/scripts/wikipage.py` in #151: frontmatter get/set/merge, link
-// composition, and outbound-link move-planning. Still no I/O —
+// This file is the mutating half of the page model: frontmatter get/set/
+// merge, link composition, and outbound-link move-planning. Still no I/O —
 // [vault.Vault] owns every read and write, and the dependency runs one way,
 // `vault -> wikipage`.
 //
-// **One byte-preservation contract survives the port, and one does not.**
+// **Byte-preservation contract.**
 //
-//   - **Kept:** link rewriting never round-trips the document through a
-//     stringifier. Destinations are spliced into the raw text back-to-front
-//     by exact source offset, so every untouched byte survives — including
+//   - Link rewriting never round-trips the document through a stringifier.
+//     Destinations are spliced into the raw text back-to-front by exact
+//     source offset, so every untouched byte survives — including
 //     frontmatter links, which the same whole-document scan finds. Property
 //     tested in page_test.go; do not break it.
-//   - **Dropped, deliberately:** the Python guarantee that a no-op
-//     frontmatter [Page.Set] round-trips byte-identical. No Go YAML library
-//     matches ruamel.yaml's round-trip fidelity, and text-splicing YAML was
-//     rejected as more bug-prone than the formatting churn it avoids. See
-//     docs/adr/0012-go-frontmatter-round-trip-relaxed.md. Key *order* is
-//     still preserved (frontmatter is edited as a [yaml.Node] mapping, so
-//     existing keys keep their position and new ones append), because a
-//     reordering edit would make every ingest diff unreadable — only
-//     incidental formatting may change.
+//   - A no-op frontmatter [Page.Set] is *not* guaranteed to round-trip
+//     byte-identical; see docs/adr/0012-go-frontmatter-round-trip-relaxed.md.
+//     Key *order* is still preserved (frontmatter is edited as a
+//     [yaml.Node] mapping, so existing keys keep their position and new
+//     ones append), because a reordering edit would make every ingest diff
+//     unreadable — only incidental formatting may change.
 
 import (
 	"bytes"
@@ -43,9 +39,7 @@ type Page struct {
 }
 
 // yamlIndent matches the conventions-spec indentation, so a block sequence
-// under a mapping key renders as `  - "[t](p.md)"` — the same shape
-// ruamel.yaml's `indent(mapping=2, sequence=4, offset=2)` produces on the
-// Python side.
+// under a mapping key renders as `  - "[t](p.md)"`.
 const yamlIndent = 2
 
 // frontmatterNode returns p's frontmatter as a YAML mapping node, minting an
@@ -193,9 +187,8 @@ func (p Page) MergeStrings(key string, values []string) (Page, error) {
 
 // containsValue reports whether values already holds value.
 //
-// Structural comparison, matching Python's `in` — and unlike `==` on two
-// `any`, it cannot panic when a plan hands us a nested list or map under a
-// list-valued frontmatter key.
+// Structural comparison — unlike `==` on two `any`, it cannot panic when a
+// plan hands us a nested list or map under a list-valued frontmatter key.
 func containsValue(values []any, value any) bool {
 	return slices.ContainsFunc(values, func(existing any) bool {
 		return reflect.DeepEqual(existing, value)
@@ -204,7 +197,7 @@ func containsValue(values []any, value any) bool {
 
 // setKey replaces key's value node in the mapping, or appends the pair when
 // key is absent — so existing keys keep their position and new keys land at
-// the end, matching the Python dict assignment this ports.
+// the end.
 func setKey(mapping *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {

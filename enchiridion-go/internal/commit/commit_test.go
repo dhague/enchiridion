@@ -57,7 +57,7 @@ func TestStagedPathsDeduplicatesInOrder(t *testing.T) {
 	}
 }
 
-func TestManifestJSONRoundTripsPythonShape(t *testing.T) {
+func TestManifestJSONRoundTripsManifestShape(t *testing.T) {
 	const src = `{"title":"T","action":"ingest","created":["a.md"],"updated":[],
 	  "superseded":[["old.md","new.md"]],"source_date":"2026-03-01","raw_source":"raw/d.md"}`
 	var m Manifest

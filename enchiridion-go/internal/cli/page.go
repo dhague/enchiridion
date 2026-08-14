@@ -12,13 +12,13 @@ import (
 	"github.com/dhague/enchiridion/enchiridion-go/internal/wikitime"
 )
 
-// newPageCommand ports `wiki-plugin/scripts/wikipage.py`'s CLI: frontmatter
-// get/set/merge over a single markdown file.
+// newPageCommand is the frontmatter get/set/merge trio over a single
+// markdown file.
 //
-// Every subcommand takes a *file path* and resolves no vault root — the same
-// split the Python CLI drew, and for the same reason: these are pure page
-// operations, so nothing here needs to know where the vault is. Moving a page
-// is `enchiridion vault move`, precisely because that one operation does.
+// Every subcommand takes a *file path* and resolves no vault root: these
+// are pure page operations, so nothing here needs to know where the vault
+// is. Moving a page is `enchiridion vault move`, precisely because that one
+// operation does.
 func newPageCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "page",
@@ -126,9 +126,8 @@ func writePageFile(path string, page wikipage.Page) error {
 	return os.WriteFile(path, []byte(page.Text), 0o644)
 }
 
-// formatFrontmatterValue renders a frontmatter value the way `print(value)`
-// did in Python — notably a list as `['a', 'b']`, the form callers of
-// `wikipage.py get` have always parsed.
+// formatFrontmatterValue renders a frontmatter value as plain text — notably
+// a list as `['a', 'b']`, the form callers of `page get` have always parsed.
 func formatFrontmatterValue(key string, value any) string {
 	items, ok := value.([]any)
 	if !ok {
@@ -138,20 +137,19 @@ func formatFrontmatterValue(key string, value any) string {
 	for i, item := range items {
 		strs[i] = formatScalar(key, item)
 	}
-	return pythonListRepr(strs)
+	return bracketListRepr(strs)
 }
 
-// formatScalar renders one frontmatter scalar the way printing it in Python
-// did, so a caller parsing `wikipage.py get` output still parses this one.
+// formatScalar renders one frontmatter scalar in the plain-text form callers
+// of `page get` have always parsed.
 //
 // `source_date` is the one field with a canonical spelling of its own: it is
 // valid time — a date, not an instant — so a clock on it is truncated to
 // YYYY-MM-DD here, via the same [wikitime.ParseDate] the index reads through.
-// Every other scalar keeps the Python rendering.
 //
-// Two types need help. A bool prints Go-style `true`, where Python printed
-// `True`. And a YAML timestamp decodes to a time.Time here but to a ruamel
-// date/TimeStamp there, whose three renderings are all unlike Go's default
+// Two types need special-casing. A bool renders as `True`/`False`, not Go's
+// `true`/`false`. And a YAML timestamp decodes to a time.Time whose three
+// possible source spellings would otherwise all collapse to Go's default
 // "2026-01-15 00:00:00 +0000 UTC":
 //
 //	created: 2026-01-15                 -> 2026-01-15
