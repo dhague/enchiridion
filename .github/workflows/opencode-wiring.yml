@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   unit-tests:
-    name: Python script-layer tests
+    name: OpenCode install-tooling tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install deps
-        run: pip install ruamel.yaml markdown-it-py watchdog pytest hypothesis
+        run: pip install ruamel.yaml pytest
 
       - name: Run tests
         working-directory: wiki-plugin
