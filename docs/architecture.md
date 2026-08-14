@@ -1,107 +1,108 @@
 # Architecture
 
-Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.7.1`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
+Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.7.6`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
-> **⚠️ The modules these diagrams name are Python, and the Python script layer no longer exists.** It was replaced by a single static Go binary ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)), completed and deleted in [#186](https://github.com/dhague/enchiridion/issues/186). The **shapes below are still accurate** — the Go packages deliberately kept the Python modules' seams — so read this as a structural map with the names translated:
->
-> | Diagram says | Live code |
-> |---|---|
-> | `wikipage.py`, `place.py`, `page_record.py` | `enchiridion-go/internal/{wikipage,place,pagerecord}` |
-> | `vault.py`, `vault_git.py`, `init_wiki.py` | `internal/{vault,vaultgit,initwiki}` |
-> | `search.py`, `search_index.py` | `internal/searchindex`, CLI `internal/cli/search.go` |
-> | `ingest.py`, `chain_of_evidence.py`, `commit.py` | `internal/{ingest,chainofevidence,commit}` |
-> | `discover.py`, `superseded_by.py` | `internal/{discover,supersededby}` |
-> | `ingest_scan.py`, `watch_raw.py` | `internal/{ingestscan,ingestignore,watch}` |
-> | `session_state.py`, `transcript_capture.py` | `internal/{sessionstate,transcriptcapture}` |
-> | `tool_call_stats.py`, `hooks/` | `internal/{toolcallstats,hooks}` |
->
-> Two seams did **not** survive the port: Go's `Vault` has no search-index facade (it would be an import cycle), and there is no `ForRoot` per-root cache — `Open`/`Close` make the connection lifetime explicit instead ([ADR-0010](adr/0010-search-index-per-root-cache.md)). `wiki-plugin/skills/wiki-conventions/SKILL.md`'s catalogue is the live answer for how to invoke any of it. A redrawn Go-native version of these diagrams is not yet written.
+The script layer is a single static Go binary at `enchiridion-go/` (`enchiridion`, one subcommand per capability), invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that lazy-fetches the release binary ([ADR-0013](adr/0013-go-binary-lazy-fetch-dependency-free-bootstrap.md)). The names in these diagrams are Go packages under `enchiridion-go/internal/`; the diagram from before the Go rewrite ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)) is gone because it named deleted Python modules. This redraw keeps the responsibility clusters the Python version used, re-expressed for packages ([#191](https://github.com/dhague/enchiridion/issues/191)).
 
 Diagrams:
 
-1. **Module dependency graph** — how `wiki-plugin/scripts/*.py` (and `hooks/`) depend on each other, clustered by responsibility.
-2. **Skill → agent → script-cluster flow** — how each of the plugin's five slash-command entrypoints reaches the code in diagram 1.
-3. **Class diagrams by cluster** — one diagram per cluster from (1), showing its actual classes/dataclasses, fields, methods, and relationships.
+1. **Package dependency graph** — how `enchiridion-go/internal/*` depends on each other, clustered by responsibility.
+2. **Skill → agent → cluster flow** — how each of the plugin's five slash-command entrypoints reaches the code in diagram 1.
+3. **Struct/interface diagrams by cluster** — one diagram per cluster from (1), showing its actual structs, interfaces, and package functions.
 
-## Module dependency graph
+Two seams worth keeping straight, since both are *different* from the Python era and the diagrams show them:
 
-Scripts are grouped into eight responsibility clusters, plus a `hooks/` cluster shown separately. An arrow between clusters means at least one module in the source cluster imports at least one module in the target cluster; individual file-level imports are collapsed for readability (see each cluster's file list for exact contents).
+- **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does.
+- **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the cobra command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section).
+
+## Package dependency graph
+
+Packages are grouped into the same responsibility clusters as the retired scripts, plus a composite root. An arrow between clusters means at least one package in the source cluster imports at least one package in the target cluster; individual package-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are the `cli` package importing every cluster — it is the composition root, one cobra file per subcommand, and the wiring that used to live in a `__main__` per script now passes through it.
 
 ```mermaid
 flowchart TB
+    subgraph cli_root["Composite root"]
+        cli["cli — one cobra file per subcommand"]
+    end
+
     subgraph core["Core library"]
-        wikipage["wikipage.py"]
-        place["place.py"]
-        page_record["page_record.py"]
+        wikipage["wikipage"]
+        place["place"]
+        pagerecord["pagerecord"]
     end
 
     subgraph vaultops["Vault ops"]
-        vault["vault.py"]
-        vault_git["vault_git.py"]
-        init_wiki["init_wiki.py"]
+        vault["vault"]
+        vault_git["vaultgit"]
+        init_wiki["initwiki"]
     end
 
     subgraph search["Search"]
-        search_py["search.py"]
-        search_index["search_index.py"]
+        search_index["searchindex"]
     end
 
     subgraph ingestion["Ingestion pipeline"]
-        ingest["ingest.py"]
-        ingest_scan["ingest_scan.py"]
-        discover["discover.py"]
-        chain_of_evidence["chain_of_evidence.py"]
-        commit["commit.py"]
-        superseded_by["superseded_by.py"]
+        ingest["ingest"]
+        ingest_scan["ingestscan"]
+        ingest_ignore["ingestignore"]
+        discover["discover"]
+        chain_of_evidence["chainofevidence"]
+        commit["commit"]
+        superseded_by["supersededby"]
     end
 
     subgraph sessioncap["Session capture"]
-        session_state["session_state.py"]
-        transcript_capture["transcript_capture.py"]
-        save_session["save-session-to-vault.py"]
+        session_state["sessionstate"]
+        transcript_capture["transcriptcapture"]
     end
 
     subgraph watch["Watch"]
-        watch_raw["watch_raw.py"]
+        watch_pkg["watch"]
     end
 
     subgraph stats["Stats"]
-        tool_call_stats["tool_call_stats.py"]
+        tool_call_stats["toolcallstats"]
     end
 
-    subgraph hooks["hooks (Go)"]
-        log_tool_calls["enchiridion hook post-tool-use"]
-        store_transcript_path["enchiridion hook session-start"]
+    subgraph hooks["Hooks"]
+        hooks_pkg["hooks"]
     end
 
     ingestion --> core
     ingestion --> vaultops
     vaultops --> core
-    vaultops --> search
+    search -->|imports vault, vaultgit — the old facade arrow, reversed| vaultops
     search --> core
-    sessioncap --> vaultops
-    watch --> ingestion
-    watch --> vaultops
+    ingestion --> search
+    hooks --> sessioncap
+    hooks --> stats
     stats --> sessioncap
 
-    hooks -.->|writes files sessioncap/stats read| sessioncap
-    hooks -.->|writes files sessioncap/stats read| stats
+    cli -.-> core
+    cli -.-> vaultops
+    cli -.-> search
+    cli -.-> ingestion
+    cli -.-> sessioncap
+    cli -.-> watch
+    cli -.-> stats
+    cli -.-> hooks
 ```
 
 Cluster contents:
 
-- **Core library** — `wikipage.py` (`WikiPage` get/set/merge/retarget, `plan_move`; no I/O), `place.py` (kebab-slug + kind-folder path computation), `page_record.py` (frontmatter schema reader, derives `kind` and `superseded_by`).
-- **Vault ops** — `vault.py` (`Vault`: all I/O, `resolve_vault_root()`), `vault_git.py` (sole git-shell-out module), `init_wiki.py` (vault scaffolding for `/wiki-init`).
-- **Search** — `search.py` (query CLI), `search_index.py` (SQLite FTS5 index, `for_root()` cache).
-- **Ingestion pipeline** — `ingest.py` (`IngestPlan` executor), `ingest_scan.py` (`raw/` sweep eligibility), `discover.py` (overlap-candidate + tag-vocabulary lookup), `chain_of_evidence.py` (page→stub→raw-file rule), `commit.py` (structured git commit per manifest), `superseded_by.py` (supersession queries).
-- **Session capture** — `session_state.py` (session→transcript-path lookup), `transcript_capture.py` (JSONL→page rendering), `save-session-to-vault.py` (CLI adapter for `/save-conversation`).
-- **Watch** — `watch_raw.py` (event-driven `raw/` watcher: debounce, lock file, queue file).
-- **Stats** — `tool_call_stats.py` (summarizes a session's hook-logged tool calls).
-- **hooks** — `enchiridion hook session-start` / `hook post-tool-use`, the Go replacements for the deleted `hooks/store_transcript_path.py` and `hooks/log_tool_calls.py` (#153). They aren't imported by anything; they run as Claude Code hook events and write JSON files that Session capture and Stats later read. The dashed edges mark that producer→consumer relationship, not a Python import.
+- **Core library** — `wikipage` (the pure page model: `Page` get/set/merge/retarget, link machinery — `IterLinks`, `PercentEncode`/`PercentDecode`, `PlanMove`; no I/O), `place` (kebab-slug + kind-folder path computation; `KindFolders` is the single source of truth), `pagerecord` (frontmatter schema reader; derives `kind` from folder and `superseded_by` by inverting `supersedes` edges).
+- **Vault ops** — `vault` (the `Vault` I/O type — all reads/writes, cross-page `MovePage`/`RewriteInboundLinks`, and `ResolveRoot`), `vaultgit` (sole git access, embedded go-git), `initwiki` (vault scaffolding for `/wiki-init`).
+- **Search** — `searchindex` (SQLite FTS5 index over `ncruces/go-sqlite3`; `Open`/`Close` lifetime, staleness scan on every search, ADR-0006/0010).
+- **Ingestion pipeline** — `ingest` (the `Plan`/`Resolved` schema + `Resolve`→`Validate`→`Execute` executor), `ingestscan` (`raw/` sweep eligibility, ADR-0009 `page_ref`), `ingestignore` (`.ingestignore` parse/append), `discover` (overlap-candidate + tag-vocabulary lookup), `chainofevidence` (page→stub→raw-file rule), `commit` (structured git commit per manifest, gated by chain of evidence), `supersededby` (supersession queries).
+- **Session capture** — `sessionstate` (session→transcript-path lookup under `.claude/wiki-knowledge/sessions/`), `transcriptcapture` (JSONL→page rendering + the `save-session` writer).
+- **Watch** — `watch` (debounce, lock file, queue file; pure — no I/O beyond what callers hand it).
+- **Stats** — `toolcallstats` (summarizes a session's hook-logged tool calls).
+- **hooks** — `hooks` (`SessionStart`/`PostToolUse`, the handlers for the `hook` subcommands, #153). It isn't imported by anything but `cli`; it runs as Claude Code hook events and writes the JSON state files Session capture and Stats later read. In the Python era those were dashed producer→consumer edges; in Go the hooks package imports `sessionstate` and `toolcallstats` directly, so the edges are real imports.
+- **Composite root** — `cli`, one file per subcommand (`root.go` for the root `enchiridion` command and `version`, then `search.go`, `ingest.go`, `hook.go`, `vault.go`, `page.go`, `place.go`, `savesession.go`, `watch.go`, `toolcallstats.go`, `supersededby.go`, `commit.go`, `init.go`, `ingestscan.go`, `discover.go`). It resolves the vault root, opens the single `searchindex.Index` handle, and passes it down.
 
-## Skill → agent → script-cluster flow
+## Skill → agent → cluster flow
 
-Each of the plugin's five skills, traced through its agent (if any) to the script cluster(s) it drives. `/wiki-watch` and `/save-conversation` are dispatchers: both hand off into the `/wiki-ingest` flow rather than duplicating it.
+Each of the plugin's five skills, traced through its agent (if any) to the cluster(s) it drives. `/wiki-watch` and `/save-conversation` are dispatchers: both hand off into the `/wiki-ingest` flow rather than duplicating it. The hooks row shows the automatic path — `hooks.json` wires both events to `bin/enchiridion hook <event>`, and the state they write is what Session capture and Stats read.
 
 ```mermaid
 flowchart LR
@@ -114,68 +115,110 @@ flowchart LR
     skInit["/wiki-init"] --> cVaultOps["Vault ops"]
 
     skWatch["/wiki-watch"] --> cWatch["Watch"]
-    cWatch -->|dispatches per queued file| agIngest
+    cWatch -->|dispatches one wiki-ingest subagent per queued file| agIngest
 
     skSave["/save-conversation"] --> cSessionCap["Session capture"]
-    cSessionCap -->|hands off written file| agIngest
+    cSessionCap -->|hands off written raw file| agIngest
+
+    subgraph hooksRow["hooks.json (Claude Code events)"]
+        hStart["enchiridion hook session-start"]
+        hPost["enchiridion hook post-tool-use"]
+    end
+    hStart -.->|records transcript_path| cSessionCap
+    hPost -.->|logs tool calls| cStats["Stats"]
 ```
 
 Notes:
 
-- `/wiki-init` calls `enchiridion init` (ported from `init_wiki.py`) directly — no agent involved, it's pure scaffolding.
-- `/wiki-watch` runs `watch_raw.py` and `ingest_scan.py` (Watch cluster) itself, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
-- `/save-conversation` runs `save-session-to-vault.py` (Session capture cluster) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
-- Script clusters here are the same eight named in the module dependency graph above.
+- `/wiki-init` calls `enchiridion init` directly (from `initwiki`, using `vault`/`vaultgit`) — no agent involved, it's pure scaffolding.
+- `/wiki-watch` runs `enchiridion watch` (Watch cluster, `cli/watch.go` — fsnotify observer + `watch` debounce/lock/queue) with `enchiridion ingest-scan` (Ingestion pipeline cluster) as the eligibility check, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
+- `/save-conversation` runs `enchiridion save-session` (Session capture cluster, `cli/savesession.go` → `transcriptcapture.CaptureSession`) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
+- `enchiridion hook session-start` / `hook post-tool-use` (`cli/hook.go` → `hooks`) run as Claude Code hook events per `wiki-plugin/hooks/hooks.json`, **not** from a skill: SessionStart records the transcript path `save-session` later reads, PostToolUse appends one JSON line per tool call for `enchiridion tool-call-stats`. Both fail open (`|| exit 0`), and PostToolUse sets `ENCHIRIDION_NO_FETCH=1` so a failing binary bootstrap never re-downloads hundreds of times a session.
+- Clusters here are the same ones named in the package dependency graph above.
 
-## Class diagrams by cluster
+## Struct/interface diagrams by cluster
 
-One diagram per cluster from the module dependency graph, showing its actual classes/dataclasses and their relationships. Several clusters (session capture, stats) are mostly free functions rather than classes — those modules are shown as `<<module>>` boxes listing their public functions, for the same collapsed-but-accurate treatment as the classed modules. Cross-cluster references are dashed and named after the target cluster.
+One diagram per cluster from the package dependency graph. Go has no classes; types are shown as structs (`<<struct>>`) with their exported fields and methods, and module-level functions as `<<package>>` boxes. Interfaces are `<<interface>>`. Cross-cluster references are dashed and named after the target cluster.
 
 ### Core library
 
 ```mermaid
 classDiagram
-    class WikiPage {
-        <<wikipage.py>>
-        +frontmatter dict|None
-        +body str
-        +get(key)
-        +set(key, value) WikiPage
-        +merge(key, values) WikiPage
-        +links() list~LinkMatch~
-        +retarget(file_rel, old_rel, new_rel) WikiPage
+    class Page {
+        <<struct · wikipage>>
+        +Text string
+        +Frontmatter() (map[string]any, error)
+        +Get(key) (any, bool, error)
+        +GetString(key) (string, error)
+        +GetStringList(key) ([]string, error)
+        +Set(key, value) (Page, error)
+        +Merge(key, values) (Page, error)
+        +MergeStrings(key, values) (Page, error)
+        +Body() string
+        +Links() []LinkMatch
+        +Retarget(fileRel, oldRel, newRel) Page
     }
     class LinkMatch {
-        <<frozen dataclass · wikipage.py>>
-        +start int
-        +end int
-        +dest str
-        +decoded_path str
-        +decoded_anchor str
-        +is_image bool
-        +line int
+        <<struct · wikipage>>
+        +Start int
+        +End int
+        +Dest string
+        +DecodedPath string
+        +DecodedAnchor string
+        +IsImage bool
+        +Line int
+    }
+    class wikipage {
+        <<package>>
+        +SplitFrontmatter(src) (fm, body string, offset int, has bool)
+        +IterLinks(src) []LinkMatch
+        +LinkDest(link) (dest string, ok bool)
+        +ResolveLinkDest(dest, pageDir) string
+        +NormalizeBodyLinks(src) string
+        +ComposeLink(title, targetRel, pageDir) string
+        +PlanMove(pages, oldRel, newRel) map[string]string
+        +PercentEncode / PercentDecode(path) string
+        +SplitDest(dest) (path, anchor string)
+    }
+    class Edge {
+        <<struct · pagerecord>>
+        +Key string
+        +Targets []string
     }
     class PageRecord {
-        <<frozen dataclass · page_record.py>>
-        +page_ref str
-        +kind str
-        +title str
-        +summary str
-        +tags list~str~
-        +source_date str
-        +volatility str
-        +edges list~tuple~
-        +superseded_by list~str~
+        <<struct · pagerecord>>
+        +PageRef string
+        +Kind string
+        +Title string
+        +Summary string
+        +Tags []string
+        +SourceDate string
+        +Volatility string
+        +Edges []Edge
+        +SupersededBy []string
+        +Supersedes() []string
+    }
+    class pagerecord {
+        <<package>>
+        +EdgeKeys []string
+        +New(pageRef, text) (PageRecord, error)
+        +LoadRecords(pages) (map[string]PageRecord, error)
     }
     class place {
-        <<module · place.py>>
-        +slugify(title) str
-        +path(kind, title) str
+        <<package>>
+        +KindFolders map[string]string
+        +FolderKinds map[string]string
+        +Kinds []string
+        +MaxSlugLength = 64
+        +Slugify(title, maxLength) string
+        +FolderToKind(folder) string
+        +Path(kind, title, extraKindFolders) (string, error)
     }
 
-    WikiPage "1" --> "*" LinkMatch : links()
-    PageRecord ..> WikiPage : page_record() reads .frontmatter
-    PageRecord ..> place : folder→kind via place.FOLDER_KINDS
+    Page "1" --> "*" LinkMatch : Links()
+    PageRecord --> Edge : Edges
+    pagerecord ..> Page : New() reads frontmatter via SplitFrontmatter
+    pagerecord ..> place : folder→kind via FolderKinds
 ```
 
 ### Vault ops
@@ -183,320 +226,434 @@ classDiagram
 ```mermaid
 classDiagram
     class Vault {
-        <<vault.py>>
-        +root Path
-        +load(page_ref) WikiPage
-        +write(page_ref, page)
-        +pages() dict~str,PageRecord~
-        +pages_with_text() dict
-        +set(page_ref, key, value) WikiPage
-        +merge(page_ref, key, values) WikiPage
-        +move_page(old_ref, new_ref) list~str~
-        +rewrite_inbound_links(old_rel, new_rel) list~str~
-        +search(...) list~SearchHit~
-        +reindex(full) IndexStats
-        +index_status() IndexStatus
-        +tag_vocabulary() list
+        <<struct · vault>>
+        +Root string
+        +New(root)$ *Vault
+        +LegacyKindFolders() ([]string, error)
+        +Path(pageRef) string
+        +Exists / Occupied(pageRef) bool
+        +Load(pageRef) (Page, error)
+        +Write(pageRef, page) error
+        +Set(pageRef, key, value) (Page, error)
+        +Merge(pageRef, key, values) (Page, error)
+        +LoadWikiPages() (map[string]string, error)
+        +Pages() (map[string]PageRecord, error)
+        +PagesWithText() (map[string]PageWithText, error)
+        +DiscoveredKinds() (map[string]string, error)
+        +MovePage(oldRef, newRef) ([]string, error)
+        +RewriteInboundLinks(oldRel, newRel) ([]string, error)
     }
-    class VaultGit {
-        <<vault_git.py>>
-        +available() bool
-        +run(...args) str
-        +ensure_work_tree()
-        +init()
-        +add(...paths)
-        +commit(message) str
-        +is_work_tree() bool
-        +last_commit_date(rel) str|None
-        +porcelain_mentions(rel) bool
-        +commit_dates() dict
+    class PageWithText {
+        <<struct · vault>>
+        +Record PageRecord
+        +Text string
     }
-    class GitError
-    class InitError
-    class init_wiki {
-        <<module · init_wiki.py>>
-        +init_wiki(root, mode, plugin_root)
-        +is_vault(root) bool
+    class vault {
+        <<package · root.go>>
+        +Markers = ["wiki", ".wiki-root"]
+        +HasMarker(dir) bool
+        +ResolveRoot(start, lookupEnv) (string, error)
+        +PageRefs(root) ([]string, error)
     }
-    class SearchIndex {
-        <<Search cluster>>
+    class Repo {
+        <<struct · vaultgit>>
+        +Root string
+        +New(root)$ *Repo
+        +IsWorkTree() bool
+        +Init() error
+        +Add(paths...) error
+        +Commit(message) (string, error)
+        +LastCommitDate(rel) string
+        +PorcelainMentions(rel) bool
+        +CommitDates() map[string]string
+    }
+    class initwiki {
+        <<package>>
+        +Modes = ["query-from-anywhere", "dedicated"]
+        +IsVault(root) bool
+        +Init(vaultRoot, mode, pluginRoot) (string, error)
+    }
+    class PageRecord {
+        <<Core library cluster>>
+    }
+    class Page {
+        <<Core library cluster>>
+    }
+    class place {
+        <<Core library cluster>>
     }
 
-    GitError --|> RuntimeError
-    InitError --|> RuntimeError
-    init_wiki ..> VaultGit : scaffold commit
-    Vault "1" --> "1" SearchIndex : _get_index() via search_index.for_root()
+    Vault --> Page : Load/Write
+    Vault --> PageRecord : Pages()
+    Vault ..> place : Placement via KindFolders
+    initwiki ..> Repo : scaffold commit
 ```
+
+No `SearchIndex` relationship here on purpose: the Python `Vault`'s search facade was not ported — `searchindex` imports `vault`, so the arrow now runs the other way and `enchiridion search` opens the index itself (see the Search diagram).
 
 ### Search
 
 ```mermaid
 classDiagram
-    class SearchIndex {
-        <<search_index.py>>
-        +__init__(root, git)
-        +reindex(full) IndexStats
-        +upsert_page(page_ref, ...)
-        +remove_page(page_ref)
-        +search(...) list~SearchHit~
-        +status() IndexStatus
-        +tag_counts() list
-        +close()
+    class Index {
+        <<struct · searchindex>>
+        +Open(root, git)$ (*Index, error)
+        +Close() error
+        +Reindex(full) (Stats, error)
+        +UpsertPage(pageRef, text, gitDates) error
+        +RemovePage(pageRef) error
+        +Status() (Status, error)
+        +TagCounts() ([]TagCount, error)
+        +Search(q Query) ([]Hit, error)
     }
-    class SearchHit {
-        <<frozen dataclass>>
-        +page_ref str
-        +score float
-        +title str
-        +summary str
-        +tags list~str~
-        +kind str
-        +source_date str
-        +git_date str|None
-        +volatility str
-        +superseded_by str|None
-        +snippet str|None
+    class Query {
+        <<struct>>
+        +Text string
+        +Raw bool
+        +TagsAll []string
+        +TagsAny []string
+        +Kinds []string
+        +Since / Until / DateField string
+        +Volatility []string
+        +IncludeSuperseded bool
+        +Limit int
     }
-    class IndexStats {
-        <<dataclass>>
-        +pages int
-        +inserted int
-        +updated int
-        +removed int
-        +duration_ms float
+    class Hit {
+        <<struct>>
+        +PageRef string
+        +Score float64
+        +Title string
+        +Summary string
+        +Tags []string
+        +Kind string
+        +SourceDate string
+        +GitDate *string
+        +Volatility string
+        +SupersededBy *string
+        +Snippet *string
     }
-    class IndexStatus {
-        <<dataclass>>
-        +pages int
-        +db_size_bytes int
-        +backend str
-        +schema_version str
-        +pages_stale int
+    class Stats {
+        <<struct>>
+        +Pages int
+        +Inserted int
+        +Updated int
+        +Removed int
+        +DurationMS float64
     }
-    class VaultGit {
+    class Status {
+        <<struct>>
+        +Pages int
+        +DBSizeBytes int64
+        +Backend string
+        +SchemaVersion string
+    }
+    class TagCount {
+        <<struct>>
+        +Tag string
+        +Count int
+    }
+    class searchindex {
+        <<package>>
+        +SchemaVersion = "2"
+        +TokenizeQuery(text) string
+    }
+    class Repo {
         <<Vault ops cluster>>
     }
-    class search_cli {
-        <<module · search.py>>
-        +_main(argv) int
+    class Vault {
+        <<Vault ops cluster>>
     }
 
-    SearchIndex "1" --> "1" VaultGit : git dates for hits
-    SearchIndex ..> SearchHit : search() returns
-    SearchIndex ..> IndexStats : reindex() returns
-    SearchIndex ..> IndexStatus : status() returns
-    search_cli ..> SearchIndex : via vault.Vault.search()
+    Index ..> Hit : Search() returns
+    Index ..> Stats : Reindex() returns
+    Index ..> Status : Status() returns
+    Index ..> TagCount : TagCounts() returns
+    Index --> Repo : Open() takes *vaultgit.Repo (git dates)
+    Index ..> Vault : imports — staleness scan reads pages
 ```
+
+Search correctness lives in the staleness scan `Index.Search` runs before matching — an unconditional `(mtime_ns, size)` check over `Vault.PagesWithText()` — so the FTS5 table can never go stale because a caller forgot an inline update. There is no `ForRoot` per-root cache and no `Vault` facade: the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
 
 ### Ingestion pipeline
 
 ```mermaid
 classDiagram
-    class IngestPlan {
-        <<dataclass · ingest.py>>
-        +title str
-        +action str
-        +source_date str|None
-        +raw str|None
-        +pages list~PagePlan~
-        +from_dict(d)$ IngestPlan
+    class Plan {
+        <<struct · ingest>>
+        +Title string
+        +Action string
+        +SourceDate string
+        +Raw string
+        +Pages []PagePlan
+        +DecodePlan(r)$ (Plan, error)
     }
     class PagePlan {
-        <<dataclass · ingest.py>>
-        +op str
-        +title str
-        +body str|None
-        +kind str|None
-        +page_ref str|None
-        +frontmatter dict
-        +edges dict
-        +from_dict(d)$ PagePlan
+        <<struct · ingest>>
+        +Op string
+        +Title string
+        +Kind string
+        +PageRef string
+        +Body *string
+        +Frontmatter OrderedMap[any]
+        +Edges OrderedMap[[]string]
     }
-    class ResolvedPlan {
-        <<dataclass · ingest.py>>
-        +plan IngestPlan
-        +pages list~ResolvedPage~
-        +root Path|None
-        +validate()
-        +execute() str
-        +describe() str
+    class OrderedMap {
+        <<struct · ingest>>
+        +Keys []string
+        +Values map[string]V
+        +Get(key) (V, bool)
+        +Len() int
+        +All(yield)
+    }
+    class Resolved {
+        <<struct · ingest>>
+        +Plan Plan
+        +Pages []ResolvedPage
+        +Root string
+        +ExtraKindFolders map[string]string
+        +Resolve(plan, root)$ (*Resolved, error)
+        +Validate() error
+        +Execute(git) (string, error)
+        +Describe() string
     }
     class ResolvedPage {
-        <<dataclass · ingest.py>>
-        +plan_page PagePlan
-        +page_ref str|None
-        +page WikiPage|None
-        +exists bool
-        +loaded bool
-        +op str
-    }
-    class PlanError
-    class IngestCandidate {
-        <<frozen dataclass · ingest_scan.py>>
-        +raw_rel str
-        +reason str
-        +back_pointers list~str~
-    }
-    class ScanResult {
-        <<frozen dataclass · ingest_scan.py>>
-        +eligible list~IngestCandidate~
-        +ignored list~str~
-    }
-    class Sweep {
-        <<ingest_scan.py>>
-        +vault Vault
-        +scan(folder) ScanResult
-        +append_ignore_entry(folder, pattern, comment)
-    }
-    class DiscoveryCandidate {
-        <<frozen dataclass · discover.py>>
-        +page_ref str
-        +title str
-        +score float
-        +hint Hint
-        +summary str
-        +tags list~str~
-        +volatility str
-        +superseded_by str|None
+        <<struct · ingest>>
+        +Plan PagePlan
+        +PageRef string
+        +Page *Page
+        +Occupied bool
+        +Loaded bool
+        +Op() string
     }
     class Manifest {
-        <<dataclass · commit.py>>
-        +title str
-        +action str
-        +created list~str~
-        +updated list~str~
-        +superseded list~tuple~
-        +source_date str|None
-        +raw_source str|None
-        +staged_paths() list~str~
+        <<struct · commit>>
+        +Title string
+        +Action string
+        +Created []string
+        +Updated []string
+        +Superseded []Supersession
+        +SourceDate string
+        +RawSource string
+        +StagedPaths() []string
     }
-    class CommitGateError
+    class Supersession {
+        <<struct · commit>>
+        +Old string
+        +New string
+    }
+    class Git {
+        <<interface · commit>>
+        +IsWorkTree() bool
+        +Add(paths...) error
+        +Commit(message) (string, error)
+    }
+    class chainofevidence {
+        <<package>>
+        +Check(staged, raw) ([]string, error)
+    }
+    class Searcher {
+        <<interface · discover>>
+        +Search(q) ([]searchindex.Hit, error)
+    }
+    class Candidate {
+        <<struct · discover>>
+        +PageRef string
+        +Title string
+        +Score float64
+        +Hint Hint
+        +Summary string
+        +Tags []string
+        +Volatility string
+        +SupersededBy *string
+    }
+    class PageResult {
+        <<struct · discover>>
+        +Title string
+        +Candidates []Candidate
+    }
     class Resolution {
-        <<frozen dataclass · superseded_by.py>>
-        +seed str
-        +active str
-        +chain list~str~
+        <<struct · supersededby>>
+        +Seed string
+        +Active string
+        +Chain []string
+        +Resolve(seeds, records)$ []Resolution
     }
-    class chain_of_evidence {
-        <<module>>
-        +check(staged, raw) list~str~
+    class ScanCandidate {
+        <<struct · ingestscan>>
+        +RawRel string
+        +Reason string
+        +BackPointers []string
+    }
+    class ScanResult {
+        <<struct · ingestscan>>
+        +Eligible []ScanCandidate
+        +Ignored []string
+    }
+    class ScanGit {
+        <<interface · ingestscan>>
+        +LastCommitDate(rel) string
+        +PorcelainMentions(rel) bool
+    }
+    class ingestignore {
+        <<package>>
+        +Filename = ".ingestignore"
+        +Parse(text) ([]string, error)
+        +Append(folder, pattern, comment) error
     }
     class Vault {
         <<Vault ops cluster>>
     }
-    class WikiPage {
+    class Repo {
+        <<Vault ops cluster>>
+    }
+    class Page {
         <<Core library cluster>>
     }
+    class PageRecord {
+        <<Core library cluster>>
+    }
+    class Index {
+        <<Search cluster>>
+    }
 
-    IngestPlan "1" --> "*" PagePlan : pages
-    ResolvedPlan --> IngestPlan : plan
-    ResolvedPlan "1" --> "*" ResolvedPage : pages
-    ResolvedPage --> PagePlan : plan_page
-    ResolvedPage ..> WikiPage : page
-    ResolvedPlan ..> Manifest : execute() builds
-    ResolvedPlan ..> Vault : execute() writes via
-    PlanError --|> ValueError
-    CommitGateError --|> RuntimeError
-    Manifest ..> chain_of_evidence : commit() gated by check()
-    ScanResult "1" --> "*" IngestCandidate : eligible
-    Sweep --> Vault : wraps
-    Sweep ..> ScanResult : scan() returns
-    DiscoveryCandidate ..> Vault : discover.check() queries via Vault.search()
-    Resolution ..> Vault : resolve() walks supersedes edges via Vault.pages()
+    Plan "1" --> "*" PagePlan : Pages
+    Resolved --> Plan : Plan
+    Resolved "1" --> "*" ResolvedPage : Pages
+    ResolvedPage --> PagePlan : Plan
+    ResolvedPage ..> Page : Page
+    Resolved ..> Manifest : Execute() builds
+    Resolved ..> Vault : Execute() writes via
+    Resolved ..> Git : Execute(git) — *vaultgit.Repo satisfies
+    Manifest ..> chainofevidence : Commit() gated by Check()
+    Manifest --> Supersession : Superseded
+    Searcher ..> Index : implemented by searchindex.Index
+    Candidate --> Searcher : Check()/Discover() search via
+    supersededby ..> PageRecord : Resolve() walks supersedes edges
+    ScanResult "1" --> "*" ScanCandidate : Eligible
+    ingestscan ..> ScanGit : Scan() takes a Git
+    ScanGit ..> Repo : satisfied by vaultgit.Repo
+    ingestscan ..> Vault : raw/ reads
+    ingestscan ..> ingestignore : LoadIngestignore()
 ```
+
+The pipeline is `Resolve → Validate → Execute → commit`; validation reads only resolved facts and execution writes only resolved pages, so the checked plan and the written plan cannot diverge. The chain-of-evidence check is run twice — pre-flight by validation (a courtesy) and again by `commit.Commit` as the hard gate — so a hand-built manifest can't route around it. `discover` is the one place this cluster reaches into Search: `Check` classifies overlap candidates against the index via a `Searcher`, which is how `cli`'s single open `Index` reaches it without a vault root.
 
 ### Session capture
 
 ```mermaid
 classDiagram
-    class transcript_capture {
-        <<module · transcript_capture.py>>
-        +sanitize_slug(phrase) str
-        +transcript_to_page(...) str
-        +find_transcript_path(session_id) str|None
-        +write_capture(wiki_root, filename, markdown, short_id) str
-        +capture_session(...) str
+    class transcriptcapture {
+        <<package>>
+        +SanitizeSlug(phrase, maxLength) string
+        +TranscriptToPage(jsonlLines, sessionID, now, slug, userLabel, assistantLabel, minTurns) (string, string, error)
+        +FindTranscriptPath(cwd, lookupEnv) (string, string)
+        +WriteCapture(wikiRoot, filename, markdown, shortID) (string, error)
+        +CaptureSession(wikiRoot, slug, cwd, lookupEnv, now) (string, error)
     }
-    class CaptureError
-    class session_state {
-        <<module · session_state.py>>
-        +sessions_dir(root, env) Path
-        +write_transcript_path(session_id, path)
-        +read_transcript_path(session_id) str|None
+    class ErrTooFewTurns {
+        <<struct>>
+        +Turns int
+        +MinTurns int
     }
-    class save_session_cli {
-        <<module · save-session-to-vault.py>>
-        +main(argv) int
+    class CaptureError {
+        <<struct>>
+        +msg string
     }
-    class Vault {
-        <<Vault ops cluster>>
+    class sessionstate {
+        <<package>>
+        +SessionsDir(root, cwd, lookupEnv) string
+        +WriteTranscriptPath(sessionID, transcriptPath, stateDir) error
+        +ReadTranscriptPath(sessionID, stateDir) (string, bool)
+    }
+    class saveSessionCLI {
+        <<cli/savesession.go>>
+        +enchiridion save-session --slug
     }
 
-    CaptureError --|> Exception
-    transcript_capture ..> CaptureError : raises
-    transcript_capture ..> session_state : find_transcript_path() reads
-    save_session_cli ..> transcript_capture : capture_session()
-    save_session_cli ..> Vault : resolve_vault_root()
+    transcriptcapture ..> CaptureError : raises
+    transcriptcapture ..> ErrTooFewTurns : raises
+    transcriptcapture ..> sessionstate : FindTranscriptPath() reads
+    saveSessionCLI ..> transcriptcapture : CaptureSession()
 ```
+
+`enchiridion save-session` reads the transcript path the SessionStart hook recorded (under `.claude/wiki-knowledge/sessions/`), renders the JSONL transcript to markdown, and writes `raw/conversations/<YYYY-MM-DD-hhmm>-<slug>-<short-id>.md`, printing the vault-relative path. Claude Code only for now — there is no OpenCode path yet ([#188](https://github.com/dhague/enchiridion/issues/188)).
 
 ### Watch
 
 ```mermaid
 classDiagram
     class Debouncer {
-        <<watch_raw.py>>
-        +record_event(rel)
-        +settled_files() list~str~
+        <<struct · watch>>
+        +NewDebouncer(debounceSeconds, clock)$ *Debouncer
+        +RecordEvent(rel)
+        +SettledFiles() []string
+        +LastEvent(rel) (float64, bool)
     }
-    class _RawEventHandler {
-        <<watch_raw.py>>
-        +on_any_event(event)
+    class Paths {
+        <<struct · watch>>
+        +ForRoot(root)$ Paths
     }
-    class FileSystemEventHandler {
-        <<watchdog, external>>
+    class watch {
+        <<package>>
+        +WriteLock(lockPath, pid, startedAt)
+        +RemoveLock(lockPath) error
+        +AcquireLock(lockPath, now, pidAlive) (bool, *int, error)
+        +ReadQueue(queuePath) ([]string, error)
+        +AppendQueue(queuePath, rel) error
+        +RemoveFromQueue(queuePath, rel) error
+        +CheckAndEnqueue(eligibleRels, settledRel, queuePath) (bool, error)
+        +RelForEvent(root, path) (string, bool)
     }
-    class WatchPaths {
-        <<dataclass · watch_raw.py>>
-        +for_root(root)$ WatchPaths
+    class fsnotify {
+        <<external, github.com/fsnotify>>
+        +Watcher
     }
-    class watch_raw_module {
-        <<module · watch_raw.py>>
-        +write_lock(lock_path, pid, started_at)
-        +acquire_lock(...)
-        +append_queue(queue_path, rel)
-        +remove_from_queue(queue_path, rel)
-        +read_queue(queue_path) list~str~
-        +check_and_enqueue(eligible, settled, queue_path) bool
+    class watchCLI {
+        <<cli/watch.go>>
+        +enchiridion watch [--debounce] [--dequeue rel]
     }
-    class ingest_scan {
+    class ingestscan {
         <<Ingestion pipeline cluster>>
     }
-    class Vault {
-        <<Vault ops cluster>>
-    }
 
-    _RawEventHandler --|> FileSystemEventHandler
-    _RawEventHandler --> Debouncer : records settled events into
-    watch_raw_module --> WatchPaths : paths for lock/queue files
-    watch_raw_module ..> ingest_scan : eligibility check before enqueue
-    watch_raw_module ..> Vault : resolves root
+    watchCLI --> fsnotify : observes raw/ recursively
+    watchCLI --> Debouncer : records events into
+    watchCLI --> ingestscan : eligibility check before enqueue
+    watchCLI --> Paths : lock/queue paths
+    watchCLI ..> watch : AcquireLock / CheckAndEnqueue / RemoveFromQueue
 ```
+
+`watch` itself is pure — it holds no watcher and touches no filesystem it isn't handed. `cli/watch.go` is where the composition happens: an fsnotify observer feeds `Debouncer.RecordEvent`, a ticker drains `Debouncer.SettledFiles()`, and each settled file is queued only if `ingestscan.Scan` marks it eligible. In the Python era `watch_raw.py` imported `ingest_scan.py` directly; that edge now runs through the composite root.
 
 ### Stats
 
 ```mermaid
 classDiagram
-    class tool_call_stats {
-        <<module · tool_call_stats.py, no classes>>
-        +log_path(session_id, state_dir) Path
-        +read_log(session_id, state_dir) list~dict~
-        +summarize(events) dict
-        +format_summary(stats) str
+    class toolcallstats {
+        <<package>>
+        +LogPath(sessionID, stateDir) string
+        +ReadLog(sessionID, stateDir) ([]map[string]any, error)
+        +Summarize(events) Summary
+        +FormatSummary(s) string
     }
-    class session_state {
+    class Summary {
+        <<struct>>
+        +Total int
+        +ByTool []ToolCount
+        +Prompts int
+        +CallsPerPrompt float64
+        +HasCallsPerPrompt bool
+    }
+    class ToolCount {
+        <<struct>>
+        +Tool string
+        +Count int
+    }
+    class sessionstate {
         <<Session capture cluster>>
     }
 
-    tool_call_stats ..> session_state : log_path() built from sessions_dir()
+    toolcallstats ..> sessionstate : LogPath() built from SessionsDir()
 ```
 
+`enchiridion tool-call-stats` reads the JSON-lines log the PostToolUse hook appends to per session, and prints the per-tool histogram with the prompt-count proxy — tool-call count, not exact turn count, is the recoverable metric ([#99](https://github.com/dhague/enchiridion/issues/99)). `enchiridion ingest` also prints the same summary after the commit SHA, best-effort and silent when no log exists.
