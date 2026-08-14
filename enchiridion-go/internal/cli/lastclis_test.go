@@ -105,6 +105,42 @@ func TestPageGetPrintsADateAsPythonDid(t *testing.T) {
 	}
 }
 
+// A timestamp is not a date, and Python printed its time — zone-less in the
+// space-separated form, zoned in ISO form with the offset. Both verified
+// against `wikipage.py get` before it was deleted.
+func TestPageGetKeepsATimestampsTime(t *testing.T) {
+	for _, tc := range []struct{ scalar, want string }{
+		{"2026-01-15 10:30:00", "2026-01-15 10:30:00"},
+		{"2026-01-15T00:00:00+05:00", "2026-01-15T00:00:00+05:00"},
+		{"2026-01-15T10:30:00-08:00", "2026-01-15T10:30:00-08:00"},
+	} {
+		path := pageFile(t, "---\ntitle: T\ncreated: "+tc.scalar+"\n---\nbody\n")
+
+		out, err := runSubcommand(t, "page", "get", path, "created")
+		if err != nil {
+			t.Fatalf("page get %s: %v\n%s", tc.scalar, err, out)
+		}
+		if got := strings.TrimSpace(out); got != tc.want {
+			t.Errorf("page get created (%s) = %q, want %q", tc.scalar, got, tc.want)
+		}
+	}
+}
+
+// Python printed a YAML bool as `True`/`False`, not Go's `true`/`false`.
+func TestPageGetPrintsABoolPythonStyle(t *testing.T) {
+	path := pageFile(t, "---\ntitle: T\ndraft: true\npublished: false\n---\nbody\n")
+
+	for key, want := range map[string]string{"draft": "True", "published": "False"} {
+		out, err := runSubcommand(t, "page", "get", path, key)
+		if err != nil {
+			t.Fatalf("page get %s: %v\n%s", key, err, out)
+		}
+		if got := strings.TrimSpace(out); got != want {
+			t.Errorf("page get %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
 func TestPageGetFailsOnAbsentKey(t *testing.T) {
 	path := pageFile(t, "---\ntitle: T\n---\nbody\n")
 

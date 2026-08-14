@@ -8,6 +8,8 @@ Captures session transcript into `$WIKI_ROOT/raw/conversations/`, files it into 
 
 ## Procedure
 
+**Claude Code only for now.** `save-session` finds its transcript via `$CLAUDE_CODE_SESSION_ID`; there is no OpenCode path yet ([#188](https://github.com/dhague/enchiridion/issues/188)). On OpenCode step 1 fails — say so and stop, rather than retrying or hand-rolling a transcript.
+
 1. Run capture script with `WIKI_ROOT` set to target vault (per deployment-mode resolution — script runs outside vault, can't use marker-directory discovery from cwd). Script lives in plugin's install directory; invoke via `<plugin-root>`:
    ```
    WIKI_ROOT="<path to vault>" "<plugin-root>/bin/enchiridion" save-session --slug "<short phrase>"

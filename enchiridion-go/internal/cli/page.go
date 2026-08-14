@@ -135,19 +135,44 @@ func formatFrontmatterValue(value any) string {
 	return pythonListRepr(strs)
 }
 
-// formatScalar renders one frontmatter scalar as Python's `str()` did.
+// formatScalar renders one frontmatter scalar the way printing it in Python
+// did, so a caller parsing `wikipage.py get` output still parses this one.
 //
-// The case that matters is a YAML timestamp: `created: 2026-01-15` decodes to
-// a time.Time here but to a `datetime.date` in ruamel, and Go's default
-// rendering ("2026-01-15 00:00:00 +0000 UTC") is nothing like `str(date)`.
-// A zero clock means the source scalar was date-only, so it prints as a date;
-// anything else keeps its time, matching `str(datetime)`.
+// Two types need help. A bool prints Go-style `true`, where Python printed
+// `True`. And a YAML timestamp decodes to a time.Time here but to a ruamel
+// date/TimeStamp there, whose three renderings are all unlike Go's default
+// "2026-01-15 00:00:00 +0000 UTC":
+//
+//	created: 2026-01-15                 -> 2026-01-15
+//	created: 2026-01-15 10:30:00        -> 2026-01-15 10:30:00
+//	created: 2026-01-15T00:00:00+05:00  -> 2026-01-15T00:00:00+05:00
+//
+// One ambiguity is irreducible: the decoder gives a zone-less scalar and an
+// explicit `Z` scalar the same UTC time.Time, so a `Z` timestamp renders in
+// the zone-less form (dropping "+00:00") and `2026-01-15T00:00:00Z` renders
+// as a bare date. Every date field in the frontmatter schema is date-only, so
+// this is latent rather than live.
 func formatScalar(value any) string {
-	ts, ok := value.(time.Time)
-	if !ok {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "True"
+		}
+		return "False"
+	case time.Time:
+		return formatTimestamp(v)
+	default:
 		return fmt.Sprintf("%v", value)
 	}
-	if ts.Equal(ts.Truncate(24 * time.Hour)) {
+}
+
+func formatTimestamp(ts time.Time) string {
+	_, offset := ts.Zone()
+	if offset != 0 {
+		return ts.Format("2006-01-02T15:04:05-07:00")
+	}
+	h, m, s := ts.Clock()
+	if h == 0 && m == 0 && s == 0 && ts.Nanosecond() == 0 {
 		return ts.Format("2006-01-02")
 	}
 	return ts.Format("2006-01-02 15:04:05")
