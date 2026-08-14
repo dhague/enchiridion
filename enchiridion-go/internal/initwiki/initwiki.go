@@ -74,11 +74,10 @@ func settingsJSON(pluginRoot string) (string, error) {
 // directory) or [ModeDedicated] (no settings.json; the caller installs the
 // plugin themselves).
 //
-// git comes from [vaultgit.Repo], the one package that talks to git (#126).
-// Where the Python version's absent-git policy was "git missing on PATH is a
-// hard failure before any scaffolding", the Go port embeds git, so the
-// equivalent failures — an unwritable root, an unconfigured committer
-// identity — surface from the git verbs themselves.
+// git comes from [vaultgit.Repo], the one package that talks to git (#126),
+// via an embedded implementation — there is no "git missing on PATH" failure
+// mode; an unwritable root or an unconfigured committer identity instead
+// surface from the git verbs themselves.
 func Init(vaultRoot, mode, pluginRoot string) (string, error) {
 	switch mode {
 	case ModeQueryFromAnywhere:

@@ -57,9 +57,8 @@ type Supersession struct {
 	New string
 }
 
-// UnmarshalJSON decodes the two-element `[old, new]` array the Python
-// manifest format uses, so a manifest written by either implementation reads
-// the same.
+// UnmarshalJSON decodes the two-element `[old, new]` array the manifest
+// format uses for a supersession pair.
 func (s *Supersession) UnmarshalJSON(data []byte) error {
 	var pair []string
 	if err := json.Unmarshal(data, &pair); err != nil {
@@ -93,8 +92,7 @@ type Manifest struct {
 	RawSource string `json:"raw_source"`
 }
 
-// defaultAction is the verb a manifest that names none commits under,
-// matching the Python dataclass default.
+// defaultAction is the verb a manifest that names none commits under.
 const defaultAction = "ingest"
 
 // StagedPaths returns every path this manifest touches, de-duplicated, in a

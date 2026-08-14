@@ -1,20 +1,17 @@
 package vault
 
-// This file is the I/O half of the vault, ported from
-// `wiki-plugin/scripts/vault.py` in #151: every read and write inside the
+// This file is the I/O half of the vault: every read and write inside the
 // vault, plus the cross-page operations ([Vault.MovePage],
 // [Vault.RewriteInboundLinks]) that need every other page's text to fix the
 // links pointing at a moved one. Its counterpart [wikipage.Page] is
 // pure-functional and does no I/O at all.
 //
-// **The Python class's search-index facade is deliberately not ported.**
-// `Vault.search`/`reindex`/`index_status` proxy to `search_index.py`, and
-// `Vault.write` inline-updates the index — but in Go, `searchindex` imports
-// this package, so the facade would be an import cycle. It costs nothing:
-// the inline update was only ever a latency optimisation, since index
-// correctness lives in the unconditional staleness scan every search runs
-// (ADR-0006). Callers that need to search open a `searchindex.Index`
-// directly, as `enchiridion search` does.
+// **`Vault` has no search-index facade.** `searchindex` imports this
+// package, so a facade here would be an import cycle. It costs nothing:
+// an inline index update on write would only ever be a latency
+// optimisation, since index correctness lives in the unconditional
+// staleness scan every search runs (ADR-0006). Callers that need to search
+// open a `searchindex.Index` directly, as `enchiridion search` does.
 
 import (
 	"fmt"

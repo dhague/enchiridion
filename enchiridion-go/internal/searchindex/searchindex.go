@@ -1,5 +1,4 @@
-// Package searchindex is the SQLite FTS5 lexical index for a vault, ported
-// from `wiki-plugin/scripts/search_index.py`.
+// Package searchindex is the SQLite FTS5 lexical index for a vault.
 //
 // Per [ADR-0006]: a single gitignored `.wiki-knowledge/index.db` at the
 // vault root holds a `page` metadata table (kind, tags, source_date,
@@ -14,19 +13,13 @@
 // update it — including for edits made outside the plugin entirely (git
 // pull, Obsidian).
 //
-// The on-disk schema began as byte-for-byte the retired Python
-// implementation's, because during the incremental per-subcommand migration
-// (ADR-0011) both read and wrote the same `index.db` and a schema or
-// tokenizer drift would have silently corrupted retrieval. That constraint is
-// gone — this is the only implementation now (#186), and the bidirectional
-// compatibility guard retired with the Python layer. The schema is free to
-// change on its own terms; bump [SchemaVersion] when it does.
+// The schema is free to change on its own terms; bump [SchemaVersion] when
+// it does.
 //
-// There is no `re` fallback backend. The Python version probed for FTS5
-// because a platform's system SQLite may be compiled without it; the Go
-// binary embeds its own SQLite build, so FTS5 is always present. The
-// `backend` field survives in [Status] only because it is part of the
-// `search --status` output contract.
+// There is no `re` fallback backend: the Go binary embeds its own SQLite
+// build, so FTS5 is always present. The `backend` field survives in
+// [Status] only because it is part of the `search --status` output
+// contract.
 //
 // [ADR-0006]: ../../../docs/adr/0006-stdlib-fts5-not-embeddings.md
 package searchindex
@@ -53,9 +46,7 @@ import (
 
 // SchemaVersion is bumped when the on-disk schema changes. A mismatch on
 // open triggers a full rebuild — delete-and-rebuild is the migration
-// strategy, never an in-place ALTER. It is "2" because that is the version
-// the retired Python implementation had reached; nothing outside this package
-// pins it any more.
+// strategy, never an in-place ALTER.
 //
 // The jump to "3" is a *data* not a *schema* change: #192 made `source_date`
 // canonical (YYYY-MM-DD, clock truncated) on read, but rows written by "2"
@@ -151,16 +142,12 @@ func TokenizeQuery(text string) string {
 // vault at a time**: writes commit immediately (no WAL, ADR-0006), so a
 // second connection racing the first surfaces as `database is locked`.
 //
-// ADR-0010 solved that Python-side with a per-root cache, because
-// `SearchIndex` had no close and a caller-side memo was the only thing
-// stopping a second connection. Go resolves the same constraint by the
-// opposite mechanism: [Open] pairs with [Index.Close], so the lifetime is
-// explicit and one owner holds it. The owner is the command — the single
+// [Open] pairs with [Index.Close], so the lifetime is explicit and one
+// owner holds it (ADR-0010). The owner is the command — the single
 // entrypoint of a one-shot process — which opens once and passes the handle
 // down (see [github.com/dhague/enchiridion/enchiridion-go/internal/discover]).
 // Packages below it take a searcher, never a root, so they cannot open a
-// competing connection; that is the structural version of what the cache was
-// faking, and it is why no `ForRoot` exists here.
+// competing connection; that is why no `ForRoot` exists here.
 //
 // The unit of address is a vault-relative page reference
 // (`wiki/concepts/foo.md`) throughout — schema, upsert API, and search
@@ -187,10 +174,9 @@ func Open(root string, git *vaultgit.Repo) (*Index, error) {
 	// the default rollback journal is left alone.
 	//
 	// FTS5 ships as a loadable extension in this driver's SQLite build, so it
-	// is registered per connection rather than assumed present. That makes
-	// the Python implementation's runtime FTS5 capability probe unnecessary:
-	// registration failing here is a broken binary, not a platform whose
-	// SQLite was compiled without the module.
+	// is registered per connection rather than assumed present. There is no
+	// runtime FTS5 capability probe: registration failing here is a broken
+	// binary, not a platform whose SQLite was compiled without the module.
 	db, err := driver.Open("file:"+dbPath, func(conn *sqlite3.Conn) error {
 		return fts5.Register(conn)
 	})
@@ -685,8 +671,8 @@ func (i *Index) queryMetadataOnly(where string, params []any, limit int) ([]Hit,
 			&h.SourceDate, &h.GitDate, &h.Volatility, &h.SupersededBy); err != nil {
 			return nil, err
 		}
-		// Tags are left empty on this path, matching the Python
-		// implementation's pure-metadata row mapper.
+		// Tags are left empty on this path — it's the pure-metadata row
+		// mapper.
 		h.Tags = []string{}
 		hits = append(hits, h)
 	}
@@ -819,8 +805,7 @@ func toAny(values []string) []any {
 }
 
 // nullable maps the empty string to SQL NULL, so an unknown git_date reads
-// back as null rather than "" — the Python implementation stores
-// `git_dates.get(page_ref)`, which is None when absent.
+// back as null rather than "".
 func nullable(s string) any {
 	if s == "" {
 		return nil

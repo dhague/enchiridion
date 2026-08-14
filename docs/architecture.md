@@ -2,7 +2,7 @@
 
 Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.7.6`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
-The script layer is a single static Go binary at `enchiridion-go/` (`enchiridion`, one subcommand per capability), invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that lazy-fetches the release binary ([ADR-0013](adr/0013-go-binary-lazy-fetch-dependency-free-bootstrap.md)). The names in these diagrams are Go packages under `enchiridion-go/internal/`; the diagram from before the Go rewrite ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)) is gone because it named deleted Python modules. This redraw keeps the responsibility clusters the Python version used, re-expressed for packages ([#191](https://github.com/dhague/enchiridion/issues/191)).
+The script layer is a single static Go binary at `enchiridion-go/` (`enchiridion`, one subcommand per capability), invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that lazy-fetches the release binary ([ADR-0013](adr/0013-go-binary-lazy-fetch-dependency-free-bootstrap.md)). The names in these diagrams are Go packages under `enchiridion-go/internal/`.
 
 Diagrams:
 
@@ -10,7 +10,7 @@ Diagrams:
 2. **Skill → agent → cluster flow** — how each of the plugin's five slash-command entrypoints reaches the code in diagram 1.
 3. **Struct/interface diagrams by cluster** — one diagram per cluster from (1), showing its actual structs, interfaces, and package functions.
 
-Two seams worth keeping straight, since both are *different* from the Python era and the diagrams show them:
+Two seams worth keeping straight, since the diagrams show them:
 
 - **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does.
 - **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the cobra command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section).
@@ -99,7 +99,7 @@ Cluster contents:
 - **Session capture** — `sessionstate` (session→transcript-path lookup under `.claude/wiki-knowledge/sessions/`), `transcriptcapture` (JSONL→page rendering + the `save-session` writer).
 - **Watch** — `watch` (debounce, lock file, queue file; pure — no I/O beyond what callers hand it).
 - **Stats** — `toolcallstats` (summarizes a session's hook-logged tool calls).
-- **hooks** — `hooks` (`SessionStart`/`PostToolUse`, the handlers for the `hook` subcommands, #153). It isn't imported by anything but `cli`; it runs as Claude Code hook events and writes the JSON state files Session capture and Stats later read. In the Python era those were dashed producer→consumer edges; in Go the hooks package imports `sessionstate` and `toolcallstats` directly, so the edges are real imports.
+- **hooks** — `hooks` (`SessionStart`/`PostToolUse`, the handlers for the `hook` subcommands). It isn't imported by anything but `cli`; it runs as Claude Code hook events and writes the JSON state files Session capture and Stats later read. The `hooks` package imports `sessionstate` and `toolcallstats` directly, so those are real edges.
 - **Composite root** — `cli`, one file per subcommand (`root.go` for the root `enchiridion` command and `version`, then `search.go`, `ingest.go`, `hook.go`, `vault.go`, `page.go`, `place.go`, `savesession.go`, `watch.go`, `toolcallstats.go`, `supersededby.go`, `commit.go`, `init.go`, `ingestscan.go`, `discover.go`). It resolves the vault root, opens the single `searchindex.Index` handle, and passes it down.
 
 ## Skill → agent → cluster flow
@@ -625,7 +625,7 @@ classDiagram
     watchCLI ..> watch : AcquireLock / CheckAndEnqueue / RemoveFromQueue
 ```
 
-`watch` itself is pure — it holds no watcher and touches no filesystem it isn't handed. `cli/watch.go` is where the composition happens: an fsnotify observer feeds `Debouncer.RecordEvent`, a ticker drains `Debouncer.SettledFiles()`, and each settled file is queued only if `ingestscan.Scan` marks it eligible. In the Python era `watch_raw.py` imported `ingest_scan.py` directly; that edge now runs through the composite root.
+`watch` itself is pure — it holds no watcher and touches no filesystem it isn't handed. `cli/watch.go` is where the composition happens: an fsnotify observer feeds `Debouncer.RecordEvent`, a ticker drains `Debouncer.SettledFiles()`, and each settled file is queued only if `ingestscan.Scan` marks it eligible. `watch` and `ingestscan` don't import each other; that edge runs through the composite root.
 
 ### Stats
 

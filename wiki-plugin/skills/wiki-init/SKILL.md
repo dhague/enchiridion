@@ -6,7 +6,7 @@ description: Scaffold a brand-new wiki vault — folder structure, git repo, and
 
 New empty vault at target dir. One-time scaffold. Not `wiki-ingest` (that fills existing vault) — don't run on existing vault.
 
-Folder layout, `.gitignore`, git init, `settings.json`, scaffold commit — all handled by `bin/enchiridion init` (Go binary, no Python; see `enchiridion-go/internal/initwiki/`). Only decision left: deployment mode.
+Folder layout, `.gitignore`, git init, `settings.json`, scaffold commit — all handled by `bin/enchiridion init` (see `enchiridion-go/internal/initwiki/`). Only decision left: deployment mode.
 
 ## Procedure
 

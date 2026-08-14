@@ -30,7 +30,8 @@ const encodeChars = " #%()<>"
 
 // frontmatterRe matches a `---` fence on the VERY FIRST line, closed by the
 // next `---` line. Anything else (a `---` mid-document) is a thematic break,
-// not metadata. `(?s)` makes `.` span newlines, matching Python's re.DOTALL.
+// not metadata. `(?s)` makes `.` span newlines, so the match can cross line
+// boundaries.
 var frontmatterRe = regexp.MustCompile(`(?s)\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\z)`)
 
 // linkRe matches a markdown inline link or image: `[label](dest ...)` /
@@ -81,9 +82,9 @@ func PercentEncode(path string) string {
 	return b.String()
 }
 
-// PercentDecode reverses [PercentEncode]. Like Python's urllib `unquote`, an
-// invalid or truncated escape is left verbatim rather than being an error —
-// decoding a link destination must never fail on hand-written markdown.
+// PercentDecode reverses [PercentEncode]. An invalid or truncated escape is
+// left verbatim rather than being an error — decoding a link destination
+// must never fail on hand-written markdown.
 func PercentDecode(path string) string {
 	var b strings.Builder
 	for i := 0; i < len(path); i++ {

@@ -73,10 +73,9 @@ func ResolveRoot(start string, lookupEnv func(string) (string, bool)) (string, e
 	return startPath, nil
 }
 
-// resolve mirrors Python's `Path(...).resolve()`: absolute, symlinks
-// followed. A path that doesn't exist yet still resolves (init scaffolds one
-// that doesn't), so a failure to walk symlinks falls back to the absolute
-// path.
+// resolve returns path as an absolute path with symlinks followed. A path
+// that doesn't exist yet still resolves (init scaffolds one that doesn't),
+// so a failure to walk symlinks falls back to the absolute path.
 func resolve(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

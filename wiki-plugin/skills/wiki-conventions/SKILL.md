@@ -154,7 +154,7 @@ Edge is **directional** — reads *this page* → *key* → *target*. Include on
 
 Subcommands touching the vault resolve its root themselves (`$WIKI_ROOT`, else nearest ancestor holding `wiki/` directory or `.wiki-root` marker, else cwd). Set `WIKI_ROOT` before invoking any. `page` and `place` exceptions: operate only on what you hand them, no root resolved.
 
-**Everything is one Go binary** ([ADR-0011](../../../docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)) — no Python anywhere in this layer, nothing to install. Invoke via `<plugin-root>/bin/enchiridion <subcommand>`, where `<plugin-root>` is located per host: on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value in `.opencode/wiki-knowledge/config.json` (written by install). That wrapper lazy-fetches the platform binary on first use. Works identically in dedicated mode or query-from-anywhere mode.
+**Everything is one Go binary** ([ADR-0011](../../../docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)) — nothing to install. Invoke via `<plugin-root>/bin/enchiridion <subcommand>`, where `<plugin-root>` is located per host: on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value in `.opencode/wiki-knowledge/config.json` (written by install). That wrapper lazy-fetches the platform binary on first use. Works identically in dedicated mode or query-from-anywhere mode.
 
 ### Script catalogue
 
