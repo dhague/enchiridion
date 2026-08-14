@@ -340,9 +340,11 @@ func TestResolveRefusesUnmigratedKindFolders(t *testing.T) {
 	if err == nil {
 		t.Fatal("ingest into an unmigrated vault: want an error, got nil")
 	}
+	// The remedy has to be in the message itself: there is no migration
+	// script left to point the reader at.
 	if !strings.Contains(err.Error(), "wiki/concept") ||
-		!strings.Contains(err.Error(), "migration") {
-		t.Errorf("error = %v, want it to name the folder and the migration", err)
+		!strings.Contains(err.Error(), "git mv wiki/concept/* wiki/concepts/") {
+		t.Errorf("error = %v, want it to name the folder and spell out the move", err)
 	}
 }
 

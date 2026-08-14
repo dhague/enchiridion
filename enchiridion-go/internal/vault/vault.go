@@ -38,9 +38,9 @@ type Vault struct {
 
 // New returns a Vault over the vault rooted at root.
 //
-// Unlike the Python constructor this runs no kind-folder migration: the
-// one-off #114 singular→plural migration lives with the rest of the
-// remaining subcommands (#152). Callers that *write* pages must ask
+// This runs no kind-folder migration — nothing does any more, the #114
+// singular→plural migration script having been retired once every known
+// vault was migrated. Callers that *write* pages must still ask
 // [Vault.LegacyKindFolders] first — see there for why silence isn't an
 // option.
 func New(root string) *Vault { return &Vault{Root: root} }
@@ -49,13 +49,14 @@ func New(root string) *Vault { return &Vault{Root: root} }
 // ADR-0008, sorted — `wiki/concept/` where the vault should now hold
 // `wiki/concepts/`.
 //
-// Python's `Vault.__init__` self-heals these by running the #114 migration.
-// The Go port can't yet (that migration is #152), and staying quiet would be
-// worse than either: [place.Path] resolves canonical kinds from
-// [place.KindFolders], so an unmigrated vault would take new pages into
-// `wiki/concepts/` while the old ones sit in `wiki/concept/` — one vault
-// silently split across two spellings of the same kind. So a writer asks
-// this and refuses instead.
+// The migration script that used to fix these is gone (every known vault is
+// migrated), but the check stays, because staying quiet is the one thing
+// that would be genuinely bad: [place.Path] resolves canonical kinds from
+// [place.KindFolders], so an unmigrated vault — one restored from an old
+// backup, say — would take new pages into `wiki/concepts/` while the old
+// ones sit in `wiki/concept/`, one vault silently split across two
+// spellings of the same kind. A writer asks this and refuses instead; the
+// remedy is now a `git mv` the error spells out.
 func (v *Vault) LegacyKindFolders() ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(v.Root, "wiki"))
 	if err != nil {

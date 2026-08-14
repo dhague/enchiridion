@@ -102,10 +102,19 @@ func Resolve(plan Plan, root string) (*Resolved, error) {
 			return nil, err
 		}
 		if len(legacy) > 0 {
+			// The #114 migration script this used to name is retired, so the
+			// remedy is spelled out here instead: one `git mv` per folder,
+			// which is all that script ever did on a vault without
+			// collisions.
+			moves := make([]string, 0, len(legacy))
+			for _, kind := range legacy {
+				moves = append(moves, fmt.Sprintf("git mv wiki/%s/* wiki/%ss/", kind, kind))
+			}
 			return nil, fmt.Errorf(
-				"%s holds pre-ADR-0008 kind-folders (wiki/%s); run the #114 migration "+
-					"(python wiki-plugin/scripts/migrate_kind_folders_0114.py) before ingesting",
-				root, strings.Join(legacy, ", wiki/"))
+				"%s holds pre-ADR-0008 kind-folders (wiki/%s); move their pages into the "+
+					"plural folders before ingesting (%s), then remove the empty singular "+
+					"folders. Merge by hand where both spellings hold the same filename",
+				root, strings.Join(legacy, ", wiki/"), strings.Join(moves, "; "))
 		}
 		discovered, err := v.DiscoveredKinds()
 		if err != nil {
