@@ -33,6 +33,9 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newToolCallStatsCommand())
 	root.AddCommand(newWatchCommand())
 	root.AddCommand(newHookCommand())
+	root.AddCommand(newVaultCommand())
+	root.AddCommand(newPageCommand())
+	root.AddCommand(newPlaceCommand())
 
 	return root
 }

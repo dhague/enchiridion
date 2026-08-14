@@ -1,8 +1,21 @@
 # Architecture
 
-Point-in-time snapshot of the `wiki-knowledge` plugin's Python codebase, agents, and skills, as of plugin version `0.7.1`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
+Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.7.1`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
-**The Python script layer is being replaced by a Go binary**, one subcommand at a time ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)). `search` and `init` have migrated: what these diagrams show as the Search cluster and `init_wiki.py` now runs as `enchiridion search` / `enchiridion init` out of `enchiridion-go/`, invoked through `wiki-plugin/bin/enchiridion`. The shapes are unchanged — the Go packages keep the Python modules' seams — but the diagrams below are not redrawn per migrated subcommand. `wiki-plugin/skills/wiki-conventions/SKILL.md`'s script catalogue is the live answer to which capability runs on which implementation.
+> **⚠️ The modules these diagrams name are Python, and the Python script layer no longer exists.** It was replaced by a single static Go binary ([ADR-0011](adr/0011-go-rewrite-scope-sequencing-toolchain.md)), completed and deleted in [#186](https://github.com/dhague/enchiridion/issues/186). The **shapes below are still accurate** — the Go packages deliberately kept the Python modules' seams — so read this as a structural map with the names translated:
+>
+> | Diagram says | Live code |
+> |---|---|
+> | `wikipage.py`, `place.py`, `page_record.py` | `enchiridion-go/internal/{wikipage,place,pagerecord}` |
+> | `vault.py`, `vault_git.py`, `init_wiki.py` | `internal/{vault,vaultgit,initwiki}` |
+> | `search.py`, `search_index.py` | `internal/searchindex`, CLI `internal/cli/search.go` |
+> | `ingest.py`, `chain_of_evidence.py`, `commit.py` | `internal/{ingest,chainofevidence,commit}` |
+> | `discover.py`, `superseded_by.py` | `internal/{discover,supersededby}` |
+> | `ingest_scan.py`, `watch_raw.py` | `internal/{ingestscan,ingestignore,watch}` |
+> | `session_state.py`, `transcript_capture.py` | `internal/{sessionstate,transcriptcapture}` |
+> | `tool_call_stats.py`, `hooks/` | `internal/{toolcallstats,hooks}` |
+>
+> Two seams did **not** survive the port: Go's `Vault` has no search-index facade (it would be an import cycle), and there is no `ForRoot` per-root cache — `Open`/`Close` make the connection lifetime explicit instead ([ADR-0010](adr/0010-search-index-per-root-cache.md)). `wiki-plugin/skills/wiki-conventions/SKILL.md`'s catalogue is the live answer for how to invoke any of it. A redrawn Go-native version of these diagrams is not yet written.
 
 Diagrams:
 

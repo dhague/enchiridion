@@ -8,17 +8,15 @@ Follows the [Karpathy LLM-wiki pattern](https://github.com/karpathy/llm-wiki).
 
 - **wiki-knowledge** — a Claude Code plugin that provides ingestion and retrieval over a markdown wiki vault
 - **Agent pipeline** — Claude Sonnet for semantic ingestion (chunking, overlap classification, edge typing); Claude Haiku for retrieval (query expansion, BM25 search, frontier traversal, synthesis)
-- **Deterministic script layer** — pure Python scripts for vault I/O, placement, FTS5 search indexing, and commit construction (no model calls)
+- **Deterministic script layer** — a single static Go binary for vault I/O, placement, FTS5 search indexing, and commit construction (no model calls, no runtime to install)
 - **Full-text search** — SQLite FTS5 via stdlib, zero extra search dependencies
 
 ## Install
 
-1. Clone the repo and set up dependencies:
+1. Clone the repo — there is nothing to install, no runtime and no dependencies.
+   The plugin lazy-fetches its binary on first use.
    ```bash
    git clone https://github.com/dhague/enchiridion.git
-   cd enchiridion/wiki-plugin
-   python3 -m venv .venv && source .venv/bin/activate
-   pip install .
    ```
 
 2. Register the plugin in Claude Code from `wiki-plugin/.claude-plugin/marketplace.json`.
@@ -31,9 +29,9 @@ Follows the [Karpathy LLM-wiki pattern](https://github.com/karpathy/llm-wiki).
 
 **Cost-optimised by design.** Ingestion and retrieval run as subagents with model selection tuned to task. Sonnet handles the expensive judgment work (semantic chunking, edge typing); Haiku handles high-volume retrieval at a fraction of the cost. Each query only explores the frontier it needs — no expensive vector re-ranking, no full-graph traversal.
 
-**Predictability through scripts, not prompts.** Everything that can be deterministic *is*. Page placement, frontmatter parsing, link rewriting, search indexing, and commit construction run as pure Python scripts — no model in the loop. The agents call scripts for side effects and read their output; they never generate file paths, YAML, or git operations from a prompt.
+**Predictability through scripts, not prompts.** Everything that can be deterministic *is*. Page placement, frontmatter parsing, link rewriting, search indexing, and commit construction run as subcommands of a single static binary — no model in the loop. The agents call it for side effects and read its output; they never generate file paths, YAML, or git operations from a prompt.
 
-**No new infrastructure.** SQLite FTS5 search runs in-process with zero extra dependencies. No vector database, no MCP server, no background daemons. The vault is just a git repo of markdown files — portable, diffable, and backup-friendly.
+**No new infrastructure.** SQLite FTS5 search runs in-process with zero extra dependencies. No language runtime to install, no vector database, no MCP server, no background daemons. The vault is just a git repo of markdown files — portable, diffable, and backup-friendly.
 
 **Trust and provenance.** Every derived page traces back to its raw source through a chain of evidence. Bitemporal metadata (when the knowledge is *from* vs. when it was *written*) and explicit volatility annotations make staleness visible, not hidden.
 
@@ -64,33 +62,32 @@ Every page has YAML frontmatter with a typed edge graph (`refines`, `contradicts
 
 ## Development
 
-```bash
-cd wiki-plugin
-source .venv/bin/activate
-
-# Run tests
-python -m pytest
-
-# Type-check
-pyright
-
-# Run scripts standalone (set WIKI_ROOT or cd into a vault)
-WIKI_ROOT=<path_to_vault> python scripts/ingest_scan.py --json
-```
-
-The script layer is being replaced, one subcommand at a time, by a single
-static Go binary that needs no Python
-([ADR-0011](docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)).
-`search` and `init` have migrated; the plugin lazy-fetches the binary on
-first use via `wiki-plugin/bin/enchiridion`.
+The script layer is a single static Go binary that needs no Python
+([ADR-0011](docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)). The
+plugin lazy-fetches it on first use via `wiki-plugin/bin/enchiridion`;
+`ENCHIRIDION_BIN` points that entrypoint at a local build instead.
 
 ```bash
 cd enchiridion-go
 go test ./...
+go vet ./...
+gofmt -l .
 
-# Run the migrated subcommands against a locally built binary
+# Run any subcommand against a locally built binary
 go build -o /tmp/enchiridion ./cmd/enchiridion
 WIKI_ROOT=<path_to_vault> /tmp/enchiridion search "connection pooling" --limit 10
+WIKI_ROOT=<path_to_vault> /tmp/enchiridion ingest-scan --json
+```
+
+`wiki-plugin/scripts/` holds only OpenCode install-time tooling now
+(`generate-opencode.py`, `install-opencode.py`) — see
+[README-opencode.md](README-opencode.md). It has its own small test suite:
+
+```bash
+cd wiki-plugin
+python3 -m venv .venv && source .venv/bin/activate
+pip install ruamel.yaml pytest
+python -m pytest
 ```
 
 ## Architecture

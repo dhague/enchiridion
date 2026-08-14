@@ -14,17 +14,19 @@
 // update it — including for edits made outside the plugin entirely (git
 // pull, Obsidian).
 //
-// The on-disk schema is **byte-for-byte the Python implementation's**, down
-// to the schema version and the `porter unicode61` tokenizer: during the
-// incremental per-subcommand migration (ADR-0011) both implementations read
-// and write the same `index.db`, so a schema or tokenizer drift between them
-// would silently corrupt retrieval. `compat_test.go` pins that both ways.
+// The on-disk schema began as byte-for-byte the retired Python
+// implementation's, because during the incremental per-subcommand migration
+// (ADR-0011) both read and wrote the same `index.db` and a schema or
+// tokenizer drift would have silently corrupted retrieval. That constraint is
+// gone — this is the only implementation now (#186), and the bidirectional
+// compatibility guard retired with the Python layer. The schema is free to
+// change on its own terms; bump [SchemaVersion] when it does.
 //
-// One difference from Python is deliberate: there is no `re` fallback
-// backend. The Python version probes for FTS5 because a platform's system
-// SQLite may be compiled without it; the Go binary embeds its own SQLite
-// build, so FTS5 is always present. The `backend` field survives in
-// [Status] only because it is part of the `search --status` output contract.
+// There is no `re` fallback backend. The Python version probed for FTS5
+// because a platform's system SQLite may be compiled without it; the Go
+// binary embeds its own SQLite build, so FTS5 is always present. The
+// `backend` field survives in [Status] only because it is part of the
+// `search --status` output contract.
 //
 // [ADR-0006]: ../../../docs/adr/0006-stdlib-fts5-not-embeddings.md
 package searchindex
@@ -51,8 +53,9 @@ import (
 
 // SchemaVersion is bumped when the on-disk schema changes. A mismatch on
 // open triggers a full rebuild — delete-and-rebuild is the migration
-// strategy. It must stay in lockstep with `search_index.py`'s
-// SCHEMA_VERSION for as long as both implementations share one index.db.
+// strategy, never an in-place ALTER. It is "2" because that is the version
+// the retired Python implementation had reached; nothing outside this package
+// pins it any more.
 const SchemaVersion = "2"
 
 // bm25Weights are the column weights for page_ref (UNINDEXED), title,

@@ -1,18 +1,18 @@
 [project]
 name = "wiki-knowledge"
 version = "0.1.0"
-description = "Deterministic script layer for the wiki-knowledge Claude Code plugin."
+description = "OpenCode install-time tooling for the wiki-knowledge plugin."
 requires-python = ">=3.10"
+# The runtime script layer is Go now (ADR-0011, #186). What remains here is
+# install-time only — generate-opencode.py / install-opencode.py, which a
+# person runs once to wire the plugin into an OpenCode vault.
 dependencies = [
-    "ruamel.yaml",     # round-trip frontmatter — NOT pyyaml (pyyaml coerces types / loses formatting)
-    "markdown-it-py",  # AST with source maps for position-splice link rewriting
-    "watchdog",        # filesystem events for the raw/ watcher (#62, per #37)
+    "ruamel.yaml",     # round-trip agent/command frontmatter — NOT pyyaml (pyyaml coerces types / loses formatting)
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "hypothesis",      # property tests for frontmatter round-trip + link-move invariants
     "pyright",         # static type checking — run `<venv python> -m pyright` (#130)
 ]
 

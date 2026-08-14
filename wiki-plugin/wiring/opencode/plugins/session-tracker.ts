@@ -10,10 +10,15 @@
  * `opencode export <session_id>`.
  *
  * OpenCode records no session id in the environment of processes it spawns,
- * so the reader (`save-session-opencode.py`) would have no way to know which
- * session is current. This plugin therefore also hooks `shell.env` — every
- * shell command OpenCode runs receives `$OPENCODE_SESSION_ID` — giving the
- * reader the exact analog of Claude Code's `$CLAUDE_CODE_SESSION_ID`.
+ * so a reader would have no way to know which session is current. This plugin
+ * therefore also hooks `shell.env` — every shell command OpenCode runs
+ * receives `$OPENCODE_SESSION_ID` — giving the reader the exact analog of
+ * Claude Code's `$CLAUDE_CODE_SESSION_ID`.
+ *
+ * The reader itself is currently missing: `save-session-opencode.py` was
+ * deleted with the rest of the Python layer (#186), and `enchiridion
+ * save-session` reads only `$CLAUDE_CODE_SESSION_ID` so far. Tracked at #188.
+ * The state this plugin writes is what that port will read.
  *
  * Events are already scoped to the plugin's directory (OpenCode drops events
  * whose `location.directory` differs), but the session's own directory is
