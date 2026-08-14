@@ -278,9 +278,48 @@ func WriteCapture(wikiRoot, filename, markdown, shortID string) (string, error) 
 // CaptureSession finds, renders, and writes this session's transcript; returns
 // its vault-relative path.
 //
-// The whole pipeline (FindTranscriptPath -> TranscriptToPage -> WriteCapture)
-// in one call. Raises CaptureError with a user-facing message on any failure.
+// **The host is detected here**, from which session-id variable the environment
+// carries — Claude Code's `$CLAUDE_CODE_SESSION_ID` or OpenCode's
+// `$OPENCODE_SESSION_ID` — so /save-conversation stays host-neutral and one
+// subcommand serves both. Everything downstream of the host-specific fetch is
+// shared verbatim.
+//
+// **Both can be set at once**, because one host can be run from the other's
+// shell and env vars are inherited by every descendant. Env alone can't say
+// which host is the innermost one, so the tie is broken on evidence instead:
+// OpenCode wins only when its session-tracker plugin actually recorded *that*
+// session id in *this* project, which a leaked variable from an unrelated
+// project or an outer OpenCode process will not satisfy. Otherwise Claude Code,
+// the host whose hook recorded a transcript path on disk.
+//
+// Raises CaptureError with a user-facing message on any failure.
 func CaptureSession(wikiRoot, slug, cwd string, lookupEnv func(string) (string, bool), now time.Time) (string, error) {
+	if lookupEnv == nil {
+		lookupEnv = os.LookupEnv
+	}
+	claudeCodeID, _ := lookupEnv("CLAUDE_CODE_SESSION_ID")
+	openCodeID, _ := lookupEnv("OPENCODE_SESSION_ID")
+	switch {
+	case openCodeID != "" && claudeCodeID == "":
+		return CaptureOpenCodeSession(wikiRoot, slug, cwd, lookupEnv, now, nil)
+	case openCodeID != "":
+		if _, errMsg := FindOpenCodeSessionID(cwd, lookupEnv); errMsg == "" {
+			return CaptureOpenCodeSession(wikiRoot, slug, cwd, lookupEnv, now, nil)
+		}
+		return captureClaudeCodeSession(wikiRoot, slug, cwd, lookupEnv, now)
+	case claudeCodeID != "":
+		return captureClaudeCodeSession(wikiRoot, slug, cwd, lookupEnv, now)
+	}
+	return "", CaptureError{"Neither $CLAUDE_CODE_SESSION_ID nor " +
+		"$OPENCODE_SESSION_ID is set in this environment, so there is no way to " +
+		"tell which session to save. (Claude Code sets the first; OpenCode's " +
+		"session-tracker plugin injects the second.)"}
+}
+
+// captureClaudeCodeSession is the Claude Code host path: the SessionStart hook
+// recorded a transcript file, so this is FindTranscriptPath -> TranscriptToPage
+// -> WriteCapture with no subprocess involved.
+func captureClaudeCodeSession(wikiRoot, slug, cwd string, lookupEnv func(string) (string, bool), now time.Time) (string, error) {
 	transcriptPath, errMsg := FindTranscriptPath(cwd, lookupEnv)
 	if errMsg != "" {
 		return "", CaptureError{errMsg}

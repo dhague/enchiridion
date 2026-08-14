@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -265,6 +266,55 @@ func TestSaveSessionEndToEnd(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 		t.Errorf("capture not written: %v", err)
+	}
+}
+
+// TestSaveSessionOpenCodeHostEndToEnd is the #188 done-when, exercised: the
+// same host-neutral `save-session` invocation, on a machine whose environment
+// says OpenCode. The transcript comes from `opencode export`, stubbed here so
+// the test needs no OpenCode install.
+func TestSaveSessionOpenCodeHostEndToEnd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the opencode stub is a POSIX shell script")
+	}
+	root := ingestVault(t, nil)
+	projDir := t.TempDir()
+	stateDir := filepath.Join(projDir, ".opencode", "wiki-knowledge", "sessions")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "ses_abc123.json"),
+		[]byte(`{"session_id":"ses_abc123"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stubDir := t.TempDir()
+	export := `{"messages":[` +
+		`{"info":{"role":"user"},"parts":[{"type":"text","text":"the question"}]},` +
+		`{"info":{"role":"assistant"},"parts":[{"type":"text","text":"the answer"}]}]}`
+	if err := os.WriteFile(filepath.Join(stubDir, "opencode"),
+		[]byte("#!/bin/sh\ncat <<'EOF'\n"+export+"\nEOF\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(projDir)
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("OPENCODE_SESSION_ID", "ses_abc123")
+
+	out, err := runSubcommand(t, "save-session", "--slug", "an opencode session")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	rel := strings.TrimSpace(out)
+	if !strings.HasPrefix(rel, "raw/conversations/") || !strings.HasSuffix(rel, "-an-opencode-session-ses_abc123.md") {
+		t.Fatalf("rel = %q", rel)
+	}
+	body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("capture not written: %v", err)
+	}
+	if !strings.Contains(string(body), "the question") || !strings.Contains(string(body), "the answer") {
+		t.Errorf("capture missing turns:\n%s", body)
 	}
 }
 

@@ -38,7 +38,7 @@ func TestInitGitignoresTheSearchIndex(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 	content := mustRead(t, filepath.Join(root, ".gitignore"))
-	for _, line := range []string{"*.rsls", ".claude/wiki-knowledge/sessions/", ".wiki-knowledge/"} {
+	for _, line := range []string{"*.rsls", ".claude/wiki-knowledge/sessions/", ".opencode/wiki-knowledge/sessions/", ".wiki-knowledge/"} {
 		if !containsLine(content, line) {
 			t.Errorf(".gitignore is missing %q; got:\n%s", line, content)
 		}

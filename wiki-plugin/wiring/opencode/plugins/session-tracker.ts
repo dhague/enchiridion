@@ -15,10 +15,9 @@
  * receives `$OPENCODE_SESSION_ID` — giving the reader the exact analog of
  * Claude Code's `$CLAUDE_CODE_SESSION_ID`.
  *
- * The reader itself is currently missing: `save-session-opencode.py` was
- * deleted with the rest of the Python layer (#186), and `enchiridion
- * save-session` reads only `$CLAUDE_CODE_SESSION_ID` so far. Tracked at #188.
- * The state this plugin writes is what that port will read.
+ * The reader is `enchiridion save-session` (#188): it detects the host from
+ * which session-id variable is set, validates the id against the state this
+ * plugin writes, and fetches the transcript with `opencode export`.
  *
  * Events are already scoped to the plugin's directory (OpenCode drops events
  * whose `location.directory` differs), but the session's own directory is

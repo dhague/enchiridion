@@ -34,8 +34,13 @@ const (
 // Modes lists the accepted --mode values, for CLI help and validation.
 var Modes = []string{ModeQueryFromAnywhere, ModeDedicated}
 
+// Session-tracker state is per-host and never committed: Claude Code's
+// SessionStart hook writes under `.claude/`, OpenCode's session-tracker plugin
+// under `.opencode/`. In dedicated mode the project dir *is* the vault, so both
+// land here.
 const gitignore = "*.rsls\n" +
 	".claude/wiki-knowledge/sessions/\n" +
+	".opencode/wiki-knowledge/sessions/\n" +
 	// Search index, gitignored per ADR-0006. Must ALSO be added to Resilio
 	// Sync's own ignore list — a gitignore doesn't propagate to the syncer,
 	// and a synced SQLite sidecar corrupts.
