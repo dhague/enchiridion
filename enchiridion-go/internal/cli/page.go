@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dhague/enchiridion/enchiridion-go/internal/wikipage"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/wikitime"
 )
 
 // newPageCommand ports `wiki-plugin/scripts/wikipage.py`'s CLI: frontmatter
@@ -46,7 +47,7 @@ func newPageGetCommand() *cobra.Command {
 			if !ok || value == nil {
 				return fmt.Errorf("no frontmatter key %q in %s", args[1], args[0])
 			}
-			cmd.Println(formatFrontmatterValue(value))
+			cmd.Println(formatFrontmatterValue(args[1], value))
 			return nil
 		},
 	}
@@ -69,6 +70,11 @@ func newPageSetCommand() *cobra.Command {
 			if asJSON {
 				if err := json.Unmarshal([]byte(raw), &value); err != nil {
 					return fmt.Errorf("parsing %s as JSON: %w", key, err)
+				}
+			}
+			if key == "source_date" {
+				if value, err = canonicalSourceDate(value); err != nil {
+					return err
 				}
 			}
 			updated, err := page.Set(key, value)
@@ -123,20 +129,25 @@ func writePageFile(path string, page wikipage.Page) error {
 // formatFrontmatterValue renders a frontmatter value the way `print(value)`
 // did in Python — notably a list as `['a', 'b']`, the form callers of
 // `wikipage.py get` have always parsed.
-func formatFrontmatterValue(value any) string {
+func formatFrontmatterValue(key string, value any) string {
 	items, ok := value.([]any)
 	if !ok {
-		return formatScalar(value)
+		return formatScalar(key, value)
 	}
 	strs := make([]string, len(items))
 	for i, item := range items {
-		strs[i] = formatScalar(item)
+		strs[i] = formatScalar(key, item)
 	}
 	return pythonListRepr(strs)
 }
 
 // formatScalar renders one frontmatter scalar the way printing it in Python
 // did, so a caller parsing `wikipage.py get` output still parses this one.
+//
+// `source_date` is the one field with a canonical spelling of its own: it is
+// valid time — a date, not an instant — so a clock on it is truncated to
+// YYYY-MM-DD here, via the same [wikitime.ParseDate] the index reads through.
+// Every other scalar keeps the Python rendering.
 //
 // Two types need help. A bool prints Go-style `true`, where Python printed
 // `True`. And a YAML timestamp decodes to a time.Time here but to a ruamel
@@ -150,9 +161,15 @@ func formatFrontmatterValue(value any) string {
 // One ambiguity is irreducible: the decoder gives a zone-less scalar and an
 // explicit `Z` scalar the same UTC time.Time, so a `Z` timestamp renders in
 // the zone-less form (dropping "+00:00") and `2026-01-15T00:00:00Z` renders
-// as a bare date. Every date field in the frontmatter schema is date-only, so
-// this is latent rather than live.
-func formatScalar(value any) string {
+// as a bare date. It only bites keys outside the schema's date field —
+// `source_date` never reaches here, because the branch above canonicalises it
+// first — so it is latent rather than live.
+func formatScalar(key string, value any) string {
+	if key == "source_date" {
+		if date, ok := wikitime.ParseDate(value); ok {
+			return date
+		}
+	}
 	switch v := value.(type) {
 	case bool:
 		if v {
@@ -164,6 +181,23 @@ func formatScalar(value any) string {
 	default:
 		return fmt.Sprintf("%v", value)
 	}
+}
+
+// canonicalSourceDate renders a `source_date` value in its canonical
+// YYYY-MM-DD spelling, truncating a clock. A value that isn't a valid date
+// at all is refused — the same rejection ingest's validation applies, so no
+// write path can ever store a value the read path would silently mis-sort
+// under `--since`/`--until` (#192). An explicit null passes through, reading
+// back as absent exactly as it does at ingest.
+func canonicalSourceDate(value any) (any, error) {
+	if value == nil {
+		return value, nil
+	}
+	date, ok := wikitime.ParseDate(value)
+	if !ok {
+		return nil, fmt.Errorf("source_date must be a valid date (YYYY-MM-DD), got %v", value)
+	}
+	return date, nil
 }
 
 func formatTimestamp(ts time.Time) string {

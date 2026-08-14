@@ -72,6 +72,40 @@ func TestNewQuotesDatesBackAsISOStrings(t *testing.T) {
 	}
 }
 
+// A clock on `source_date` has no domain meaning (it is valid time — a date,
+// not an instant), so it is truncated to its date on the way in. This is the
+// normalise-on-read half of #192: it alone fixes a timestamp escaping
+// `--since`/`--until` bounds in an existing vault, with no migration.
+func TestNewTruncatesATimestampToItsDate(t *testing.T) {
+	for _, scalar := range []string{
+		"2026-07-20T14:30:00Z",
+		"2026-07-20T14:30:00+05:00",
+		`"2026-07-20T14:30:00Z"`,
+		`"2026-07-20 10:30:00"`,
+	} {
+		rec, err := New("wiki/concepts/timed.md", "---\nsource_date: "+scalar+"\n---\n")
+		if err != nil {
+			t.Fatalf("New(%s): %v", scalar, err)
+		}
+		if rec.SourceDate != "2026-07-20" {
+			t.Errorf("SourceDate for %s = %q, want 2026-07-20", scalar, rec.SourceDate)
+		}
+	}
+}
+
+// A value that isn't a date at all is stored verbatim on read — the read
+// path tolerates legacy and hand-written values; ingest rejects them on
+// write (#192).
+func TestNewKeepsANonDateVerbatim(t *testing.T) {
+	rec, err := New("wiki/concepts/a.md", "---\nsource_date: \"summer 2026\"\n---\n")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if rec.SourceDate != "summer 2026" {
+		t.Errorf("SourceDate = %q, want the verbatim spelling", rec.SourceDate)
+	}
+}
+
 func TestNewDerivesCustomKindsPerADR0008(t *testing.T) {
 	rec, err := New("wiki/decisions/use-fts5.md", "---\ntitle: Use FTS5\n---\n")
 	if err != nil {

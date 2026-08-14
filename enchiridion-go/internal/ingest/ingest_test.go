@@ -77,6 +77,22 @@ func TestFrontmatterKeyOrderIsPreserved(t *testing.T) {
 	}
 }
 
+// The write half of #192: a plan's timestamped `source_date` is truncated to
+// its canonical date at resolve time, so the page drifts into compliance on
+// next touch with no bulk rewrite.
+func TestResolveWritesCanonicalSourceDate(t *testing.T) {
+	const src = `{"title":"T","pages":[{"op":"create","title":"A","kind":"concept","body":"b",
+	  "frontmatter":{"summary":"s","source_date":"2026-07-20T14:30:00Z"}}]}`
+	resolved := resolveOK(t, decodePlan(t, src), newVault(t, nil))
+	if err := resolved.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	text := resolved.Pages[0].Page.Text
+	if !strings.Contains(text, "2026-07-20") || strings.Contains(text, "14:30") {
+		t.Errorf("resolved page should carry the canonical date:\n%s", text)
+	}
+}
+
 func TestDecodePlanRejectsMalformedJSON(t *testing.T) {
 	if _, err := DecodePlan(strings.NewReader(`{"title":`)); err == nil {
 		t.Error("DecodePlan on truncated JSON: want an error, got nil")
@@ -287,6 +303,40 @@ func TestShapeValidationRejectsRawSourceWithoutPlanRaw(t *testing.T) {
 	  {"op":"create","title":"A","kind":"source","body":"b","frontmatter":{"raw_source":true}}]}`, "")
 	if !strings.Contains(got, "raw_source is true but plan.raw is not set") {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A `source_date` that isn't a valid date at all can't be canonicalised to
+// the one valid-time spelling, and storing it verbatim would silently
+// mis-sort `--since`/`--until` — so the plan is refused (#192).
+func TestShapeValidationRejectsANonDateSourceDate(t *testing.T) {
+	got := validationErrors(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b",
+	   "frontmatter":{"source_date":"summer 2026"}}]}`, "")
+	if !strings.Contains(got, "pages[0].frontmatter.source_date must be a valid date (YYYY-MM-DD), got summer 2026") {
+		t.Errorf("got %q", got)
+	}
+}
+
+// A clock on `source_date` is losslessly truncated to its date, not refused —
+// the same rule as `page set`. A valid date is a valid date.
+func TestShapeValidationAcceptsATimestampSourceDate(t *testing.T) {
+	got := validationErrors(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b",
+	   "frontmatter":{"source_date":"2026-07-20T14:30:00Z"}}]}`, "")
+	if got != "" {
+		t.Errorf("a timestamp source_date should validate, got %q", got)
+	}
+}
+
+// Like raw_source, an explicit null reads as absent rather than as a bad
+// value — a plan valid under `.get(...) is not None` must not be rejected.
+func TestShapeValidationTreatsNullSourceDateAsAbsent(t *testing.T) {
+	got := validationErrors(t, `{"title":"T","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b",
+	   "frontmatter":{"source_date":null}}]}`, "")
+	if got != "" {
+		t.Errorf("null source_date should read as absent, got %q", got)
 	}
 }
 
@@ -550,6 +600,26 @@ func TestExecuteSynthesisSave(t *testing.T) {
 	}
 	if !strings.HasPrefix(git.Messages[0], "synthesize: Q") {
 		t.Errorf("commit message = %q", git.Messages[0])
+	}
+}
+
+// The plan's top-level source_date feeds the commit-trailer attribution; it
+// is canonicalised like every other source_date the plugin emits (#192), so a
+// clock doesn't leak into the message.
+func TestExecuteTruncatesManifestSourceDate(t *testing.T) {
+	root := newVault(t, map[string]string{})
+	resolved := resolveOK(t, decodePlan(t, `{"title":"T","source_date":"2026-07-20T14:30:00Z","pages":[
+	  {"op":"create","title":"A","kind":"concept","body":"b"}]}`), root)
+	if err := resolved.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	git := &vaultgittest.Fake{}
+	if _, err := resolved.Execute(git); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(git.Messages[0], "source-date: 2026-07-20") ||
+		strings.Contains(git.Messages[0], "14:30") {
+		t.Errorf("commit message = %q, want a truncated source-date trailer", git.Messages[0])
 	}
 }
 

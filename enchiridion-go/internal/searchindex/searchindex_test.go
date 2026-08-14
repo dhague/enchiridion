@@ -167,6 +167,33 @@ func TestSearchRejectsAnUnknownDateField(t *testing.T) {
 	}
 }
 
+// The #192 reproduction, pinned at the seam that was buggy: `source_date` is
+// compared to `--since`/`--until` as raw SQL strings, so a timestamp carrying
+// a clock used to be lexicographically greater than the bare date of the same
+// day — and an upper bound on that day silently dropped it. Normalising to
+// YYYY-MM-DD on read means both pages belong in the range.
+func TestSearchUntilIncludesASameDayTimestamp(t *testing.T) {
+	root, index := newVault(t)
+	writePage(t, root, "wiki/concepts/dated.md",
+		page("Dated", "Bare date.", "shared word", nil, "source_date: 2026-07-20\n"))
+	writePage(t, root, "wiki/concepts/timed.md",
+		page("Timed", "A clock.", "shared word", nil, "source_date: 2026-07-20T14:30:00Z\n"))
+
+	hits, err := index.Search(Query{Text: "shared", Until: "2026-07-20"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if want := []string{"wiki/concepts/dated.md", "wiki/concepts/timed.md"}; !reflect.DeepEqual(
+		refsOf(hits), want) {
+		t.Fatalf("hits = %v, want both pages under --until 2026-07-20", refsOf(hits))
+	}
+	for _, hit := range hits {
+		if hit.SourceDate != "2026-07-20" {
+			t.Errorf("%s: SourceDate = %q, want the canonical date", hit.PageRef, hit.SourceDate)
+		}
+	}
+}
+
 func TestSearchExcludesSupersededPagesByDefault(t *testing.T) {
 	root, index := newVault(t)
 	writePage(t, root, "wiki/concepts/old.md",
@@ -307,6 +334,46 @@ func TestReindexStats(t *testing.T) {
 	}
 	if stats.Inserted != 1 || stats.Pages != 1 {
 		t.Fatalf("stats = %+v, want a full rebuild of 1 page", stats)
+	}
+}
+
+// #192's data-vs-schema change, pinned: an index built by schema version "2"
+// may hold a verbatim timestamp in source_date (the old read path stored it
+// unnormalised). The staleness scan only re-upserts pages whose (mtime_ns,
+// size) changed, so the open-time version-mismatch rebuild is the one
+// mechanism that heals an existing vault with no user action — the lazy
+// "no migration script" the ticket asked for.
+func TestVersionBumpRebuildsStaleSourceDates(t *testing.T) {
+	root, index := newVault(t)
+	writePage(t, root, "wiki/concepts/timed.md",
+		page("Timed", "A clock.", "shared word", nil, "source_date: 2026-07-20T14:30:00Z\n"))
+	if _, err := index.Search(Query{Text: "shared"}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// Rewind to the pre-#192 world: the row holding the verbatim timestamp
+	// old code wrote, under the old schema version.
+	if _, err := index.db.Exec(
+		"UPDATE page SET source_date = '2026-07-20T14:30:00Z' WHERE page_ref = 'wiki/concepts/timed.md'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.db.Exec(
+		"INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '2')"); err != nil {
+		t.Fatal(err)
+	}
+	index.Close()
+
+	reopened, err := Open(root, vaultgit.New(root))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer reopened.Close()
+
+	hits, err := reopened.Search(Query{Text: "shared", Until: "2026-07-20"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].SourceDate != "2026-07-20" {
+		t.Fatalf("hits = %v, want the rebuilt row canonicalised to 2026-07-20", hits)
 	}
 }
 

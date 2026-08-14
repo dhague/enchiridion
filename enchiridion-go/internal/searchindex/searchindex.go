@@ -56,7 +56,14 @@ import (
 // strategy, never an in-place ALTER. It is "2" because that is the version
 // the retired Python implementation had reached; nothing outside this package
 // pins it any more.
-const SchemaVersion = "2"
+//
+// The jump to "3" is a *data* not a *schema* change: #192 made `source_date`
+// canonical (YYYY-MM-DD, clock truncated) on read, but rows written by "2"
+// still hold a verbatim timestamp. The staleness scan only re-upserts pages
+// whose (mtime_ns, size) changed, so those rows would otherwise sit stale
+// until each page was touched — the one way to heal an existing index with no
+// user action is the version bump's full rebuild on next open.
+const SchemaVersion = "3"
 
 // bm25Weights are the column weights for page_ref (UNINDEXED), title,
 // summary, body — encoding the retrieval skill's "frontmatter-first"

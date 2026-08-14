@@ -124,6 +124,37 @@ func TestSearchJSONEmitsOneObjectPerLine(t *testing.T) {
 	}
 }
 
+// The #192 reproduction exactly as reported: a `source_date` carrying a clock
+// used to escape a same-day `--until` bound because the bound is a raw string
+// comparison. Normalising on read means both pages come back.
+func TestSearchUntilIncludesASameDayTimestamp(t *testing.T) {
+	root := newVault(t)
+	writePage(t, root, "wiki/concepts/dated.md", `---
+title: Dated
+summary: Bare date.
+source_date: 2026-07-20
+---
+shared word
+`)
+	writePage(t, root, "wiki/concepts/timed.md", `---
+title: Timed
+summary: A clock.
+source_date: 2026-07-20T14:30:00Z
+---
+shared word
+`)
+
+	out := run(t, root, "search", "shared", "--until", "2026-07-20")
+	for _, want := range []string{"wiki/concepts/dated.md", "wiki/concepts/timed.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--until 2026-07-20 output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "src=2026-07-20T14:30:00Z") {
+		t.Errorf("timed.md should surface its canonical date, got:\n%s", out)
+	}
+}
+
 func TestSearchFlagsReachTheQuery(t *testing.T) {
 	root := newVault(t)
 	tests := []struct {

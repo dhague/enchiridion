@@ -12,6 +12,7 @@ import (
 	"github.com/dhague/enchiridion/enchiridion-go/internal/place"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/vault"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/wikipage"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/wikitime"
 )
 
 // MaxPathLength caps a full path (vault root plus vault-relative path), for
@@ -240,6 +241,9 @@ func applyFrontmatter(
 			}
 			value = wikipage.ComposeLink(gopath.Base(plan.Raw), plan.Raw, pageDir)
 		}
+		if key == "source_date" {
+			value = truncateSourceDate(value)
+		}
 		if list, isList := value.([]any); merging && isList {
 			page, err = page.Merge(key, list)
 		} else {
@@ -265,6 +269,33 @@ func applyFrontmatter(
 		}
 	}
 	return page, nil
+}
+
+// truncateSourceDate renders a plan-proposed `source_date` in its canonical
+// YYYY-MM-DD spelling, truncating a clock (#192). A value that isn't a valid
+// date is left untouched: shape validation rejects it before execution, so
+// nothing bad is ever written, but Resolve (which runs before Validate) must
+// not fail on it. Contrast [cli's canonicalSourceDate], which refuses a
+// non-date outright — these are the same ParseDate core with different
+// policies at different phases.
+func truncateSourceDate(value any) any {
+	if date, ok := wikitime.ParseDate(value); ok {
+		return date
+	}
+	return value
+}
+
+// manifestSourceDate canonicalises the plan's top-level `source_date` — the
+// commit-trailer attribution — to YYYY-MM-DD, so the one canonical spelling
+// produced by one function covers every source_date the plugin emits, not
+// just the per-page frontmatter field (#192). A non-date passes through: it
+// is not a filtered field, and the decision to reject non-dates is scoped to
+// the frontmatter field.
+func manifestSourceDate(s string) string {
+	if date, ok := wikitime.ParseDate(s); ok {
+		return date
+	}
+	return s
 }
 
 // applyBody replaces the body while leaving the frontmatter block byte-exact,
@@ -348,6 +379,20 @@ func (r *Resolved) shapeErrors() []string {
 			case r.Plan.Raw == "":
 				problems = append(problems,
 					prefix+".frontmatter.raw_source is true but plan.raw is not set")
+			}
+		}
+
+		// `source_date` is valid time and has one canonical spelling
+		// (YYYY-MM-DD). A clock on it truncates on write, but a value that
+		// isn't a valid date at all can't be — storing it verbatim would
+		// silently mis-sort `--since`/`--until`, so the plan is refused
+		// until the agent fixes it (#192). Null reads as absent, like
+		// raw_source.
+		if sourceDate, present := page.Frontmatter.Get("source_date"); present && sourceDate != nil {
+			if _, ok := wikitime.ParseDate(sourceDate); !ok {
+				problems = append(problems, fmt.Sprintf(
+					"%s.frontmatter.source_date must be a valid date (YYYY-MM-DD), got %v",
+					prefix, sourceDate))
 			}
 		}
 	}
@@ -490,7 +535,7 @@ func (r *Resolved) Execute(git commit.Git) (string, error) {
 		Created:    created,
 		Updated:    updated,
 		Superseded: superseded,
-		SourceDate: r.Plan.SourceDate,
+		SourceDate: manifestSourceDate(r.Plan.SourceDate),
 		RawSource:  r.Plan.Raw,
 	}, git)
 }
