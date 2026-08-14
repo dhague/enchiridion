@@ -52,10 +52,6 @@ flowchart TB
         watch_raw["watch_raw.py"]
     end
 
-    subgraph migration["One-off / migration"]
-        migrate["migrate_kind_folders_0114.py"]
-    end
-
     subgraph stats["Stats"]
         tool_call_stats["tool_call_stats.py"]
     end
@@ -73,7 +69,6 @@ flowchart TB
     sessioncap --> vaultops
     watch --> ingestion
     watch --> vaultops
-    migration --> vaultops
     stats --> sessioncap
 
     hooks -.->|writes files sessioncap/stats read| sessioncap
@@ -88,7 +83,6 @@ Cluster contents:
 - **Ingestion pipeline** — `ingest.py` (`IngestPlan` executor), `ingest_scan.py` (`raw/` sweep eligibility), `discover.py` (overlap-candidate + tag-vocabulary lookup), `chain_of_evidence.py` (page→stub→raw-file rule), `commit.py` (structured git commit per manifest), `superseded_by.py` (supersession queries).
 - **Session capture** — `session_state.py` (session→transcript-path lookup), `transcript_capture.py` (JSONL→page rendering), `save-session-to-vault.py` (CLI adapter for `/save-conversation`).
 - **Watch** — `watch_raw.py` (event-driven `raw/` watcher: debounce, lock file, queue file).
-- **One-off / migration** — `migrate_kind_folders_0114.py` (singular→plural kind-folder migration, self-healing via `Vault.__init__`).
 - **Stats** — `tool_call_stats.py` (summarizes a session's hook-logged tool calls).
 - **hooks** — `enchiridion hook session-start` / `hook post-tool-use`, the Go replacements for the deleted `hooks/store_transcript_path.py` and `hooks/log_tool_calls.py` (#153). They aren't imported by anything; they run as Claude Code hook events and write JSON files that Session capture and Stats later read. The dashed edges mark that producer→consumer relationship, not a Python import.
 
@@ -122,7 +116,7 @@ Notes:
 
 ## Class diagrams by cluster
 
-One diagram per cluster from the module dependency graph, showing its actual classes/dataclasses and their relationships. Several clusters (session capture, migration, stats) are mostly free functions rather than classes — those modules are shown as `<<module>>` boxes listing their public functions, for the same collapsed-but-accurate treatment as the classed modules. Cross-cluster references are dashed and named after the target cluster.
+One diagram per cluster from the module dependency graph, showing its actual classes/dataclasses and their relationships. Several clusters (session capture, stats) are mostly free functions rather than classes — those modules are shown as `<<module>>` boxes listing their public functions, for the same collapsed-but-accurate treatment as the classed modules. Cross-cluster references are dashed and named after the target cluster.
 
 ### Core library
 
@@ -473,25 +467,6 @@ classDiagram
     watch_raw_module --> WatchPaths : paths for lock/queue files
     watch_raw_module ..> ingest_scan : eligibility check before enqueue
     watch_raw_module ..> Vault : resolves root
-```
-
-### One-off / migration
-
-```mermaid
-classDiagram
-    class migrate_kind_folders {
-        <<module · migrate_kind_folders_0114.py>>
-        +plan(root) list~tuple~
-        +migrate(root, dry_run) list~tuple~
-    }
-    class MigrationError
-    class Vault {
-        <<Vault ops cluster>>
-    }
-
-    MigrationError --|> Exception
-    migrate_kind_folders ..> MigrationError : raises
-    migrate_kind_folders ..> Vault : self-healing, invoked from Vault.__init__
 ```
 
 ### Stats

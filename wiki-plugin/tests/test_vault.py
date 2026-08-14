@@ -81,39 +81,6 @@ def test_empty_wiki_root_env_is_ignored(tmp_path):
     assert root == tmp_path.resolve()
 
 
-# --- Vault: auto-migrates leftover singular kind-folders (#119) ------------
-
-
-def test_vault_init_auto_migrates_singular_kind_folders(tmp_path):
-    (tmp_path / "wiki/concept").mkdir(parents=True)
-    (tmp_path / "wiki/concept/a.md").write_text("---\ntitle: A\n---\n", encoding="utf-8")
-
-    Vault(tmp_path)
-
-    assert (tmp_path / "wiki/concepts/a.md").exists()
-    assert not (tmp_path / "wiki/concept").exists()
-
-
-def test_vault_init_is_a_noop_when_already_plural(small_vault):
-    before = (small_vault / "wiki/concepts/a.md").read_text(encoding="utf-8")
-
-    Vault(small_vault)
-
-    assert (small_vault / "wiki/concepts/a.md").read_text(encoding="utf-8") == before
-
-
-def test_vault_init_raises_on_migration_collision(tmp_path):
-    (tmp_path / "wiki/concept").mkdir(parents=True)
-    (tmp_path / "wiki/concepts").mkdir(parents=True)
-    (tmp_path / "wiki/concept/a.md").write_text("---\ntitle: A\n---\n", encoding="utf-8")
-    (tmp_path / "wiki/concepts/a.md").write_text("---\ntitle: A2\n---\n", encoding="utf-8")
-
-    import migrate_kind_folders_0114
-
-    with pytest.raises(migrate_kind_folders_0114.MigrationError):
-        Vault(tmp_path)
-
-
 # --- Vault: I/O + cross-page move -----------------------------------------------
 
 
@@ -359,21 +326,21 @@ def test_vault_tag_vocabulary_counts_across_pages(small_vault):
 def test_vault_discovered_kinds_returns_custom_folders(tmp_path):
     (tmp_path / "wiki" / "decisions").mkdir(parents=True)
     (tmp_path / "wiki" / "meetings").mkdir(parents=True)
-    v = Vault(tmp_path, _auto_migrate=False)
+    v = Vault(tmp_path)
     assert v.discovered_kinds() == {"decision": "decisions", "meeting": "meetings"}
 
 
 def test_vault_discovered_kinds_excludes_canonical_folders(tmp_path):
     (tmp_path / "wiki" / "concepts").mkdir(parents=True)
     (tmp_path / "wiki" / "decisions").mkdir(parents=True)
-    v = Vault(tmp_path, _auto_migrate=False)
+    v = Vault(tmp_path)
     result = v.discovered_kinds()
     assert "concept" not in result
     assert result == {"decision": "decisions"}
 
 
 def test_vault_discovered_kinds_empty_when_no_wiki_dir(tmp_path):
-    v = Vault(tmp_path, _auto_migrate=False)
+    v = Vault(tmp_path)
     assert v.discovered_kinds() == {}
 
 
@@ -381,7 +348,7 @@ def test_vault_discovered_kinds_ignores_files(tmp_path):
     (tmp_path / "wiki").mkdir()
     (tmp_path / "wiki" / "decisions").mkdir()
     (tmp_path / "wiki" / "README.md").write_text("")
-    v = Vault(tmp_path, _auto_migrate=False)
+    v = Vault(tmp_path)
     assert v.discovered_kinds() == {"decision": "decisions"}
 
 

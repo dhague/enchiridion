@@ -72,27 +72,14 @@ def resolve_vault_root(start: Path | str | None = None, env: Mapping[str, str] |
     return start_path
 
 
-def _migrate_kind_folders_if_needed(root: Path) -> None:
-    """Auto-run the #114 kind-folder migration; see that module's docstring.
-
-    Lazily imported to avoid a circular import (the migration script itself
-    constructs a ``Vault``).
-    """
-    import migrate_kind_folders_0114 as _migration
-
-    _migration.migrate(root)
-
-
 class Vault:
     """Owns all vault I/O and cross-page operations over the pages at ``root``."""
 
-    def __init__(self, root: Path | str, *, _auto_migrate: bool = True):
+    def __init__(self, root: Path | str):
         self.root = Path(root)
         # Lazy, so paths that never search (`load`, `move_page`) don't pay
         # the FTS5 probe and schema check.
         self._index: search_index.SearchIndex | None = None
-        if _auto_migrate:
-            _migrate_kind_folders_if_needed(self.root)
 
     def _get_index(self) -> search_index.SearchIndex:
         if self._index is None:
