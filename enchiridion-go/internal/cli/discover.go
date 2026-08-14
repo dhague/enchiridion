@@ -45,8 +45,17 @@ func newDiscoverCommand() *cobra.Command {
 				DuplicateThreshold: dupThreshold,
 				RelatedThreshold:   relThreshold,
 			}
+			// The one index handle for this run — one per vault at a time
+			// (ADR-0010), owned here because this command is the only thing
+			// that needs one.
+			index, err := searchindex.Open(root, nil)
+			if err != nil {
+				return err
+			}
+			defer index.Close()
+
 			if planPath != "" {
-				return runDiscoverPlan(cmd, root, planPath, opts, tagsContain, tagCount)
+				return runDiscoverPlan(cmd, index, planPath, opts, tagsContain, tagCount)
 			}
 			body := ""
 			if bodyFile != "" {
@@ -56,7 +65,7 @@ func newDiscoverCommand() *cobra.Command {
 				}
 				body = string(text)
 			}
-			candidates, err := discover.Check(root, title, summary, body, opts)
+			candidates, err := discover.Check(index, title, summary, body, opts)
 			if err != nil {
 				return err
 			}
@@ -100,7 +109,7 @@ type planPayload struct {
 	Vocabulary []searchindex.TagCount `json:"vocabulary"`
 }
 
-func runDiscoverPlan(cmd *cobra.Command, root, planPath string, opts discover.Options, tagsContain, tagCount string) error {
+func runDiscoverPlan(cmd *cobra.Command, index *searchindex.Index, planPath string, opts discover.Options, tagsContain, tagCount string) error {
 	file, err := os.Open(planPath)
 	if err != nil {
 		return err
@@ -111,7 +120,7 @@ func runDiscoverPlan(cmd *cobra.Command, root, planPath string, opts discover.Op
 	if err != nil {
 		return err
 	}
-	results, err := discover.Discover(root, plan.Pages, opts)
+	results, err := discover.Discover(index, plan.Pages, opts)
 	if err != nil {
 		return err
 	}
@@ -121,11 +130,6 @@ func runDiscoverPlan(cmd *cobra.Command, root, planPath string, opts discover.Op
 		pages = append(pages, pagePayload{Title: result.Title, Candidates: result.Candidates})
 	}
 
-	index, err := searchindex.Open(root, nil)
-	if err != nil {
-		return err
-	}
-	defer index.Close()
 	vocab, err := index.TagCounts()
 	if err != nil {
 		return err
