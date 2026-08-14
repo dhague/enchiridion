@@ -58,6 +58,27 @@ No eviction/close hook: every current entrypoint is a one-shot CLI process —
 unbounded per-root cache is bounded in practice to a handful of roots for the
 life of one invocation.
 
+## Go port (2026-08-14, from [#174](https://github.com/dhague/enchiridion/issues/174))
+
+The Go `searchindex` package satisfies this decision by the opposite
+mechanism, and deliberately has **no `ForRoot`**. `Open` pairs with `Close`,
+so a connection's lifetime is explicit rather than process-long — which
+removes the thing the cache existed to work around (a `SearchIndex` that
+could not be closed, leaving a caller-side memo as the only way to stop a
+second connection).
+
+What survives is the argument, not the implementation: the constraint must
+not be left to a caller's accidental call count. So the command owns the one
+handle and passes it down; packages beneath it take a `Searcher`, never a
+root, and therefore *cannot* open a competing connection. `discover.Check`
+and `discover.Discover` take that searcher for exactly this reason — before
+#174 they each opened their own index off a root, which made `enchiridion
+discover --plan` open two per run, correct only because the first `Close` ran
+before the second `Open`.
+
+The Python `for_root()` cache stays as described above for as long as
+`vault.py` is the last Python path into `index.db`.
+
 ## Consequences
 
 - `SearchIndex`'s "one per vault, lifetime of process" docstring becomes an

@@ -137,9 +137,20 @@ func TokenizeQuery(text string) string {
 	return strings.Join(quoted, " ")
 }
 
-// Index is the lexical index for one vault. One Index per vault, lifetime of
-// the process (ADR-0010 — every entrypoint is a one-shot CLI process, so
-// [Open] is called once per run rather than cached across roots).
+// Index is the lexical index for one vault. **At most one live Index per
+// vault at a time**: writes commit immediately (no WAL, ADR-0006), so a
+// second connection racing the first surfaces as `database is locked`.
+//
+// ADR-0010 solved that Python-side with a per-root cache, because
+// `SearchIndex` had no close and a caller-side memo was the only thing
+// stopping a second connection. Go resolves the same constraint by the
+// opposite mechanism: [Open] pairs with [Index.Close], so the lifetime is
+// explicit and one owner holds it. The owner is the command — the single
+// entrypoint of a one-shot process — which opens once and passes the handle
+// down (see [github.com/dhague/enchiridion/enchiridion-go/internal/discover]).
+// Packages below it take a searcher, never a root, so they cannot open a
+// competing connection; that is the structural version of what the cache was
+// faking, and it is why no `ForRoot` exists here.
 //
 // The unit of address is a vault-relative page reference
 // (`wiki/concepts/foo.md`) throughout — schema, upsert API, and search

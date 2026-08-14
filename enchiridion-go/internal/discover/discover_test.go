@@ -42,6 +42,19 @@ func newFixtureVault(t *testing.T) string {
 	return root
 }
 
+// newFixtureSearcher opens the one index handle a test gets, mirroring the
+// command's ownership of it (ADR-0010) — nothing under this package opens its
+// own.
+func newFixtureSearcher(t *testing.T) Searcher {
+	t.Helper()
+	index, err := searchindex.Open(newFixtureVault(t), nil)
+	if err != nil {
+		t.Fatalf("searchindex.Open: %v", err)
+	}
+	t.Cleanup(func() { index.Close() })
+	return index
+}
+
 func refOf(candidates []Candidate, ref string) *Candidate {
 	for i := range candidates {
 		if candidates[i].PageRef == ref {
@@ -97,11 +110,11 @@ func TestOrQuery(t *testing.T) {
 	}
 }
 
-// --- check(): integration against a real vault ------------------------------
+// --- Check: integration against a real vault --------------------------------
 
 func TestCheckFindsOwnTitle(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root, "Connection Pooling in Postgres", "", "", Options{})
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx, "Connection Pooling in Postgres", "", "", Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -111,8 +124,8 @@ func TestCheckFindsOwnTitle(t *testing.T) {
 }
 
 func TestCheckSurvivesNoisyNewText(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root,
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx,
 		"Connection Pooling in Postgres",
 		"A totally unrelated sentence about zebras and volcanoes.",
 		"", Options{})
@@ -125,8 +138,8 @@ func TestCheckSurvivesNoisyNewText(t *testing.T) {
 }
 
 func TestCheckBodyIsQueryScoresHighest(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root, "", "",
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx, "", "",
 		"Connection pooling reduces per-request handshake overhead by "+
 			"reusing a fixed set of open connections across callers.",
 		Options{})
@@ -142,8 +155,8 @@ func TestCheckBodyIsQueryScoresHighest(t *testing.T) {
 }
 
 func TestCheckHintsOnRealHits(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root,
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx,
 		"Connection Pooling in Postgres",
 		"Reuse connections instead of opening a new one per request.",
 		"",
@@ -161,8 +174,8 @@ func TestCheckHintsOnRealHits(t *testing.T) {
 }
 
 func TestCheckLimitIsRespected(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root, "Connection Pooling", "", "", Options{Limit: 1})
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx, "Connection Pooling", "", "", Options{Limit: 1})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -172,8 +185,8 @@ func TestCheckLimitIsRespected(t *testing.T) {
 }
 
 func TestCheckReturnsFullPayload(t *testing.T) {
-	root := newFixtureVault(t)
-	candidates, err := Check(root, "Connection Pooling in Postgres", "", "", Options{})
+	idx := newFixtureSearcher(t)
+	candidates, err := Check(idx, "Connection Pooling in Postgres", "", "", Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -195,13 +208,13 @@ func TestCheckReturnsFullPayload(t *testing.T) {
 // --- Discover: one call per draft plan --------------------------------------
 
 func TestDiscoverRunsCheckForEveryPage(t *testing.T) {
-	root := newFixtureVault(t)
+	idx := newFixtureSearcher(t)
 	summary := "Daily flour-and-water feeding keeps a starter active."
 	pages := []ingest.PagePlan{
 		{Op: "create", Title: "Connection Pooling in Postgres", Frontmatter: ingest.OrderedMap[any]{Keys: []string{"summary"}, Values: map[string]any{"summary": ""}}},
 		{Op: "create", Title: "Feeding a Sourdough Starter", Frontmatter: ingest.OrderedMap[any]{Keys: []string{"summary"}, Values: map[string]any{"summary": summary}}},
 	}
-	results, err := Discover(root, pages, Options{})
+	results, err := Discover(idx, pages, Options{})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -215,11 +228,11 @@ func TestDiscoverRunsCheckForEveryPage(t *testing.T) {
 }
 
 func TestDiscoverUpdatePageWithNoBodyDoesNotCrash(t *testing.T) {
-	root := newFixtureVault(t)
+	idx := newFixtureSearcher(t)
 	pages := []ingest.PagePlan{
 		{Op: "update", Title: "Connection Pooling in Postgres", PageRef: "wiki/concepts/connection-pooling.md"},
 	}
-	results, err := Discover(root, pages, Options{})
+	results, err := Discover(idx, pages, Options{})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}

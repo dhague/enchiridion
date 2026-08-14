@@ -141,12 +141,19 @@ func classify(score float64, sharesTitleToken bool, duplicateThreshold, relatedT
 	return HintDistinct
 }
 
-// check runs one search and classifies every hit.
+// Check searches for pages overlapping a planned page, classifying each hit's
+// relationship to it. title/summary/body must be the planned page's own
+// drafted text.
 //
 // The query is built from exactly what the candidate page says — never a
 // paraphrase — which is why retrieval's vocabulary-mismatch problem doesn't
 // bite here.
-func check(searcher Searcher, title, summary, body string, opts Options) ([]Candidate, error) {
+//
+// The searcher is passed in, never opened here: [searchindex.Index] is
+// one-per-vault-at-a-time (ADR-0010), and that is enforced by the command
+// owning the only handle rather than by this package guessing whether one is
+// already live.
+func Check(searcher Searcher, title, summary, body string, opts Options) ([]Candidate, error) {
 	opts = opts.withDefaults()
 	query := OrQuery(title, summary, body)
 	if query == "" {
@@ -186,18 +193,6 @@ func check(searcher Searcher, title, summary, body string, opts Options) ([]Cand
 	return candidates, nil
 }
 
-// Check searches for pages overlapping a planned page, classifying each hit's
-// relationship to it. title/summary/body must be the planned page's own
-// drafted text.
-func Check(root string, title, summary, body string, opts Options) ([]Candidate, error) {
-	index, err := searchindex.Open(root, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer index.Close()
-	return check(index, title, summary, body, opts)
-}
-
 // PageResult pairs one planned page's title with its discovered candidates.
 type PageResult struct {
 	Title      string
@@ -225,18 +220,12 @@ func pageBody(page ingest.PagePlan) string {
 }
 
 // Discover runs [Check] for every page a draft plan proposes — one call
-// however many chunks the plan carries. A single [searchindex.Index] is
-// opened and reused across pages, per ADR-0010.
-func Discover(root string, pages []ingest.PagePlan, opts Options) ([]PageResult, error) {
-	index, err := searchindex.Open(root, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer index.Close()
-
+// however many chunks the plan carries, against the one searcher the caller
+// owns, per ADR-0010.
+func Discover(searcher Searcher, pages []ingest.PagePlan, opts Options) ([]PageResult, error) {
 	results := make([]PageResult, 0, len(pages))
 	for _, page := range pages {
-		candidates, err := check(index, page.Title, pageSummary(page), pageBody(page), opts)
+		candidates, err := Check(searcher, page.Title, pageSummary(page), pageBody(page), opts)
 		if err != nil {
 			return nil, err
 		}
