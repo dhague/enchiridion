@@ -12,7 +12,7 @@ Diagrams:
 
 Two seams worth keeping straight, since the diagrams show them:
 
-- **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does.
+- **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does. Since [ADR-0015](adr/0015-search-index-view-of-committed-history.md), `searchindex`'s centre of gravity within `vaultops` has moved from `vault` to `vaultgit`: page content and dates come from `vaultgit.Repo.CommittedPages` (git blobs), and `vault` survives only for `Status()`'s on-disk-vs-indexed count.
 - **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the cobra command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section).
 
 **How this stays current.** The redraw keeps the diagrams hand-drawn rather than generated, and the opening warning stays honest about that. Mechanical generation was weighed and set aside: `go list` can emit the raw import graph, but the value of this file is the responsibility *clustering* and the reasoning about the seams — the parts tooling cannot produce. The class diagrams are kept for the same reason: they are the cheap, nameable API contract of each package, and a reader who finds a stale method name is told to trust the code. The cost is the warning above: the next structural change to the package set should touch this file again.
@@ -73,7 +73,7 @@ flowchart TB
     ingestion --> core
     ingestion --> vaultops
     vaultops --> core
-    search -->|imports vault, vaultgit — the old facade arrow, reversed| vaultops
+    search -->|imports vaultgit (blobs, dates) and vault (Status only) — the old facade arrow, reversed| vaultops
     search --> core
     ingestion --> search
     hooks --> sessioncap
@@ -94,7 +94,7 @@ Cluster contents:
 
 - **Core library** — `wikipage` (the pure page model: `Page` get/set/merge/retarget, link machinery — `IterLinks`, `PercentEncode`/`PercentDecode`, `PlanMove`; no I/O), `place` (kebab-slug + kind-folder path computation; `KindFolders` is the single source of truth), `pagerecord` (frontmatter schema reader; derives `kind` from folder and `superseded_by` by inverting `supersedes` edges).
 - **Vault ops** — `vault` (the `Vault` I/O type — all reads/writes, cross-page `MovePage`/`RewriteInboundLinks`, and `ResolveRoot`), `vaultgit` (sole git access, embedded go-git), `initwiki` (vault scaffolding for `/wiki-init`).
-- **Search** — `searchindex` (SQLite FTS5 index over `ncruces/go-sqlite3`; `Open`/`Close` lifetime, staleness scan on every search, ADR-0006/0010).
+- **Search** — `searchindex` (SQLite FTS5 index over `ncruces/go-sqlite3`; `Open`/`Close` lifetime, ADR-0006/0010/0015 — a materialised view of `HEAD`'s committed `wiki/` tree, watermarked in `meta.git_head`, not a working-tree scan).
 - **Ingestion pipeline** — `ingest` (the `Plan`/`Resolved` schema + `Resolve`→`Validate`→`Execute` executor), `ingestscan` (`raw/` sweep eligibility, ADR-0009 `page_ref`), `ingestignore` (`.ingestignore` parse/append), `discover` (overlap-candidate + tag-vocabulary lookup), `chainofevidence` (page→stub→raw-file rule), `commit` (structured git commit per manifest, gated by chain of evidence), `supersededby` (supersession queries).
 - **Session capture** — `sessionstate` (session→transcript-path lookup under `.claude/wiki-knowledge/sessions/`), `transcriptcapture` (JSONL→page rendering + the `save-session` writer).
 - **Watch** — `watch` (debounce, lock file, queue file; pure — no I/O beyond what callers hand it).
@@ -267,7 +267,7 @@ classDiagram
         +Commit(message) (string, error)
         +LastCommitDate(rel) string
         +PorcelainMentions(rel) bool
-        +CommitDates() map[string]string
+        +CommittedPages(since) (Snapshot, error)
     }
     class initwiki {
         <<package>>
@@ -299,11 +299,9 @@ No `SearchIndex` relationship here on purpose — the first *two seams* note abo
 classDiagram
     class Index {
         <<struct · searchindex>>
-        +Open(root, git)$ (*Index, error)
+        +Open(root)$ (*Index, error)
         +Close() error
         +Reindex(full) (Stats, error)
-        +UpsertPage(pageRef, text, gitDates) error
-        +RemovePage(pageRef) error
         +Status() (Status, error)
         +TagCounts() ([]TagCount, error)
         +Search(q Query) ([]Hit, error)
@@ -348,6 +346,8 @@ classDiagram
         +DBSizeBytes int64
         +Backend string
         +SchemaVersion string
+        +GitHead string
+        +UncommittedPages int
     }
     class TagCount {
         <<struct>>
@@ -356,8 +356,12 @@ classDiagram
     }
     class searchindex {
         <<package>>
-        +SchemaVersion = "2"
+        +SchemaVersion = "4"
         +TokenizeQuery(text) string
+    }
+    class Git {
+        <<interface · searchindex>>
+        +CommittedPages(since) (vaultgit.Snapshot, error)
     }
     class Repo {
         <<Vault ops cluster>>
@@ -370,11 +374,12 @@ classDiagram
     Index ..> Stats : Reindex() returns
     Index ..> Status : Status() returns
     Index ..> TagCount : TagCounts() returns
-    Index --> Repo : Open() takes *vaultgit.Repo (git dates)
-    Index ..> Vault : imports — staleness scan reads pages
+    Index --> Git : holds — sync() calls CommittedPages(watermark)
+    Repo ..|> Git : *vaultgit.Repo satisfies
+    Index ..> Vault : imports — Status() only, on-disk count
 ```
 
-Search correctness lives in the staleness scan `Index.Search` runs before matching — an unconditional `(mtime_ns, size)` fingerprint check over every `vault.PageRefs`-listed page (`os.Stat`/`os.ReadFile`, not `Vault.PagesWithText()`) — so the FTS5 table can never go stale because a caller forgot an inline update. There is no `ForRoot` per-root cache and no `Vault` facade (the *two seams* above): the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
+Search correctness lives in `Index.sync`, which every `Search` and a bare `--reindex` run before matching: it compares `meta.git_head` (the watermark) against `Git.CommittedPages(watermark)`'s reported `Head`, and does nothing when they're equal — one commit lookup, no filesystem work. When they differ, it applies the returned delta (or, on an unreachable watermark or a first build, a full rebuild from `HEAD`'s tree — [ADR-0015](adr/0015-search-index-view-of-committed-history.md)) — so the FTS5 table can never go stale because a caller forgot an inline update, and a page that was never committed is never seen at all. There is no `ForRoot` per-root cache and no `Vault` facade (the *two seams* above): the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
 
 ### Ingestion pipeline
 

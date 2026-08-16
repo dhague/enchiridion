@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
 )
 
 // run executes the root command with args, with $WIKI_ROOT pinned to root,
@@ -55,6 +57,10 @@ An open-source relational database.
 	return root
 }
 
+// writePage writes and commits a page. Search is a view of committed history
+// (ADR-0015), so every fixture used through the CLI must be committed to be
+// visible — an uncommitted write is exactly what TestSearchStatus exercises
+// separately.
 func writePage(t *testing.T, root, pageRef, text string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(pageRef))
@@ -63,6 +69,23 @@ func writePage(t *testing.T, root, pageRef, text string) {
 	}
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	commitPage(t, root, pageRef)
+}
+
+func commitPage(t *testing.T, root, pageRef string) {
+	t.Helper()
+	repo := vaultgit.New(root)
+	if !repo.IsWorkTree() {
+		if err := repo.Init(); err != nil {
+			t.Fatalf("git init: %v", err)
+		}
+	}
+	if err := repo.Add(pageRef); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if _, err := repo.Commit("test: " + pageRef); err != nil {
+		t.Fatalf("git commit: %v", err)
 	}
 }
 
@@ -207,7 +230,10 @@ func TestSearchStatus(t *testing.T) {
 	run(t, root, "search", "--reindex")
 
 	out := run(t, root, "search", "--status")
-	for _, key := range []string{"pages:", "db_size_bytes:", "backend:", "schema_version:"} {
+	for _, key := range []string{
+		"pages:", "db_size_bytes:", "backend:", "schema_version:",
+		"git_head:", "uncommitted_pages:",
+	} {
 		if !strings.Contains(out, key) {
 			t.Errorf("status output is missing %q:\n%s", key, out)
 		}
@@ -220,6 +246,37 @@ func TestSearchStatus(t *testing.T) {
 	}
 	if status["pages"].(float64) != 2 {
 		t.Errorf("pages = %v, want 2", status["pages"])
+	}
+	if head, _ := status["git_head"].(string); head == "" {
+		t.Errorf("git_head = %v, want the committed HEAD SHA", status["git_head"])
+	}
+	if status["uncommitted_pages"].(float64) != 0 {
+		t.Errorf("uncommitted_pages = %v, want 0", status["uncommitted_pages"])
+	}
+}
+
+// TestSearchStatusReportsUncommittedPages pins the diagnostic ADR-0015
+// exists to make legible: a page on disk but never committed isn't
+// searchable, and --status is where that becomes observable.
+func TestSearchStatusReportsUncommittedPages(t *testing.T) {
+	root := newVault(t)
+	run(t, root, "search", "--reindex")
+
+	path := filepath.Join(root, "wiki", "concepts", "draft.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\ntitle: Draft\nsummary: s\n---\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := run(t, root, "search", "--status", "--json")
+	var status map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &status); err != nil {
+		t.Fatalf("--status --json is not JSON: %v\n%s", err, out)
+	}
+	if status["uncommitted_pages"].(float64) != 1 {
+		t.Errorf("uncommitted_pages = %v, want 1 for the uncommitted draft", status["uncommitted_pages"])
 	}
 }
 
