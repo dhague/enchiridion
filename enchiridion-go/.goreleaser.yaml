@@ -99,9 +99,28 @@ chocolateys:
     project_source_url: https://github.com/dhague/enchiridion
     summary: Clean-room ingestion and retrieval over a git-backed markdown wiki vault
     description: |
-      enchiridion — the wiki-knowledge plugin's script layer, a single static
-      Go binary for vault I/O, placement, FTS5 search indexing, and commits.
-      This package places the binary in its tools directory.
+      enchiridion — the wiki-knowledge plugin's script layer: a single static
+      Go binary for vault I/O, placement, FTS5 search indexing, and commit
+      construction. No runtime or install dependencies.
+
+      This package installs the binary but does NOT put it on your PATH. After
+      `choco install enchiridion`, the executable lives at
+      %ChocolateyInstall%\lib\enchiridion\tools\enchiridion.exe (typically
+      C:\ProgramData\chocolatey\lib\enchiridion\tools).
+
+      To run `enchiridion` from any terminal, add that folder to your PATH.
+      PowerShell, one-time (user scope):
+
+        $tools = "$env:ChocolateyInstall\lib\enchiridion\tools"
+        [Environment]::SetEnvironmentVariable(
+          'Path',
+          [Environment]::GetEnvironmentVariable('Path', 'User') + ";$tools",
+          'User')
+
+      Or via the GUI: Start > "Environment Variables" > Environment Variables...
+      > User variables > Path > Edit > New > paste the tools folder > OK.
+
+      Open a new terminal afterwards; already-open terminals will not see it.
 
 release:
   github:
