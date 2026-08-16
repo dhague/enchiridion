@@ -38,6 +38,12 @@ jobs:
       - name: Lint the plugin's shell entrypoints
         run: shellcheck -s sh wiki-plugin/bootstrap/install.sh wiki-plugin/bin/enchiridion
 
+      - name: Test the plugin's shell entrypoints
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+          bats wiki-plugin/tests/bin_enchiridion.bats
+
   goreleaser-check:
     name: Validate release pipeline (snapshot build, all 6 targets)
     runs-on: ubuntu-latest
