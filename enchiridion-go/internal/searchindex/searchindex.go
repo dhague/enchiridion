@@ -152,16 +152,38 @@ func TokenizeQuery(text string) string {
 // The unit of address is a vault-relative page reference
 // (`wiki/concepts/foo.md`) throughout — schema, upsert API, and search
 // results alike.
+// Git is the slice of [vaultgit.Repo] the index needs, named as an interface
+// so tests can script commit dates rather than standing up a work tree. The
+// real-git behaviour behind it is covered by vaultgit's own tests.
+//
+// The surface is *lenient*: a page missing from the map has never been
+// committed, and a root that isn't a work tree yields an empty map rather
+// than an error — both read as "no git date", which the schema stores as NULL.
+type Git interface {
+	// CommitDates returns {pageRef: YYYY-MM-DD} for every committed page,
+	// holding the latest commit date per path.
+	CommitDates() map[string]string
+}
+
+var _ Git = (*vaultgit.Repo)(nil)
+
 type Index struct {
 	root   string
-	git    *vaultgit.Repo
+	git    Git
 	dbPath string
 	db     *sql.DB
 }
 
-// Open opens (creating if needed) the index for the vault at root.
+// Open opens (creating if needed) the index for the vault at root, reading
+// git dates from the real repository there.
 func Open(root string) (*Index, error) {
-	git := vaultgit.New(root)
+	return openWithGit(root, vaultgit.New(root))
+}
+
+// openWithGit is Open with the git surface substituted — the in-package test
+// seam. Open is the only exported constructor, so callers still cannot open a
+// competing connection or vary the root independently of the repository.
+func openWithGit(root string, git Git) (*Index, error) {
 	indexDir := filepath.Join(root, ".wiki-knowledge")
 	if err := os.MkdirAll(indexDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", indexDir, err)
@@ -438,7 +460,7 @@ func (i *Index) countPages() (int, error) {
 // size) is stored verbatim, and is what the next staleness scan compares
 // against to call this row fresh.
 //
-// gitDates is the {pageRef: date} map from one [vaultgit.Repo.CommitDates]
+// gitDates is the {pageRef: date} map from one [Git.CommitDates]
 // pass; scan callers derive it once per walk and hand it down. When it is nil
 // it is computed here — one full-history walk per write.
 func (i *Index) UpsertPage(pageRef, text string, gitDates map[string]string) error {

@@ -23,6 +23,25 @@ func newVault(t *testing.T) (string, *Index) {
 	return root, index
 }
 
+// fakeGit scripts the commit dates the index reads, mirroring
+// internal/ingestscan's fakeGit. Backdating is the point: a real work tree can
+// only commit "now", so date *filtering* can't be exercised against one.
+type fakeGit struct{ dates map[string]string }
+
+func (f fakeGit) CommitDates() map[string]string { return f.dates }
+
+// newVaultWithGit is newVault over scripted commit dates.
+func newVaultWithGit(t *testing.T, dates map[string]string) (string, *Index) {
+	t.Helper()
+	root := t.TempDir()
+	index, err := openWithGit(root, fakeGit{dates: dates})
+	if err != nil {
+		t.Fatalf("openWithGit: %v", err)
+	}
+	t.Cleanup(func() { index.Close() })
+	return root, index
+}
+
 func writePage(t *testing.T, root, pageRef, text string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(pageRef))
@@ -454,6 +473,49 @@ func TestSchemaMismatchTriggersAFullRebuild(t *testing.T) {
 	}
 }
 
+func TestGitDateFilterBoundsOnBackdatedCommits(t *testing.T) {
+	root, index := newVaultWithGit(t, map[string]string{
+		"wiki/concepts/old.md": "2020-01-01",
+		"wiki/concepts/new.md": "2026-06-01",
+	})
+	// Same body text on all three, so the bound is the only thing separating
+	// them. The third is absent from the map: never committed.
+	for _, ref := range []string{"old", "new", "uncommitted"} {
+		writePage(t, root, "wiki/concepts/"+ref+".md", page(ref, "s", "shared body", nil, ""))
+	}
+
+	hits, err := index.Search(Query{Text: "shared", DateField: "git_date", Since: "2026-01-01"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if got := refsOf(hits); !reflect.DeepEqual(got, []string{"wiki/concepts/new.md"}) {
+		t.Errorf("hits = %v, want only the page committed after the bound", got)
+	}
+
+	// Unbounded, every page is a hit — the bound excluded them, not the query.
+	hits, err = index.Search(Query{Text: "shared"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 3 {
+		t.Errorf("hits = %v, want all three unbounded", refsOf(hits))
+	}
+
+	byRef := map[string]*string{}
+	for _, hit := range hits {
+		byRef[hit.PageRef] = hit.GitDate
+	}
+	if got := byRef["wiki/concepts/old.md"]; got == nil || *got != "2020-01-01" {
+		t.Errorf("old.md GitDate = %v, want the scripted 2020-01-01", got)
+	}
+	if got := byRef["wiki/concepts/uncommitted.md"]; got != nil {
+		t.Errorf("uncommitted.md GitDate = %q, want null for a page absent from the map", *got)
+	}
+}
+
+// The integration counterpart to the fake-driven test above: this one proves
+// Open wires the *real* vaultgit.Repo through. What CommitDates itself reports
+// over a branchy history is vaultgit's own tests' business, not this package's.
 func TestGitDateFilterUsesCommitHistory(t *testing.T) {
 	root := t.TempDir()
 	repo := vaultgit.New(root)
