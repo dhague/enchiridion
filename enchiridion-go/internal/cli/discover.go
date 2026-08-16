@@ -48,7 +48,7 @@ func newDiscoverCommand() *cobra.Command {
 			// The one index handle for this run — one per vault at a time
 			// (ADR-0010), owned here because this command is the only thing
 			// that needs one.
-			index, err := searchindex.Open(root, nil)
+			index, err := searchindex.Open(root)
 			if err != nil {
 				return err
 			}

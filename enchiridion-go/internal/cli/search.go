@@ -75,7 +75,7 @@ func newSearchCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			index, err := searchindex.Open(root, nil)
+			index, err := searchindex.Open(root)
 			if err != nil {
 				return err
 			}
