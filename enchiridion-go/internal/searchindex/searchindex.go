@@ -1,17 +1,22 @@
 // Package searchindex is the SQLite FTS5 lexical index for a vault.
 //
-// Per [ADR-0006]: a single gitignored `.wiki-knowledge/index.db` at the
-// vault root holds a `page` metadata table (kind, tags, source_date,
-// git_date, volatility, supersedes, superseded_by, mtime_ns, size) plus an
-// FTS5 virtual table over title/summary/body. The composite query shape —
-// *"pages updated in the last week, tagged `foo`, containing `bar`"* — is one
-// SQL statement with text as MATCH and metadata as WHERE predicates.
+// Per [ADR-0006] (superseded on the point below by [ADR-0015]): a single
+// gitignored `.wiki-knowledge/index.db` at the vault root holds a `page`
+// metadata table (kind, tags, source_date, git_date, volatility, supersedes,
+// superseded_by) plus an FTS5 virtual table over title/summary/body. The
+// composite query shape — *"pages updated in the last week, tagged `foo`,
+// containing `bar`"* — is one SQL statement with text as MATCH and metadata
+// as WHERE predicates.
 //
 // **Where correctness lives** (the design decision the rest of the code
-// assumes): an unconditional (mtime_ns, size) staleness scan runs on every
-// search call, so the index cannot go wrong because a caller forgot to
-// update it — including for edits made outside the plugin entirely (git
-// pull, Obsidian).
+// assumes): the index is a materialised view of `HEAD`'s `wiki/` tree, not
+// of the working tree. `meta.git_head` holds the last `HEAD` the index has
+// accounted for; every search compares it to the repository's current
+// `HEAD` and, when they differ, reads the delta (or falls back to a full
+// tree read) via [vaultgit.Repo.CommittedPages] — content comes from git
+// blobs, never from files on disk. A page sitting uncommitted in the
+// working tree is invisible to search by construction, not by convention;
+// see [ADR-0015] for the reasoning and the rejected mtime-scan alternative.
 //
 // The schema is free to change on its own terms; bump [SchemaVersion] when
 // it does.
@@ -22,6 +27,7 @@
 // contract.
 //
 // [ADR-0006]: ../../../docs/adr/0006-stdlib-fts5-not-embeddings.md
+// [ADR-0015]: ../../../docs/adr/0015-search-index-view-of-committed-history.md
 package searchindex
 
 import (
@@ -48,13 +54,13 @@ import (
 // open triggers a full rebuild — delete-and-rebuild is the migration
 // strategy, never an in-place ALTER.
 //
-// The jump to "3" is a *data* not a *schema* change: #192 made `source_date`
-// canonical (YYYY-MM-DD, clock truncated) on read, but rows written by "2"
-// still hold a verbatim timestamp. The staleness scan only re-upserts pages
-// whose (mtime_ns, size) changed, so those rows would otherwise sit stale
-// until each page was touched — the one way to heal an existing index with no
-// user action is the version bump's full rebuild on next open.
-const SchemaVersion = "3"
+// The jump to "4" is [ADR-0015]'s semantics change, load-bearing beyond the
+// `mtime_ns`/`size` column drop: every existing `index.db` holds
+// working-tree-semantics data (possibly including pages that were never
+// committed), and the bump forces one clean rebuild under the new
+// committed-history rules with no user action — exactly as the "2" → "3"
+// bump did for #192's semantics change with an unchanged shape.
+const SchemaVersion = "4"
 
 // bm25Weights are the column weights for page_ref (UNINDEXED), title,
 // summary, body — encoding the retrieval skill's "frontmatter-first"
@@ -99,6 +105,12 @@ type Status struct {
 	DBSizeBytes   int64  `json:"db_size_bytes"`
 	Backend       string `json:"backend"`
 	SchemaVersion string `json:"schema_version"`
+	// GitHead is the `HEAD` the index has accounted for ("" if never synced).
+	GitHead string `json:"git_head"`
+	// UncommittedPages is how many `wiki/**.md` files on disk exceed the
+	// indexed page count — pages written but not yet committed, and so not
+	// searchable.
+	UncommittedPages int `json:"uncommitted_pages"`
 }
 
 // Query is the full filter set [Index.Search] accepts. The zero value is a
@@ -153,16 +165,18 @@ func TokenizeQuery(text string) string {
 // (`wiki/concepts/foo.md`) throughout — schema, upsert API, and search
 // results alike.
 // Git is the slice of [vaultgit.Repo] the index needs, named as an interface
-// so tests can script commit dates rather than standing up a work tree. The
-// real-git behaviour behind it is covered by vaultgit's own tests.
+// so tests can script commit snapshots rather than standing up a work tree.
+// The real-git behaviour behind it — reachability, range enumeration, merge
+// handling, blob reads — is covered by vaultgit's own tests; this package's
+// tests only need "apply a snapshot to SQL correctly."
 //
-// The surface is *lenient*: a page missing from the map has never been
-// committed, and a root that isn't a work tree yields an empty map rather
-// than an error — both read as "no git date", which the schema stores as NULL.
+// The surface is *lenient*: a missing repository or one with no commits
+// yields an empty [vaultgit.Snapshot] rather than an error — "nothing
+// committed, nothing indexed."
 type Git interface {
-	// CommitDates returns {pageRef: YYYY-MM-DD} for every committed page,
-	// holding the latest commit date per path.
-	CommitDates() map[string]string
+	// CommittedPages returns the vault's wiki pages changed since commit
+	// since ("" for the full tree). See [vaultgit.Repo.CommittedPages].
+	CommittedPages(since string) (vaultgit.Snapshot, error)
 }
 
 var _ Git = (*vaultgit.Repo)(nil)
@@ -217,7 +231,7 @@ func openWithGit(root string, git Git) (*Index, error) {
 		return nil, err
 	}
 	if !ok {
-		if _, err := index.fullRebuild(); err != nil {
+		if _, err := index.rebuildFull(); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -244,9 +258,7 @@ CREATE TABLE IF NOT EXISTS page (
     git_date      TEXT,
     volatility    TEXT,
     supersedes    TEXT,    -- JSON array of vault-relative page_refs
-    superseded_by TEXT,    -- single vault-relative page_ref, or NULL
-    mtime_ns      INTEGER,
-    size          INTEGER
+    superseded_by TEXT     -- single vault-relative page_ref, or NULL
 );
 CREATE TABLE IF NOT EXISTS page_tag (
     page_ref TEXT,
@@ -286,11 +298,91 @@ func (i *Index) schemaOK() (bool, error) {
 	return value == SchemaVersion, nil
 }
 
-// fullRebuild wipes and re-indexes. Delete-and-rebuild *is* the migration
-// strategy — no incremental migrations, ever. Tables are dropped, not just
-// emptied, so a schema-spelling change (ADR-0009's `rel` → `page_ref`) is
-// absorbed by the same path as a data wipe.
-func (i *Index) fullRebuild() (Stats, error) {
+// -- core index walk -------------------------------------------------------
+
+// Reindex re-indexes the vault. full forces a full tree read from HEAD and
+// wipes first; otherwise the range walk to HEAD runs — the same sync every
+// search performs, triggered explicitly. DurationMS is computed once here,
+// covering whichever path ran — for the full-rebuild path that includes the
+// drop/recreate, not just the walk.
+func (i *Index) Reindex(full bool) (Stats, error) {
+	start := time.Now()
+	var (
+		stats Stats
+		err   error
+	)
+	if full {
+		stats, err = i.rebuildFull()
+	} else {
+		stats, err = i.sync()
+	}
+	stats.DurationMS = float64(time.Since(start).Microseconds()) / 1000
+	return stats, err
+}
+
+// sync is the correctness path: bring the index up to date with `HEAD` by
+// reading committed history, then report what changed. Every search and a
+// bare `--reindex` run this.
+//
+// `HEAD == watermark` is the common case and is free: [Git.CommittedPages]
+// answers it in one commit lookup, and nothing further is written — no
+// table touched, no new watermark to persist over the one already correct.
+func (i *Index) sync() (Stats, error) {
+	watermark, err := i.watermark()
+	if err != nil {
+		return Stats{}, err
+	}
+	snap, err := i.git.CommittedPages(watermark)
+	if err != nil {
+		return Stats{}, err
+	}
+	if snap.Head == watermark && !snap.FullRebuild {
+		pages, err := i.countPages()
+		return Stats{Pages: pages}, err
+	}
+	return i.apply(snap)
+}
+
+// rebuildFull forces a full tree read from HEAD regardless of the current
+// watermark — `--reindex --full`.
+func (i *Index) rebuildFull() (Stats, error) {
+	snap, err := i.git.CommittedPages("")
+	if err != nil {
+		return Stats{}, err
+	}
+	return i.apply(snap)
+}
+
+// apply writes snap into the index — a full rebuild when snap.FullRebuild,
+// otherwise an upsert/delete per changed page — and advances the watermark.
+// The watermark advances whenever this runs, including when the range
+// touched no pages: it means "the HEAD already accounted for," not "the HEAD
+// that last changed something," so a vault whose commits mostly touch raw/
+// doesn't re-walk a growing range on every search.
+func (i *Index) apply(snap vaultgit.Snapshot) (Stats, error) {
+	var (
+		stats Stats
+		err   error
+	)
+	if snap.FullRebuild {
+		stats, err = i.applyFullRebuild(snap)
+	} else {
+		stats, err = i.applyDelta(snap)
+	}
+	if err != nil {
+		return stats, err
+	}
+	if err := i.setWatermark(snap.Head); err != nil {
+		return stats, err
+	}
+	return stats, nil
+}
+
+// applyFullRebuild wipes and re-indexes every page in snap. Delete-and-rebuild
+// *is* the migration strategy — no incremental migrations, ever. Tables are
+// dropped, not just emptied, so a schema-spelling change (ADR-0009's `rel` →
+// `page_ref`) is absorbed by the same path as a data wipe.
+func (i *Index) applyFullRebuild(snap vaultgit.Snapshot) (Stats, error) {
 	_, err := i.db.Exec(`
 		DROP TABLE IF EXISTS page_tag;
 		DROP TABLE IF EXISTS page;
@@ -307,105 +399,10 @@ func (i *Index) fullRebuild() (Stats, error) {
 		SchemaVersion); err != nil {
 		return Stats{}, fmt.Errorf("writing schema version: %w", err)
 	}
-	return i.reindexWalk()
-}
 
-// -- core index walk -------------------------------------------------------
-
-// Reindex re-indexes the vault. full wipes first; otherwise the delta scan
-// runs. Both call the same per-page path. DurationMS is computed once here,
-// covering whichever path ran in full — for the full-rebuild path that
-// includes the drop/recreate, not just the walk.
-func (i *Index) Reindex(full bool) (Stats, error) {
-	start := time.Now()
-	var (
-		stats Stats
-		err   error
-	)
-	if full {
-		stats, err = i.fullRebuild()
-	} else {
-		stats, err = i.scan()
-	}
-	stats.DurationMS = float64(time.Since(start).Microseconds()) / 1000
-	return stats, err
-}
-
-// scan is the staleness scan: walk `wiki/**`, upsert diffs. The correctness
-// path — every search runs it before querying.
-//
-// Each upsert commits immediately, so a mid-scan crash leaves the index
-// partially updated. That's acceptable: the filesystem is the source of
-// truth and the next scan reconciles, so the index needs no all-or-nothing
-// semantic to protect.
-func (i *Index) scan() (Stats, error) {
 	var stats Stats
-
-	indexed, err := i.indexedFingerprints()
-	if err != nil {
-		return stats, err
-	}
-	refs, err := vault.PageRefs(i.root)
-	if err != nil {
-		return stats, err
-	}
-	gitDates := i.git.CommitDates()
-
-	seen := make(map[string]bool, len(refs))
-	for _, pageRef := range refs {
-		seen[pageRef] = true
-		info, err := os.Stat(filepath.Join(i.root, pageRef))
-		if err != nil {
-			return stats, err
-		}
-		fresh := fingerprint{mtimeNS: info.ModTime().UnixNano(), size: info.Size()}
-		prev, known := indexed[pageRef]
-		if known && prev == fresh {
-			continue
-		}
-		text, err := os.ReadFile(filepath.Join(i.root, pageRef))
-		if err != nil {
-			return stats, err
-		}
-		if err := i.UpsertPage(pageRef, string(text), gitDates); err != nil {
-			return stats, err
-		}
-		if known {
-			stats.Updated++
-		} else {
-			stats.Inserted++
-		}
-	}
-
-	for pageRef := range indexed {
-		if seen[pageRef] {
-			continue
-		}
-		if err := i.RemovePage(pageRef); err != nil {
-			return stats, err
-		}
-		stats.Removed++
-	}
-
-	return i.finishReindex(stats)
-}
-
-// reindexWalk is the full walk, no diff — every file upserted. The
-// schema-mismatch rebuild path.
-func (i *Index) reindexWalk() (Stats, error) {
-	var stats Stats
-
-	refs, err := vault.PageRefs(i.root)
-	if err != nil {
-		return stats, err
-	}
-	gitDates := i.git.CommitDates()
-	for _, pageRef := range refs {
-		text, err := os.ReadFile(filepath.Join(i.root, pageRef))
-		if err != nil {
-			return stats, err
-		}
-		if err := i.UpsertPage(pageRef, string(text), gitDates); err != nil {
+	for _, page := range snap.Pages {
+		if err := i.upsertPage(page); err != nil {
 			return stats, err
 		}
 		stats.Inserted++
@@ -413,8 +410,35 @@ func (i *Index) reindexWalk() (Stats, error) {
 	return i.finishReindex(stats)
 }
 
-// finishReindex is the tail shared by scan and reindexWalk: invert
-// `supersedes` edges, then report the resulting page count.
+// applyDelta upserts or removes exactly the pages snap enumerated.
+func (i *Index) applyDelta(snap vaultgit.Snapshot) (Stats, error) {
+	var stats Stats
+	for _, page := range snap.Pages {
+		if page.Deleted {
+			if err := i.removePage(page.PageRef); err != nil {
+				return stats, err
+			}
+			stats.Removed++
+			continue
+		}
+		existed, err := i.pageIndexed(page.PageRef)
+		if err != nil {
+			return stats, err
+		}
+		if err := i.upsertPage(page); err != nil {
+			return stats, err
+		}
+		if existed {
+			stats.Updated++
+		} else {
+			stats.Inserted++
+		}
+	}
+	return i.finishReindex(stats)
+}
+
+// finishReindex is the tail shared by both apply paths: invert `supersedes`
+// edges, then report the resulting page count.
 func (i *Index) finishReindex(stats Stats) (Stats, error) {
 	if err := i.recomputeSupersededBy(); err != nil {
 		return stats, err
@@ -424,58 +448,52 @@ func (i *Index) finishReindex(stats Stats) (Stats, error) {
 	return stats, err
 }
 
-type fingerprint struct {
-	mtimeNS int64
-	size    int64
-}
-
-func (i *Index) indexedFingerprints() (map[string]fingerprint, error) {
-	rows, err := i.db.Query("SELECT page_ref, mtime_ns, size FROM page")
-	if err != nil {
-		return nil, fmt.Errorf("reading index fingerprints: %w", err)
-	}
-	defer rows.Close()
-	out := map[string]fingerprint{}
-	for rows.Next() {
-		var pageRef string
-		var fp fingerprint
-		if err := rows.Scan(&pageRef, &fp.mtimeNS, &fp.size); err != nil {
-			return nil, err
-		}
-		out[pageRef] = fp
-	}
-	return out, rows.Err()
-}
-
 func (i *Index) countPages() (int, error) {
 	var n int
 	err := i.db.QueryRow("SELECT COUNT(*) FROM page").Scan(&n)
 	return n, err
 }
 
+func (i *Index) pageIndexed(pageRef string) (bool, error) {
+	var n int
+	err := i.db.QueryRow("SELECT COUNT(*) FROM page WHERE page_ref = ?", pageRef).Scan(&n)
+	return n > 0, err
+}
+
+// -- watermark ---------------------------------------------------------
+
+// watermark returns the `HEAD` the index has already accounted for, or ""
+// if the index has never been synced.
+func (i *Index) watermark() (string, error) {
+	var value string
+	err := i.db.QueryRow("SELECT value FROM meta WHERE key = 'git_head'").Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading watermark: %w", err)
+	}
+	return value, nil
+}
+
+func (i *Index) setWatermark(head string) error {
+	if _, err := i.db.Exec(
+		"INSERT OR REPLACE INTO meta(key, value) VALUES ('git_head', ?)", head); err != nil {
+		return fmt.Errorf("writing watermark: %w", err)
+	}
+	return nil
+}
+
 // -- per-page upsert/remove ------------------------------------------------
 
-// UpsertPage indexes or replaces one page. pageRef is vault-relative
-// (ADR-0009). The file at root/pageRef must already exist — its (mtime_ns,
-// size) is stored verbatim, and is what the next staleness scan compares
-// against to call this row fresh.
-//
-// gitDates is the {pageRef: date} map from one [Git.CommitDates]
-// pass; scan callers derive it once per walk and hand it down. When it is nil
-// it is computed here — one full-history walk per write.
-func (i *Index) UpsertPage(pageRef, text string, gitDates map[string]string) error {
-	rec, err := pagerecord.New(pageRef, text)
+// upsertPage indexes or replaces one page from its committed content and
+// date. pageRef is vault-relative (ADR-0009).
+func (i *Index) upsertPage(page vaultgit.PageChange) error {
+	rec, err := pagerecord.New(page.PageRef, page.Content)
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(filepath.Join(i.root, pageRef))
-	if err != nil {
-		return err
-	}
-	if gitDates == nil {
-		gitDates = i.git.CommitDates()
-	}
-	_, body, _, _ := wikipage.SplitFrontmatter(text)
+	_, body, _, _ := wikipage.SplitFrontmatter(page.Content)
 
 	supersedes, err := json.Marshal(orEmpty(rec.Supersedes()))
 	if err != nil {
@@ -488,38 +506,37 @@ func (i *Index) UpsertPage(pageRef, text string, gitDates map[string]string) err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once Commit succeeds
 
-	if err := deletePageRows(tx, pageRef); err != nil {
-		return fmt.Errorf("indexing %s: %w", pageRef, err)
+	if err := deletePageRows(tx, page.PageRef); err != nil {
+		return fmt.Errorf("indexing %s: %w", page.PageRef, err)
 	}
 
 	_, err = tx.Exec(
 		"INSERT INTO page(page_ref, title, summary, kind, source_date, "+
-			"git_date, volatility, supersedes, superseded_by, mtime_ns, size) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
-		pageRef, rec.Title, rec.Summary, rec.Kind, rec.SourceDate,
-		nullable(gitDates[pageRef]), rec.Volatility, string(supersedes),
-		info.ModTime().UnixNano(), info.Size())
+			"git_date, volatility, supersedes, superseded_by) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+		page.PageRef, rec.Title, rec.Summary, rec.Kind, rec.SourceDate,
+		nullable(page.Date), rec.Volatility, string(supersedes))
 	if err != nil {
-		return fmt.Errorf("indexing %s: %w", pageRef, err)
+		return fmt.Errorf("indexing %s: %w", page.PageRef, err)
 	}
 	for _, tag := range rec.Tags {
 		if _, err := tx.Exec(
 			"INSERT OR IGNORE INTO page_tag(page_ref, tag) VALUES (?, ?)",
-			pageRef, tag); err != nil {
-			return fmt.Errorf("indexing %s: %w", pageRef, err)
+			page.PageRef, tag); err != nil {
+			return fmt.Errorf("indexing %s: %w", page.PageRef, err)
 		}
 	}
 	_, err = tx.Exec(
 		"INSERT INTO page_fts(page_ref, title, summary, body) VALUES (?, ?, ?, ?)",
-		pageRef, rec.Title, rec.Summary, body)
+		page.PageRef, rec.Title, rec.Summary, body)
 	if err != nil {
-		return fmt.Errorf("indexing %s: %w", pageRef, err)
+		return fmt.Errorf("indexing %s: %w", page.PageRef, err)
 	}
 	return tx.Commit()
 }
 
-// RemovePage drops one page from every index table.
-func (i *Index) RemovePage(pageRef string) error {
+// removePage drops one page from every index table.
+func (i *Index) removePage(pageRef string) error {
 	tx, err := i.db.Begin()
 	if err != nil {
 		return err
@@ -591,7 +608,12 @@ func (i *Index) recomputeSupersededBy() error {
 
 // -- public read API -------------------------------------------------------
 
-// Status returns the page count, db size, backend, and schema version.
+// Status returns the page count, db size, backend, schema version, indexed
+// `HEAD`, and how many `wiki/**.md` files on disk exceed the indexed page
+// count — pages written but not yet committed, and so not searchable (see
+// the package doc). That comparison is the sole surviving use of the vault
+// import, and the one directory walk in this package that isn't on the
+// search hot path.
 func (i *Index) Status() (Status, error) {
 	pages, err := i.countPages()
 	if err != nil {
@@ -607,11 +629,22 @@ func (i *Index) Status() (Status, error) {
 		!errors.Is(err, sql.ErrNoRows) {
 		return Status{}, err
 	}
+	gitHead, err := i.watermark()
+	if err != nil {
+		return Status{}, err
+	}
+	onDisk, err := vault.PageRefs(i.root)
+	if err != nil {
+		return Status{}, err
+	}
+	uncommitted := max(len(onDisk)-pages, 0)
 	return Status{
-		Pages:         pages,
-		DBSizeBytes:   dbSize,
-		Backend:       backendName,
-		SchemaVersion: schemaVersion,
+		Pages:            pages,
+		DBSizeBytes:      dbSize,
+		Backend:          backendName,
+		SchemaVersion:    schemaVersion,
+		GitHead:          gitHead,
+		UncommittedPages: uncommitted,
 	}, nil
 }
 
@@ -625,7 +658,7 @@ type TagCount struct {
 // alphabetical. Staleness-scans first, like [Index.Search], so a tag minted
 // by an external edit is visible immediately.
 func (i *Index) TagCounts() ([]TagCount, error) {
-	if _, err := i.scan(); err != nil {
+	if _, err := i.sync(); err != nil {
 		return nil, err
 	}
 	rows, err := i.db.Query(
@@ -647,7 +680,7 @@ func (i *Index) TagCounts() ([]TagCount, error) {
 
 // Search is the headline API: staleness-scan, then query.
 func (i *Index) Search(q Query) ([]Hit, error) {
-	if _, err := i.scan(); err != nil { // correctness path; see package doc
+	if _, err := i.sync(); err != nil { // correctness path; see package doc
 		return nil, err
 	}
 

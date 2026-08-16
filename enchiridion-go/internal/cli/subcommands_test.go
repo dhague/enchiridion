@@ -9,8 +9,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/watch"
 )
+
+// commitVault makes root a git work tree (if it isn't already) and commits
+// everything currently on disk. discover reads through the search index,
+// which is a view of committed history (ADR-0015), so a page written
+// straight to disk by ingestVault (bypassing the real `ingest` subcommand)
+// needs this before discover can see it.
+func commitVault(t *testing.T, root string) {
+	t.Helper()
+	repo := vaultgit.New(root)
+	if !repo.IsWorkTree() {
+		if err := repo.Init(); err != nil {
+			t.Fatalf("git init: %v", err)
+		}
+	}
+	if err := repo.Add("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if _, err := repo.Commit("fixtures"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+}
 
 // runSubcommand executes the root command with args, returning combined
 // output.
@@ -65,9 +87,10 @@ func TestCommitRequiresManifest(t *testing.T) {
 // --- discover ----------------------------------------------------------------
 
 func TestDiscoverSinglePageMode(t *testing.T) {
-	ingestVault(t, map[string]string{
+	root := ingestVault(t, map[string]string{
 		"wiki/concepts/connection-pooling.md": "---\ntitle: Connection Pooling in Postgres\nsummary: reuse connections\n---\nbody\n",
 	})
+	commitVault(t, root)
 
 	out, err := runSubcommand(t, "discover", "--title", "Connection Pooling in Postgres")
 	if err != nil {
@@ -86,9 +109,10 @@ func TestDiscoverSinglePageMode(t *testing.T) {
 }
 
 func TestDiscoverPlanModeCarriesPagesAndVocabulary(t *testing.T) {
-	ingestVault(t, map[string]string{
+	root := ingestVault(t, map[string]string{
 		"wiki/concepts/connection-pooling.md": "---\ntitle: Connection Pooling in Postgres\nsummary: reuse connections\ntags:\n  - database\n---\nbody\n",
 	})
+	commitVault(t, root)
 	plan := `{"title":"draft","pages":[{"op":"create","title":"Connection Pooling in Postgres","frontmatter":{"summary":""}}]}`
 
 	out, err := runSubcommand(t, "discover", "--plan", writePlan(t, plan))
@@ -117,9 +141,10 @@ func TestDiscoverPlanModeCarriesPagesAndVocabulary(t *testing.T) {
 }
 
 func TestDiscoverTagCountReplacesVocabularyWithPlainText(t *testing.T) {
-	ingestVault(t, map[string]string{
+	root := ingestVault(t, map[string]string{
 		"wiki/concepts/connection-pooling.md": "---\ntitle: Connection Pooling in Postgres\nsummary: s\ntags:\n  - access-management\n---\nbody\n",
 	})
+	commitVault(t, root)
 	plan := `{"title":"draft","pages":[{"op":"create","title":"Connection Pooling in Postgres","frontmatter":{"summary":""}}]}`
 
 	out, err := runSubcommand(t, "discover", "--plan", writePlan(t, plan), "--tag-count", "access-management, user-provisioning")

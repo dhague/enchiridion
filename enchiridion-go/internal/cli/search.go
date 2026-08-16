@@ -133,10 +133,17 @@ func runStatus(cmd *cobra.Command, index *searchindex.Index, asJSON bool) error 
 	if asJSON {
 		return printJSONLine(cmd, st)
 	}
-	cmd.Printf("pages:          %d\n", st.Pages)
-	cmd.Printf("db_size_bytes:  %d\n", st.DBSizeBytes)
-	cmd.Printf("backend:        %s\n", st.Backend)
-	cmd.Printf("schema_version: %s\n", st.SchemaVersion)
+	cmd.Printf("pages:             %d\n", st.Pages)
+	cmd.Printf("db_size_bytes:     %d\n", st.DBSizeBytes)
+	cmd.Printf("backend:           %s\n", st.Backend)
+	cmd.Printf("schema_version:    %s\n", st.SchemaVersion)
+	cmd.Printf("git_head:          %s\n", orDash(st.GitHead))
+	if st.UncommittedPages > 0 {
+		cmd.Printf("uncommitted_pages: %d page(s) on disk not yet committed — not searchable.\n",
+			st.UncommittedPages)
+	} else {
+		cmd.Printf("uncommitted_pages: 0\n")
+	}
 	return nil
 }
 

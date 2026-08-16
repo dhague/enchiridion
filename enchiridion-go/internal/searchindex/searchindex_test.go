@@ -9,32 +9,25 @@ import (
 	"time"
 
 	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit/vaultgittest"
 )
 
-// newVault returns an empty vault root plus an open index over it.
+// newVault returns an empty vault root plus an open index over an empty,
+// commit-free fake git surface — no HEAD, nothing to index.
 func newVault(t *testing.T) (string, *Index) {
 	t.Helper()
-	root := t.TempDir()
-	index, err := Open(root)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { index.Close() })
-	return root, index
+	return newVaultWithFake(t, &vaultgittest.Fake{})
 }
 
-// fakeGit scripts the commit dates the index reads, mirroring
-// internal/ingestscan's fakeGit. Backdating is the point: a real work tree can
-// only commit "now", so date *filtering* can't be exercised against one.
-type fakeGit struct{ dates map[string]string }
-
-func (f fakeGit) CommitDates() map[string]string { return f.dates }
-
-// newVaultWithGit is newVault over scripted commit dates.
-func newVaultWithGit(t *testing.T, dates map[string]string) (string, *Index) {
+// newVaultWithFake is newVault over a scripted [vaultgittest.Fake], the seam
+// this package's tests drive: they script what [vaultgit.Repo.CommittedPages]
+// would have returned, so correctness here is "apply a snapshot to SQL
+// correctly," never a real git repository. Real-git behaviour is vaultgit's
+// own tests' job.
+func newVaultWithFake(t *testing.T, fake *vaultgittest.Fake) (string, *Index) {
 	t.Helper()
 	root := t.TempDir()
-	index, err := openWithGit(root, fakeGit{dates: dates})
+	index, err := openWithGit(root, fake)
 	if err != nil {
 		t.Fatalf("openWithGit: %v", err)
 	}
@@ -42,6 +35,22 @@ func newVaultWithGit(t *testing.T, dates map[string]string) (string, *Index) {
 	return root, index
 }
 
+// fakeAtHead returns a Fake whose full-tree read (since == "") yields
+// exactly pages, at the given head SHA — the "first build" / "--full
+// rebuild" shape.
+func fakeAtHead(head string, pages ...vaultgit.PageChange) *vaultgittest.Fake {
+	return &vaultgittest.Fake{
+		Snapshots: map[string]vaultgit.Snapshot{
+			"": {Head: head, FullRebuild: true, Pages: pages},
+		},
+	}
+}
+
+// writePage puts a page on disk. Search correctness no longer depends on
+// this — content comes from the scripted Snapshot — so it's only used where
+// a test cares about the filesystem directly: [Index.Status]'s
+// on-disk-vs-indexed count, and proving an uncommitted page isn't
+// searchable.
 func writePage(t *testing.T, root, pageRef, text string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(pageRef))
@@ -53,6 +62,7 @@ func writePage(t *testing.T, root, pageRef, text string) {
 	}
 }
 
+// page renders one page's markdown text (frontmatter + body).
 func page(title, summary, body string, tags []string, extra string) string {
 	text := "---\ntitle: " + title + "\nsummary: " + summary + "\n"
 	if len(tags) > 0 {
@@ -63,6 +73,16 @@ func page(title, summary, body string, tags []string, extra string) string {
 	}
 	text += extra + "---\n\n" + body + "\n"
 	return text
+}
+
+// pageChange is a scripted [vaultgit.PageChange] built from [page]'s markdown
+// text — the unit [Fake.Snapshots] entries are made of.
+func pageChange(pageRef, title, summary, body string, tags []string, extra, date string) vaultgit.PageChange {
+	return vaultgit.PageChange{
+		PageRef: pageRef,
+		Date:    date,
+		Content: page(title, summary, body, tags, extra),
+	}
 }
 
 func refsOf(hits []Hit) []string {
@@ -91,10 +111,10 @@ func TestTokenizeQuery(t *testing.T) {
 }
 
 func TestSearchFindsAPageByBodyText(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/pooling.md",
-		page("Connection pooling", "Reusing connections.",
-			"Pooling keeps open database handles around.", []string{"database"}, ""))
+	fake := fakeAtHead("head1", pageChange("wiki/concepts/pooling.md",
+		"Connection pooling", "Reusing connections.",
+		"Pooling keeps open database handles around.", []string{"database"}, "", ""))
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "database handles"})
 	if err != nil {
@@ -121,11 +141,11 @@ func TestSearchFindsAPageByBodyText(t *testing.T) {
 func TestSearchRanksTitleAboveBody(t *testing.T) {
 	// The bm25 column weights encode the retrieval skill's frontmatter-first
 	// instruction; a title match must outrank a body-only mention.
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/titled.md",
-		page("Pooling", "About it.", "Nothing else here.", nil, ""))
-	writePage(t, root, "wiki/concepts/bodied.md",
-		page("Something else", "Unrelated.", "A passing mention of pooling.", nil, ""))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/titled.md", "Pooling", "About it.", "Nothing else here.", nil, "", ""),
+		pageChange("wiki/concepts/bodied.md", "Something else", "Unrelated.", "A passing mention of pooling.", nil, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "pooling"})
 	if err != nil {
@@ -138,13 +158,13 @@ func TestSearchRanksTitleAboveBody(t *testing.T) {
 }
 
 func TestSearchFiltersOnMetadata(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md",
-		page("A", "First.", "shared word", []string{"alpha", "shared"},
-			"source_date: 2026-07-01\nvolatility: stable\n"))
-	writePage(t, root, "wiki/entities/b.md",
-		page("B", "Second.", "shared word", []string{"beta", "shared"},
-			"source_date: 2026-08-01\nvolatility: volatile\n"))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "First.", "shared word", []string{"alpha", "shared"},
+			"source_date: 2026-07-01\nvolatility: stable\n", ""),
+		pageChange("wiki/entities/b.md", "B", "Second.", "shared word", []string{"beta", "shared"},
+			"source_date: 2026-08-01\nvolatility: volatile\n", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	tests := []struct {
 		name string
@@ -192,11 +212,13 @@ func TestSearchRejectsAnUnknownDateField(t *testing.T) {
 // day — and an upper bound on that day silently dropped it. Normalising to
 // YYYY-MM-DD on read means both pages belong in the range.
 func TestSearchUntilIncludesASameDayTimestamp(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/dated.md",
-		page("Dated", "Bare date.", "shared word", nil, "source_date: 2026-07-20\n"))
-	writePage(t, root, "wiki/concepts/timed.md",
-		page("Timed", "A clock.", "shared word", nil, "source_date: 2026-07-20T14:30:00Z\n"))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/dated.md", "Dated", "Bare date.", "shared word", nil,
+			"source_date: 2026-07-20\n", ""),
+		pageChange("wiki/concepts/timed.md", "Timed", "A clock.", "shared word", nil,
+			"source_date: 2026-07-20T14:30:00Z\n", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "shared", Until: "2026-07-20"})
 	if err != nil {
@@ -214,12 +236,12 @@ func TestSearchUntilIncludesASameDayTimestamp(t *testing.T) {
 }
 
 func TestSearchExcludesSupersededPagesByDefault(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/old.md",
-		page("Old", "The old take.", "shared word", nil, ""))
-	writePage(t, root, "wiki/concepts/new.md",
-		page("New", "The new take.", "shared word", nil,
-			"supersedes:\n  - \"[Old](old.md)\"\n"))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/old.md", "Old", "The old take.", "shared word", nil, "", ""),
+		pageChange("wiki/concepts/new.md", "New", "The new take.", "shared word", nil,
+			"supersedes:\n  - \"[Old](old.md)\"\n", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "shared"})
 	if err != nil {
@@ -247,9 +269,11 @@ func TestSearchExcludesSupersededPagesByDefault(t *testing.T) {
 }
 
 func TestSearchWithNoTextIsAPureMetadataQuery(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "First.", "body", []string{"x"}, ""))
-	writePage(t, root, "wiki/entities/b.md", page("B", "Second.", "body", []string{"x"}, ""))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "First.", "body", []string{"x"}, "", ""),
+		pageChange("wiki/entities/b.md", "B", "Second.", "body", []string{"x"}, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{TagsAll: []string{"x"}})
 	if err != nil {
@@ -262,11 +286,13 @@ func TestSearchWithNoTextIsAPureMetadataQuery(t *testing.T) {
 }
 
 func TestSearchHonoursLimit(t *testing.T) {
-	root, index := newVault(t)
-	for _, name := range []string{"a", "b", "c"} {
-		writePage(t, root, "wiki/concepts/"+name+".md",
-			page(name, "s", "shared word", nil, ""))
-	}
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "a", "s", "shared word", nil, "", ""),
+		pageChange("wiki/concepts/b.md", "b", "s", "shared word", nil, "", ""),
+		pageChange("wiki/concepts/c.md", "c", "s", "shared word", nil, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
+
 	hits, err := index.Search(Query{Text: "shared", Limit: 2})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -277,9 +303,11 @@ func TestSearchHonoursLimit(t *testing.T) {
 }
 
 func TestSearchRawIsTheFTS5EscapeHatch(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "alpha only", nil, ""))
-	writePage(t, root, "wiki/concepts/b.md", page("B", "s", "beta only", nil, ""))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "s", "alpha only", nil, "", ""),
+		pageChange("wiki/concepts/b.md", "B", "s", "beta only", nil, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "alpha OR beta", Raw: true})
 	if err != nil {
@@ -290,19 +318,32 @@ func TestSearchRawIsTheFTS5EscapeHatch(t *testing.T) {
 	}
 }
 
-func TestSearchStalenessScanIsTheCorrectnessPath(t *testing.T) {
-	// The design decision the rest of the package assumes: an edit made
-	// outside the plugin entirely (git pull, Obsidian) is picked up by the
-	// unconditional (mtime_ns, size) scan every search runs, with no
-	// reindex call from the caller.
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "original wording", nil, ""))
-	if _, err := index.Search(Query{Text: "original"}); err != nil {
+// The design decision the rest of the package assumes: the index is a view
+// of committed history, not the working tree. A `git pull` that lands new
+// commits (a new watermark) is picked up on the very next search, with no
+// reindex call from the caller — that's what `HEAD` != watermark drives.
+func TestSearchSyncsCommittedHistoryOnEverySearch(t *testing.T) {
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "s", "original wording", nil, "", ""))
+	_, index := newVaultWithFake(t, fake)
+
+	hits, err := index.Search(Query{Text: "original"})
+	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
+	if len(hits) != 1 {
+		t.Fatalf("hits = %v, want the original page", refsOf(hits))
+	}
 
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "replacement wording", nil, ""))
-	hits, err := index.Search(Query{Text: "replacement"})
+	// A new commit lands (simulating a git pull): the range from head1
+	// enumerates a.md's edit.
+	fake.Snapshots["head1"] = vaultgit.Snapshot{
+		Head: "head2",
+		Pages: []vaultgit.PageChange{
+			pageChange("wiki/concepts/a.md", "A", "s", "replacement wording", nil, "", ""),
+		},
+	}
+	hits, err = index.Search(Query{Text: "replacement"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -310,8 +351,12 @@ func TestSearchStalenessScanIsTheCorrectnessPath(t *testing.T) {
 		t.Fatalf("hits = %v, want the edited page", refsOf(hits))
 	}
 
-	if err := os.Remove(filepath.Join(root, "wiki/concepts/a.md")); err != nil {
-		t.Fatal(err)
+	// A further commit deletes it.
+	fake.Snapshots["head2"] = vaultgit.Snapshot{
+		Head: "head3",
+		Pages: []vaultgit.PageChange{
+			{PageRef: "wiki/concepts/a.md", Deleted: true},
+		},
 	}
 	hits, err = index.Search(Query{Text: "replacement"})
 	if err != nil {
@@ -322,10 +367,29 @@ func TestSearchStalenessScanIsTheCorrectnessPath(t *testing.T) {
 	}
 }
 
-func TestReindexStats(t *testing.T) {
+// ADR-0015's headline consequence: a page written but not committed is not
+// searchable, and nothing errors. Writing bytes to disk without scripting a
+// matching Snapshot entry is exactly that — the fake's CommittedPages never
+// sees them, because it never looks at the filesystem.
+func TestUncommittedPageIsNotSearchable(t *testing.T) {
 	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body", nil, ""))
-	writePage(t, root, "wiki/concepts/b.md", page("B", "s", "body", nil, ""))
+	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body text", nil, ""))
+
+	hits, err := index.Search(Query{Text: "body"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("hits = %v, want none for an uncommitted page", refsOf(hits))
+	}
+}
+
+func TestReindexStats(t *testing.T) {
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "s", "body", nil, "", ""),
+		pageChange("wiki/concepts/b.md", "B", "s", "body", nil, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	stats, err := index.Reindex(false)
 	if err != nil {
@@ -335,9 +399,20 @@ func TestReindexStats(t *testing.T) {
 		t.Fatalf("stats = %+v, want 2 inserted / 2 pages", stats)
 	}
 
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "edited body", nil, ""))
-	if err := os.Remove(filepath.Join(root, "wiki/concepts/b.md")); err != nil {
-		t.Fatal(err)
+	// A second commit edits a.md and deletes b.md.
+	fake.Snapshots["head1"] = vaultgit.Snapshot{
+		Head: "head2",
+		Pages: []vaultgit.PageChange{
+			pageChange("wiki/concepts/a.md", "A", "s", "edited body", nil, "", ""),
+			{PageRef: "wiki/concepts/b.md", Deleted: true},
+		},
+	}
+	fake.Snapshots[""] = vaultgit.Snapshot{
+		Head:        "head2",
+		FullRebuild: true,
+		Pages: []vaultgit.PageChange{
+			pageChange("wiki/concepts/a.md", "A", "s", "edited body", nil, "", ""),
+		},
 	}
 	stats, err = index.Reindex(false)
 	if err != nil {
@@ -356,34 +431,33 @@ func TestReindexStats(t *testing.T) {
 	}
 }
 
-// #192's data-vs-schema change, pinned: an index built by schema version "2"
+// #192's data-vs-schema change, pinned: an index built by schema version "3"
 // may hold a verbatim timestamp in source_date (the old read path stored it
-// unnormalised). The staleness scan only re-upserts pages whose (mtime_ns,
-// size) changed, so the open-time version-mismatch rebuild is the one
+// unnormalised). The open-time version-mismatch rebuild is the one
 // mechanism that heals an existing vault with no user action — the lazy
 // "no migration script" the ticket asked for.
 func TestVersionBumpRebuildsStaleSourceDates(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/timed.md",
-		page("Timed", "A clock.", "shared word", nil, "source_date: 2026-07-20T14:30:00Z\n"))
+	fake := fakeAtHead("head1", pageChange("wiki/concepts/timed.md", "Timed", "A clock.",
+		"shared word", nil, "source_date: 2026-07-20T14:30:00Z\n", ""))
+	root, index := newVaultWithFake(t, fake)
 	if _, err := index.Search(Query{Text: "shared"}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	// Rewind to the pre-#192 world: the row holding the verbatim timestamp
-	// old code wrote, under the old schema version.
+	// old code wrote, under an old schema version.
 	if _, err := index.db.Exec(
 		"UPDATE page SET source_date = '2026-07-20T14:30:00Z' WHERE page_ref = 'wiki/concepts/timed.md'"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := index.db.Exec(
-		"INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '2')"); err != nil {
+		"INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '3')"); err != nil {
 		t.Fatal(err)
 	}
 	index.Close()
 
-	reopened, err := Open(root)
+	reopened, err := openWithGit(root, fake)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("openWithGit: %v", err)
 	}
 	defer reopened.Close()
 
@@ -397,7 +471,10 @@ func TestVersionBumpRebuildsStaleSourceDates(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	root, index := newVault(t)
+	fake := fakeAtHead("head1", pageChange("wiki/concepts/a.md", "A", "s", "body", nil, "", ""))
+	root, index := newVaultWithFake(t, fake)
+	// A committed page also sits in the working tree — write it so the
+	// on-disk count matches the indexed count before the draft is added.
 	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body", nil, ""))
 	if _, err := index.Reindex(false); err != nil {
 		t.Fatalf("Reindex: %v", err)
@@ -419,12 +496,32 @@ func TestStatus(t *testing.T) {
 	if status.DBSizeBytes <= 0 {
 		t.Errorf("DBSizeBytes = %d, want a real size", status.DBSizeBytes)
 	}
+	if status.GitHead != "head1" {
+		t.Errorf("GitHead = %q, want head1", status.GitHead)
+	}
+	if status.UncommittedPages != 0 {
+		t.Errorf("UncommittedPages = %d, want 0 (the indexed page matches the one on disk)", status.UncommittedPages)
+	}
+
+	// A second page written but never committed — never scripted into the
+	// fake, so never indexed — is what --status's diagnostic exists to
+	// surface.
+	writePage(t, root, "wiki/concepts/draft.md", page("Draft", "s", "body", nil, ""))
+	status, err = index.Status()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if status.UncommittedPages != 1 {
+		t.Errorf("UncommittedPages = %d, want 1 for the page on disk but not indexed", status.UncommittedPages)
+	}
 }
 
 func TestTagCounts(t *testing.T) {
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body", []string{"shared", "alpha"}, ""))
-	writePage(t, root, "wiki/concepts/b.md", page("B", "s", "body", []string{"shared", "beta"}, ""))
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/a.md", "A", "s", "body", []string{"shared", "alpha"}, "", ""),
+		pageChange("wiki/concepts/b.md", "B", "s", "body", []string{"shared", "beta"}, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	counts, err := index.TagCounts()
 	if err != nil {
@@ -443,8 +540,8 @@ func TestTagCounts(t *testing.T) {
 func TestSchemaMismatchTriggersAFullRebuild(t *testing.T) {
 	// Delete-and-rebuild *is* the migration strategy — an index written by a
 	// future schema version must be wiped, not migrated.
-	root, index := newVault(t)
-	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body", nil, ""))
+	fake := fakeAtHead("head1", pageChange("wiki/concepts/a.md", "A", "s", "body", nil, "", ""))
+	root, index := newVaultWithFake(t, fake)
 	if _, err := index.Reindex(false); err != nil {
 		t.Fatalf("Reindex: %v", err)
 	}
@@ -454,9 +551,9 @@ func TestSchemaMismatchTriggersAFullRebuild(t *testing.T) {
 	}
 	index.Close()
 
-	reopened, err := Open(root)
+	reopened, err := openWithGit(root, fake)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("openWithGit: %v", err)
 	}
 	defer reopened.Close()
 
@@ -474,15 +571,15 @@ func TestSchemaMismatchTriggersAFullRebuild(t *testing.T) {
 }
 
 func TestGitDateFilterBoundsOnBackdatedCommits(t *testing.T) {
-	root, index := newVaultWithGit(t, map[string]string{
-		"wiki/concepts/old.md": "2020-01-01",
-		"wiki/concepts/new.md": "2026-06-01",
-	})
-	// Same body text on all three, so the bound is the only thing separating
-	// them. The third is absent from the map: never committed.
-	for _, ref := range []string{"old", "new", "uncommitted"} {
-		writePage(t, root, "wiki/concepts/"+ref+".md", page(ref, "s", "shared body", nil, ""))
-	}
+	// Backdating is the point: a real work tree can only commit "now", so
+	// date *filtering* can't be exercised against one — this stays
+	// fixture-driven for that reason.
+	fake := fakeAtHead("head1",
+		pageChange("wiki/concepts/old.md", "old", "s", "shared body", nil, "", "2020-01-01"),
+		pageChange("wiki/concepts/new.md", "new", "s", "shared body", nil, "", "2026-06-01"),
+		pageChange("wiki/concepts/uncommitted.md", "uncommitted", "s", "shared body", nil, "", ""),
+	)
+	_, index := newVaultWithFake(t, fake)
 
 	hits, err := index.Search(Query{Text: "shared", DateField: "git_date", Since: "2026-01-01"})
 	if err != nil {
@@ -509,13 +606,15 @@ func TestGitDateFilterBoundsOnBackdatedCommits(t *testing.T) {
 		t.Errorf("old.md GitDate = %v, want the scripted 2020-01-01", got)
 	}
 	if got := byRef["wiki/concepts/uncommitted.md"]; got != nil {
-		t.Errorf("uncommitted.md GitDate = %q, want null for a page absent from the map", *got)
+		t.Errorf("uncommitted.md GitDate = %q, want null for a page without an attributable date", *got)
 	}
 }
 
-// The integration counterpart to the fake-driven test above: this one proves
-// Open wires the *real* vaultgit.Repo through. What CommitDates itself reports
-// over a branchy history is vaultgit's own tests' business, not this package's.
+// The integration counterpart to the fixture-driven tests above: this one
+// proves Open wires the *real* vaultgit.Repo through, and that a page becomes
+// searchable at the moment it's committed. What CommittedPages itself reports
+// over a branchy history is vaultgit's own tests' business, not this
+// package's.
 func TestGitDateFilterUsesCommitHistory(t *testing.T) {
 	root := t.TempDir()
 	repo := vaultgit.New(root)
@@ -559,18 +658,28 @@ func TestGitDateFilterUsesCommitHistory(t *testing.T) {
 	}
 }
 
-func TestUncommittedPageHasANullGitDate(t *testing.T) {
-	root, index := newVault(t)
+// A vault that is a git work tree, but with no commits yet, indexes as
+// empty — consistent with "nothing committed, nothing indexed" — and stays
+// that way even with a page sitting on disk.
+func TestNoCommitsYetIsAnEmptyIndex(t *testing.T) {
+	root := t.TempDir()
+	repo := vaultgit.New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	writePage(t, root, "wiki/concepts/a.md", page("A", "s", "body", nil, ""))
+
+	index, err := Open(root)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer index.Close()
 
 	hits, err := index.Search(Query{Text: "body"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(hits) != 1 {
-		t.Fatalf("hits = %v, want one", refsOf(hits))
-	}
-	if hits[0].GitDate != nil {
-		t.Errorf("GitDate = %q, want null outside a git repo", *hits[0].GitDate)
+	if len(hits) != 0 {
+		t.Fatalf("hits = %v, want none before the first commit", refsOf(hits))
 	}
 }

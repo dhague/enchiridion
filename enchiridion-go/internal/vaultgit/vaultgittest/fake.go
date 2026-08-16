@@ -10,6 +10,8 @@ package vaultgittest
 import (
 	"errors"
 	"fmt"
+
+	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
 )
 
 // Fake records what was staged and committed, and returns a synthetic SHA.
@@ -25,6 +27,28 @@ type Fake struct {
 	Added []string
 	// Messages is every commit message, in call order.
 	Messages []string
+
+	// Snapshots scripts what CommittedPages returns for a given `since`
+	// argument ("" for the full-tree read). A caller drives the range vs.
+	// full-rebuild path by keying the map on the watermark it expects to be
+	// passed.
+	Snapshots map[string]vaultgit.Snapshot
+	// CommittedPagesErr, when set, is returned by every CommittedPages call.
+	CommittedPagesErr error
+	// CommittedPagesCalls is every `since` argument passed to CommittedPages,
+	// in call order — so a test can assert whether the delta or full path
+	// was requested.
+	CommittedPagesCalls []string
+}
+
+// CommittedPages returns the scripted Snapshot for since, or the zero
+// Snapshot when Snapshots has no entry for it.
+func (f *Fake) CommittedPages(since string) (vaultgit.Snapshot, error) {
+	f.CommittedPagesCalls = append(f.CommittedPagesCalls, since)
+	if f.CommittedPagesErr != nil {
+		return vaultgit.Snapshot{}, f.CommittedPagesErr
+	}
+	return f.Snapshots[since], nil
 }
 
 func (f *Fake) IsWorkTree() bool { return !f.NotAWorkTree }

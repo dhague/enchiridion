@@ -8,6 +8,7 @@ import (
 
 	"github.com/dhague/enchiridion/enchiridion-go/internal/ingest"
 	"github.com/dhague/enchiridion/enchiridion-go/internal/searchindex"
+	"github.com/dhague/enchiridion/enchiridion-go/internal/vaultgit"
 )
 
 // writeFixturePage writes one page under wiki/, mirroring discover.py's test
@@ -39,6 +40,18 @@ func newFixtureVault(t *testing.T) string {
 		"A sourdough starter needs equal parts flour and water once a day, "+
 			"kept warm, to stay active enough to leaven bread.",
 	)
+	// Search is a view of committed history (ADR-0015); fixtures must be
+	// committed to be searchable.
+	repo := vaultgit.New(root)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Add("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if _, err := repo.Commit("fixtures"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
 	return root
 }
 
