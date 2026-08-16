@@ -156,6 +156,12 @@ Subcommands touching the vault resolve its root themselves (`$WIKI_ROOT`, else n
 
 **Everything is one Go binary** ([ADR-0011](../../../docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)) — nothing to install. Invoke via `<plugin-root>/bin/enchiridion <subcommand>`, where `<plugin-root>` is located per host: on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value in `.opencode/wiki-knowledge/config.json` (written by install). That wrapper lazy-fetches the platform binary on first use. Works identically in dedicated mode or query-from-anywhere mode.
 
+**Batch independent invocations.** When a step needs more than one independent `enchiridion` call — e.g. several `search` queries for different terms or candidates — chain them into a single `Bash` call (`;`-separated) rather than issuing each as a separate tool call; each extra tool call costs a full turn. Example:
+
+```bash
+"<plugin-root>/bin/enchiridion" search "prepared statements" --json; "<plugin-root>/bin/enchiridion" search "connection pooling" --json
+```
+
 ### Script catalogue
 
 | Subcommand | Call it for | Usage |
