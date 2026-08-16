@@ -7,6 +7,10 @@ before:
     - go mod tidy
 
 builds:
+  # The six bare binaries (darwin/linux/windows x amd64/arm64) that the
+  # dependency-free bootstrap downloads (docs/adr/0013). These must stay
+  # `formats: [binary]` — install.sh/install.ps1 fetch them by name and the
+  # provenance attestation checksums them.
   - id: enchiridion
     main: ./cmd/enchiridion
     binary: enchiridion
@@ -22,9 +26,32 @@ builds:
       - amd64
       - arm64
 
+  # A windows/amd64-only build so the Chocolatey package can wrap a zip
+  # archive. GoReleaser's chocolatey pipe only accepts a zip (never a bare
+  # binary) and only packs amd64/386 windows archives, so the windows binary
+  # for the bootstrap and the windows zip for the package are two builds.
+  - id: enchiridion-windows
+    main: ./cmd/enchiridion
+    binary: enchiridion
+    ldflags:
+      - -s -w -X github.com/dhague/enchiridion/enchiridion-go/internal/version.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+
 archives:
   - id: enchiridion
     formats: [binary]
+    ids: [enchiridion]
+    name_template: >-
+      {{ .Binary }}_{{ .Os }}_{{ .Arch }}
+
+  - id: enchiridion-zip
+    formats: [zip]
+    ids: [enchiridion-windows]
     name_template: >-
       {{ .Binary }}_{{ .Os }}_{{ .Arch }}
 
@@ -36,7 +63,72 @@ changelog:
   use: git
   sort: asc
 
+# Homebrew tap (docs/adr/0014): a `Formula/enchiridion.rb` url+sha256 pointer
+# into a separate dhague/homebrew-enchiridion repo, covering macOS and Linux.
+# The default `bin.install` template already renames the bare binary
+# (enchiridion_darwin_arm64 => enchiridion), so no install override is needed.
+brews:
+  - name: enchiridion
+    ids: [enchiridion]
+    homepage: https://github.com/dhague/enchiridion
+    description: Clean-room ingestion and retrieval over a git-backed markdown wiki vault
+    directory: Formula
+    commit_author:
+      name: github-actions[bot]
+      email: github-actions[bot]@users.noreply.github.com
+    repository:
+      owner: dhague
+      name: homebrew-enchiridion
+      # A repo-specific PAT — the release workflow's GITHUB_TOKEN only has
+      # rights to this repo, so pushing the formula to a second repo needs its
+      # own token (docs/adr/0014). See the release workflow's TAP_GITHUB_TOKEN.
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+
+# Self-hosted Chocolatey package (docs/adr/0014): a `.nupkg` built here and
+# attached to the GitHub release, never pushed to the community repo (no
+# api_key, so the publish step no-ops). The nupkg isn't in GoReleaser's
+# release-uploadable types, so it's attached via release.extra_files below.
+chocolateys:
+  - name: enchiridion
+    ids: [enchiridion-zip]
+    package_source_url: https://github.com/dhague/enchiridion
+    owners: Darren Hague
+    title: enchiridion
+    authors: Darren Hague
+    project_url: https://github.com/dhague/enchiridion
+    project_source_url: https://github.com/dhague/enchiridion
+    summary: Clean-room ingestion and retrieval over a git-backed markdown wiki vault
+    description: |
+      enchiridion — the wiki-knowledge plugin's script layer: a single static
+      Go binary for vault I/O, placement, FTS5 search indexing, and commit
+      construction. No runtime or install dependencies.
+
+      This package installs the binary but does NOT put it on your PATH. After
+      `choco install enchiridion`, the executable lives at
+      %ChocolateyInstall%\lib\enchiridion\tools\enchiridion.exe (typically
+      C:\ProgramData\chocolatey\lib\enchiridion\tools).
+
+      To run `enchiridion` from any terminal, add that folder to your PATH.
+      PowerShell, one-time (user scope):
+
+        $tools = "$env:ChocolateyInstall\lib\enchiridion\tools"
+        [Environment]::SetEnvironmentVariable(
+          'Path',
+          [Environment]::GetEnvironmentVariable('Path', 'User') + ";$tools",
+          'User')
+
+      Or via the GUI: Start > "Environment Variables" > Environment Variables...
+      > User variables > Path > Edit > New > paste the tools folder > OK.
+
+      Open a new terminal afterwards; already-open terminals will not see it.
+
 release:
   github:
     owner: dhague
     name: enchiridion
+  # The `.nupkg` is built by the chocolatey pipe into dist/ but is not one of
+  # GoReleaser's release-uploadable artifact types, so attach it here so it
+  # lives on the release alongside the binaries and checksums.txt
+  # (docs/adr/0014: one release location).
+  extra_files:
+    - glob: dist/enchiridion.{{ .Version }}.nupkg

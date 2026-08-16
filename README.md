@@ -25,6 +25,29 @@ Follows the [Karpathy LLM-wiki pattern](https://github.com/karpathy/llm-wiki).
    - **Local**: `/wiki-init .` inside a project to keep the vault alongside your codebase.
    - **Remote**: `/wiki-init /some/remote/path` then set `WIKI_ROOT` to query it from anywhere. Useful when a wiki spans multiple projects or lives on a shared drive.
 
+### Standalone binary
+
+The plugin lazy-fetches `enchiridion` on first use, so most users never install
+it directly. If you want the binary on your PATH for scripting or manual vault
+maintenance, it's published via a Homebrew tap and a self-hosted Chocolatey
+package (see [ADR-0014](docs/adr/0014-package-manager-distribution.md)):
+
+- **Homebrew (macOS/Linux)**
+  ```bash
+  brew install dhague/homebrew-enchiridion/enchiridion
+  ```
+
+- **Chocolatey (Windows)** — the package isn't on the community repo; download
+  `enchiridion.<version>.nupkg` from the [latest release](https://github.com/dhague/enchiridion/releases/latest)
+  and install it from the file:
+  ```powershell
+  choco install -y .\enchiridion.<version>.nupkg
+  ```
+  The package installs the binary but does **not** add it to your PATH — the
+  install output explains how to add
+  `%ChocolateyInstall%\lib\enchiridion\tools` so `enchiridion` runs from any
+  terminal.
+
 ## Design principles
 
 **Cost-optimised by design.** Ingestion and retrieval run as subagents with model selection tuned to task. Sonnet handles the expensive judgment work (semantic chunking, edge typing); Haiku handles high-volume retrieval at a fraction of the cost. Each query only explores the frontier it needs — no expensive vector re-ranking, no full-graph traversal.
