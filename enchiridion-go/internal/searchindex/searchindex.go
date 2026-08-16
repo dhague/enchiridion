@@ -159,12 +159,9 @@ type Index struct {
 	db     *sql.DB
 }
 
-// Open opens (creating if needed) the index for the vault at root. git is
-// injectable for tests; pass nil for the real repository at root.
-func Open(root string, git *vaultgit.Repo) (*Index, error) {
-	if git == nil {
-		git = vaultgit.New(root)
-	}
+// Open opens (creating if needed) the index for the vault at root.
+func Open(root string) (*Index, error) {
+	git := vaultgit.New(root)
 	indexDir := filepath.Join(root, ".wiki-knowledge")
 	if err := os.MkdirAll(indexDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", indexDir, err)

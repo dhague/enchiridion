@@ -47,7 +47,7 @@ func newFixtureVault(t *testing.T) string {
 // own.
 func newFixtureSearcher(t *testing.T) Searcher {
 	t.Helper()
-	index, err := searchindex.Open(newFixtureVault(t), nil)
+	index, err := searchindex.Open(newFixtureVault(t))
 	if err != nil {
 		t.Fatalf("searchindex.Open: %v", err)
 	}

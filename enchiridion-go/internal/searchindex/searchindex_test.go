@@ -15,7 +15,7 @@ import (
 func newVault(t *testing.T) (string, *Index) {
 	t.Helper()
 	root := t.TempDir()
-	index, err := Open(root, vaultgit.New(root))
+	index, err := Open(root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestVersionBumpRebuildsStaleSourceDates(t *testing.T) {
 	}
 	index.Close()
 
-	reopened, err := Open(root, vaultgit.New(root))
+	reopened, err := Open(root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestSchemaMismatchTriggersAFullRebuild(t *testing.T) {
 	}
 	index.Close()
 
-	reopened, err := Open(root, vaultgit.New(root))
+	reopened, err := Open(root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestGitDateFilterUsesCommitHistory(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	index, err := Open(root, repo)
+	index, err := Open(root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
