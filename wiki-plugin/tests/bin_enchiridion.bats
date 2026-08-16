@@ -119,3 +119,14 @@ EOF
     [[ "$output" == *"dev-binary invoked: search foo"* ]]
     [ ! -e "$FETCH_LOG" ]
 }
+
+@test "ENCHIRIDION_VERSION skips the PATH-preference check entirely, even with a matching PATH binary" {
+    path_binary_with_version "0.8.0"
+
+    PATH="$PATH_BIN_DIR:$PATH" ENCHIRIDION_VERSION="0.9.0-dev" run "$PLUGIN_ROOT/bin/enchiridion" search foo
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"fetched-binary invoked: search foo"* ]]
+    [ -e "$FETCH_LOG" ]
+    grep -q "0.9.0-dev" "$FETCH_LOG"
+}

@@ -26,7 +26,11 @@ rem `enchiridion.exe` resolves on PATH (deliberately `.exe`, not a bare
 rem `where enchiridion` -- so this never matches this .cmd file itself and
 rem never depends on PATHEXT ordering), its `version` output must match
 rem plugin.json's version exactly, or this halts rather than silently
-rem fetching a second, divergent binary.
+rem fetching a second, divergent binary. Skipped entirely when
+rem ENCHIRIDION_VERSION is set: that escape hatch means "fetch this exact
+rem unreleased version," which an unrelated PATH binary can't satisfy either
+rem way, so it takes precedence over PATH-preference rather than being
+rem checked against it.
 
 set "plugin_root=%~dp0.."
 
@@ -37,32 +41,33 @@ if defined ENCHIRIDION_BIN (
 
 set "manifest=%plugin_root%\.claude-plugin\plugin.json"
 
-set "path_bin="
-for /f "usebackq tokens=* delims=" %%p in (`where enchiridion.exe 2^>nul`) do (
-    if not defined path_bin set "path_bin=%%p"
-)
+set "version=%ENCHIRIDION_VERSION%"
 
-if defined path_bin (
-    set "path_version="
-    for /f "usebackq tokens=* delims=" %%v in (`"!path_bin!" version 2^>nul`) do set "path_version=%%v"
-    if defined path_version (
-        call :read_plugin_version
-        set "path_version_norm=!path_version!"
-        if "!path_version_norm:~0,1!"=="v" set "path_version_norm=!path_version_norm:~1!"
-        set "plugin_version_norm=!plugin_version!"
-        if "!plugin_version_norm:~0,1!"=="v" set "plugin_version_norm=!plugin_version_norm:~1!"
-        if "!path_version_norm!"=="!plugin_version_norm!" (
-            "!path_bin!" %*
-            exit /b !ERRORLEVEL!
-        ) else (
-            echo enchiridion !path_version_norm! is behind plugin !plugin_version_norm!; run: choco upgrade enchiridion 1>&2
-            exit /b 1
+if not defined version (
+    set "path_bin="
+    for /f "usebackq tokens=* delims=" %%p in (`where enchiridion.exe 2^>nul`) do (
+        if not defined path_bin set "path_bin=%%p"
+    )
+
+    if defined path_bin (
+        set "path_version="
+        for /f "usebackq tokens=* delims=" %%v in (`"!path_bin!" version 2^>nul`) do set "path_version=%%v"
+        if defined path_version (
+            call :read_plugin_version
+            call :strip_v "!path_version!"
+            set "path_version_norm=!v_stripped!"
+            call :strip_v "!plugin_version!"
+            set "plugin_version_norm=!v_stripped!"
+            if "!path_version_norm!"=="!plugin_version_norm!" (
+                "!path_bin!" %*
+                exit /b !ERRORLEVEL!
+            ) else (
+                echo enchiridion !path_version_norm! is behind plugin !plugin_version_norm!; run: choco upgrade enchiridion 1>&2
+                exit /b 1
+            )
         )
     )
-)
 
-set "version=%ENCHIRIDION_VERSION%"
-if not defined version (
     call :read_plugin_version
     set "version=!plugin_version!"
 )
@@ -87,4 +92,11 @@ if not defined plugin_version (
     echo enchiridion: no "version" in %manifest% 1>&2
     exit /b 1
 )
+goto :eof
+
+rem Both sides may or may not carry a "v" prefix depending on how the binary
+rem was built/tagged -- normalize before comparing. Sets v_stripped.
+:strip_v
+set "v_stripped=%~1"
+if "!v_stripped:~0,1!"=="v" set "v_stripped=!v_stripped:~1!"
 goto :eof

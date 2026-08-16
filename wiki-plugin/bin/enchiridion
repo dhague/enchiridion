@@ -31,7 +31,11 @@
 # its `version` output must match plugin.json's version exactly, or this
 # halts rather than silently fetching a second, divergent binary — the halt
 # is harmless in hooks (hooks.json already appends `|| exit 0`) and gives
-# skills the one corrective command to surface.
+# skills the one corrective command to surface. Skipped entirely when
+# ENCHIRIDION_VERSION is set: that escape hatch means "fetch this exact
+# unreleased version," which an unrelated PATH binary can't satisfy either
+# way, so it takes precedence over PATH-preference rather than being checked
+# against it.
 #
 # Deliberately POSIX sh for the same reason the bootstrap is: it must not
 # depend on Python (the dependency this rewrite exists to remove) or on
@@ -61,26 +65,37 @@ read_plugin_version() {
     echo "$v"
 }
 
-self=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
-
-if path_bin=$(command -v enchiridion 2>/dev/null) && [ -n "$path_bin" ] && [ "$path_bin" != "$self" ] && [ "$path_bin" != "$0" ]; then
-    path_version=$("$path_bin" version 2>/dev/null) || path_version=""
-    if [ -n "$path_version" ]; then
-        plugin_version=$(read_plugin_version)
-        # Both sides may or may not carry a "v" prefix depending on how the
-        # binary was built/tagged — normalize before comparing.
-        path_version_norm=${path_version#v}
-        plugin_version_norm=${plugin_version#v}
-        if [ "$path_version_norm" = "$plugin_version_norm" ]; then
-            exec "$path_bin" "$@"
-        fi
-        echo "enchiridion $path_version_norm is behind plugin $plugin_version_norm; run: brew upgrade enchiridion" >&2
-        exit 1
-    fi
-fi
+# Both sides may or may not carry a "v" prefix depending on how the binary
+# was built/tagged — normalize before comparing.
+strip_v() {
+    echo "${1#v}"
+}
 
 version=${ENCHIRIDION_VERSION:-}
+
 if [ -z "$version" ]; then
+    # -P so a symlinked bin/ directory (a plausible plugin-install layout)
+    # resolves to the same physical path either side of the comparison,
+    # instead of a false negative sending this into a self-exec loop.
+    self=$(unset CDPATH; cd -P -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+
+    if path_bin=$(command -v enchiridion 2>/dev/null) && [ -n "$path_bin" ]; then
+        path_bin_resolved=$(unset CDPATH; cd -P -- "$(dirname -- "$path_bin")" && pwd)/$(basename -- "$path_bin")
+        if [ "$path_bin_resolved" != "$self" ]; then
+            path_version=$("$path_bin" version 2>/dev/null) || path_version=""
+            if [ -n "$path_version" ]; then
+                plugin_version=$(read_plugin_version)
+                path_version_norm=$(strip_v "$path_version")
+                plugin_version_norm=$(strip_v "$plugin_version")
+                if [ "$path_version_norm" = "$plugin_version_norm" ]; then
+                    exec "$path_bin" "$@"
+                fi
+                echo "enchiridion $path_version_norm is behind plugin $plugin_version_norm; run: brew upgrade enchiridion" >&2
+                exit 1
+            fi
+        fi
+    fi
+
     version=$(read_plugin_version)
 fi
 
