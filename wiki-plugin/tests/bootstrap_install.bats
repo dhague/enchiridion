@@ -22,26 +22,10 @@ EOF
     STUB_DIR="$BATS_TEST_TMPDIR/stubs"
     mkdir -p "$STUB_DIR"
 
-    # Stub curl: record calls, always succeed, write an empty file.
     CURL_LOG="$BATS_TEST_TMPDIR/curl.log"
-    cat > "$STUB_DIR/curl" <<EOF
-#!/bin/sh
-echo "\$@" >> "$CURL_LOG"
-# --output <path> is the last two args; write a placeholder so the script
-# can proceed past the download step.
-out=""
-prev=""
-for a in "\$@"; do
-    [ "\$prev" = "--output" ] && out="\$a"
-    prev="\$a"
-done
-[ -n "\$out" ] && : > "\$out"
-exit 0
-EOF
-    chmod +x "$STUB_DIR/curl"
 
-    # Stub sha256sum: always emit a hash that matches itself (we'll override
-    # the expected hash below via a checksums.txt stub).
+    # Stub sha256sum: always emits a fixed hash; write_stubs seeds checksums.txt
+    # with the same fixed hash so the comparison always passes.
     cat > "$STUB_DIR/sha256sum" <<'EOF'
 #!/bin/sh
 echo "aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011  $1"
@@ -49,7 +33,7 @@ EOF
     chmod +x "$STUB_DIR/sha256sum"
 }
 
-# Helper: write a uname stub that returns a fixed string.
+# Helper: write a uname stub that returns fixed -s / -m values.
 stub_uname() {
     local s_val="$1" m_val="$2"
     cat > "$STUB_DIR/uname" <<EOF
@@ -63,20 +47,13 @@ EOF
     chmod +x "$STUB_DIR/uname"
 }
 
-# Helper: write a checksums.txt stub whose entry matches the sha256sum stub.
-write_checksums() {
+# Helper: write a curl stub that records calls and produces the right output
+# for each fetch.  checksums.txt gets a matching entry; the binary download
+# gets a tiny shell script so the version-check exec succeeds.
+# Can't pre-create files under $tmp_dir because mktemp's path isn't known
+# until the script runs, so the curl stub is the one place to intercept.
+write_stubs() {
     local asset="$1"
-    local cache_dir="$PLUGIN_ROOT/.enchiridion-cache/v0.8.0"
-    mkdir -p "$cache_dir"
-    # The script fetches checksums.txt into tmp_dir; we seed it there by
-    # intercepting via the curl stub writing a zero-byte file, then the awk
-    # lookup would fail.  Instead we patch the script's lookup by providing a
-    # real checksums.txt through a second curl stub that writes the content.
-    # Simpler: just pre-create the checksums inside the tmp area isn't possible
-    # without knowing mktemp's path.  Use a different approach: make the curl
-    # stub write a real checksums.txt for the second call (checksums.txt fetch).
-    ASSET_NAME="$asset"
-    # Rewrite curl stub to produce a meaningful checksums.txt on second call.
     cat > "$STUB_DIR/curl" <<STUBEOF
 #!/bin/sh
 echo "\$@" >> "$CURL_LOG"
@@ -92,37 +69,6 @@ case "\$out" in
         echo "aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011  $asset" > "\$out"
         ;;
     *)
-        : > "\$out"
-        ;;
-esac
-exit 0
-STUBEOF
-    chmod +x "$STUB_DIR/curl"
-}
-
-# Helper: patch the downloaded binary stub so `version` succeeds.
-# The script does: "$tmp_dir/enchiridion${exe}" version
-# We can't predict $tmp_dir, so we make chmod +x of a zero-byte file work by
-# replacing the version-check binary after the mv via a wrapper.  Easiest:
-# stub the binary with a shell script written by the curl stub.
-write_binary_stub() {
-    local exe="$1"   # "" or ".exe"
-    cat > "$STUB_DIR/curl" <<STUBEOF
-#!/bin/sh
-echo "\$@" >> "$CURL_LOG"
-out=""
-prev=""
-for a in "\$@"; do
-    [ "\$prev" = "--output" ] && out="\$a"
-    prev="\$a"
-done
-[ -z "\$out" ] && exit 0
-case "\$out" in
-    *checksums.txt)
-        echo "aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011aabbccddeeff0011  $ASSET_NAME" > "\$out"
-        ;;
-    *)
-        # Write a tiny shell script as the "binary" so version check passes.
         printf '#!/bin/sh\necho "0.8.0"\n' > "\$out"
         chmod +x "\$out"
         ;;
@@ -140,9 +86,7 @@ run_install() {
 
 @test "Linux amd64: asset is enchiridion_linux_amd64, no .exe" {
     stub_uname "Linux" "x86_64"
-    ASSET_NAME="enchiridion_linux_amd64"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ""
+    write_stubs "enchiridion_linux_amd64"
 
     run_install
 
@@ -153,9 +97,7 @@ run_install() {
 
 @test "Darwin arm64: asset is enchiridion_darwin_arm64, no .exe" {
     stub_uname "Darwin" "arm64"
-    ASSET_NAME="enchiridion_darwin_arm64"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ""
+    write_stubs "enchiridion_darwin_arm64"
 
     run_install
 
@@ -166,9 +108,7 @@ run_install() {
 
 @test "MINGW64 (Git Bash Windows): asset is enchiridion_windows_amd64.exe" {
     stub_uname "MINGW64_NT-10.0-26200" "x86_64"
-    ASSET_NAME="enchiridion_windows_amd64.exe"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ".exe"
+    write_stubs "enchiridion_windows_amd64.exe"
 
     run_install
 
@@ -178,9 +118,7 @@ run_install() {
 
 @test "MINGW32 (32-bit Git Bash): asset is enchiridion_windows_amd64.exe" {
     stub_uname "MINGW32_NT-6.2" "x86_64"
-    ASSET_NAME="enchiridion_windows_amd64.exe"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ".exe"
+    write_stubs "enchiridion_windows_amd64.exe"
 
     run_install
 
@@ -190,9 +128,7 @@ run_install() {
 
 @test "MSYS_NT (MSYS2): asset is enchiridion_windows_amd64.exe" {
     stub_uname "MSYS_NT-10.0-26200" "x86_64"
-    ASSET_NAME="enchiridion_windows_amd64.exe"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ".exe"
+    write_stubs "enchiridion_windows_amd64.exe"
 
     run_install
 
@@ -202,9 +138,7 @@ run_install() {
 
 @test "CYGWIN_NT: asset is enchiridion_windows_amd64.exe" {
     stub_uname "CYGWIN_NT-10.0" "x86_64"
-    ASSET_NAME="enchiridion_windows_amd64.exe"
-    write_checksums "$ASSET_NAME"
-    write_binary_stub ".exe"
+    write_stubs "enchiridion_windows_amd64.exe"
 
     run_install
 
@@ -218,14 +152,13 @@ run_install() {
     run_install
 
     [ "$status" -ne 0 ]
-    [[ "$output" == *"unsupported OS"* ]]
-    [[ "$output" == *"SunOS"* ]]
+    echo "$output" | grep -q "unsupported OS"
+    echo "$output" | grep -q "SunOS"
 }
 
 @test "Windows cached binary is returned without a fetch" {
     stub_uname "MINGW64_NT-10.0-26200" "x86_64"
 
-    # Pre-seed the cache with an executable stub.
     cache_dir="$PLUGIN_ROOT/.enchiridion-cache/v0.8.0"
     mkdir -p "$cache_dir"
     printf '#!/bin/sh\necho "0.8.0"\n' > "$cache_dir/enchiridion.exe"
@@ -234,7 +167,7 @@ run_install() {
     run_install
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"enchiridion.exe"* ]]
+    echo "$output" | grep -q "enchiridion.exe"
     [ ! -e "$CURL_LOG" ]
 }
 
@@ -244,6 +177,6 @@ run_install() {
     PATH="$STUB_DIR:$PATH" ENCHIRIDION_NO_FETCH=1 run sh "$SCRIPT" "$PLUGIN_ROOT" "0.8.0"
 
     [ "$status" -ne 0 ]
-    [[ "$output" == *"ENCHIRIDION_NO_FETCH"* ]]
+    echo "$output" | grep -q "ENCHIRIDION_NO_FETCH"
     [ ! -e "$CURL_LOG" ]
 }

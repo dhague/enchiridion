@@ -52,8 +52,7 @@ case "$arch" in
     *) die "unsupported architecture '$arch'" ;;
 esac
 
-# Windows release assets carry a .exe suffix; the cached binary does too so
-# the OS can execute it without an explicit interpreter.
+# .exe is required for Windows — the OS won't execute a PE binary without it.
 if [ "$goos" = "windows" ]; then
     exe=".exe"
 else
