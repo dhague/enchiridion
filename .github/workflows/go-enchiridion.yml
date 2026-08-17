@@ -5,6 +5,10 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # Manual trigger for re-running the release job against an existing tag
+  # (e.g. when the automated tag push via tag-release.yml didn't fire the
+  # push:tags event). Run from the Actions tab; set the ref to the tag name.
+  workflow_dispatch:
 
 permissions:
   contents: read
