@@ -87,7 +87,7 @@ if not exist "%manifest%" (
     exit /b 1
 )
 set "plugin_version="
-for /f "usebackq tokens=* delims=" %%v in (`powershell -NoProfile -Command "(Get-Content -Raw '%manifest%' | Select-String -Pattern '\"version\"\s*:\s*\"([^\"]*)\"').Matches[0].Groups[1].Value"`) do set "plugin_version=%%v"
+for /f "usebackq tokens=* delims=" %%v in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%plugin_root%\bootstrap\read-version.ps1" -Manifest "%manifest%"`) do set "plugin_version=%%v"
 if not defined plugin_version (
     echo enchiridion: no "version" in %manifest% 1>&2
     exit /b 1
