@@ -1,5 +1,5 @@
 #!/bin/sh
-# Dependency-free bootstrap for the enchiridion Go binary (macOS/Linux).
+# Dependency-free bootstrap for the enchiridion Go binary (macOS/Linux/Windows).
 #
 # Lazy-fetches the platform binary from a GitHub Release into a
 # version-namespaced cache directory, verifies its SHA256 checksum, and
@@ -40,7 +40,9 @@ os=$(uname -s)
 case "$os" in
     Darwin) goos=darwin ;;
     Linux) goos=linux ;;
-    *) die "unsupported OS '$os' — this script covers macOS and Linux only" ;;
+    # Git Bash / MSYS2 / Cygwin on Windows report MINGW*, MSYS*, or CYGWIN*.
+    MINGW* | MSYS* | CYGWIN*) goos=windows ;;
+    *) die "unsupported OS '$os' — this script covers macOS, Linux, and Windows (Git Bash / MSYS2 / Cygwin)" ;;
 esac
 
 arch=$(uname -m)
@@ -50,9 +52,17 @@ case "$arch" in
     *) die "unsupported architecture '$arch'" ;;
 esac
 
+# Windows release assets carry a .exe suffix; the cached binary does too so
+# the OS can execute it without an explicit interpreter.
+if [ "$goos" = "windows" ]; then
+    exe=".exe"
+else
+    exe=""
+fi
+
 cache_dir="$plugin_root/.enchiridion-cache/$version"
-binary_path="$cache_dir/enchiridion"
-asset="enchiridion_${goos}_${goarch}"
+binary_path="$cache_dir/enchiridion${exe}"
+asset="enchiridion_${goos}_${goarch}${exe}"
 base_url="https://github.com/$repo/releases/download/$version"
 
 if [ -x "$binary_path" ]; then
@@ -88,7 +98,7 @@ curl_fetch() {
     curl --fail --silent --show-error --location "$1" --output "$2"
 }
 
-if ! curl_fetch "$base_url/$asset" "$tmp_dir/enchiridion"; then
+if ! curl_fetch "$base_url/$asset" "$tmp_dir/enchiridion${exe}"; then
     die "download failed for $asset from $base_url — check that $version was released for $goos/$goarch"
 fi
 
@@ -100,16 +110,16 @@ expected_sha=$(awk -v asset="$asset" '$2 == asset { print $1 }' "$tmp_dir/checks
 [ -n "$expected_sha" ] || die "no checksum entry for $asset in checksums.txt"
 
 if command -v sha256sum >/dev/null 2>&1; then
-    actual_sha=$(sha256sum "$tmp_dir/enchiridion" | awk '{ print $1 }')
+    actual_sha=$(sha256sum "$tmp_dir/enchiridion${exe}" | awk '{ print $1 }')
 elif command -v shasum >/dev/null 2>&1; then
-    actual_sha=$(shasum -a 256 "$tmp_dir/enchiridion" | awk '{ print $1 }')
+    actual_sha=$(shasum -a 256 "$tmp_dir/enchiridion${exe}" | awk '{ print $1 }')
 else
     die "neither sha256sum nor shasum is available to verify the download"
 fi
 
 [ "$actual_sha" = "$expected_sha" ] || die "checksum mismatch for $asset (expected $expected_sha, got $actual_sha) — download may be corrupt or tampered with"
 
-chmod +x "$tmp_dir/enchiridion"
+chmod +x "$tmp_dir/enchiridion${exe}"
 
 if [ "$goos" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
     # curl doesn't normally set com.apple.quarantine, but strip it
@@ -117,17 +127,17 @@ if [ "$goos" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
     # (docs/adr/0011: signing is deferred) doesn't hit Gatekeeper on first
     # run. Best-effort: a failure here falls through to the execute-time
     # check below, which prints the manual remediation.
-    xattr -d com.apple.quarantine "$tmp_dir/enchiridion" 2>/dev/null || true
+    xattr -d com.apple.quarantine "$tmp_dir/enchiridion${exe}" 2>/dev/null || true
 fi
 
-if ! "$tmp_dir/enchiridion" version >/dev/null 2>"$tmp_dir/exec-err"; then
+if ! "$tmp_dir/enchiridion${exe}" version >/dev/null 2>"$tmp_dir/exec-err"; then
     if [ "$goos" = "darwin" ] && grep -qi "cannot be opened because the developer cannot be verified\|Operation not permitted" "$tmp_dir/exec-err" 2>/dev/null; then
         die "macOS blocked the downloaded binary (Gatekeeper — enchiridion is not yet code-signed, see docs/adr/0011). Remediate with:
-  xattr -d com.apple.quarantine '$tmp_dir/enchiridion'
+  xattr -d com.apple.quarantine '$tmp_dir/enchiridion${exe}'
 then re-run this bootstrap. If that doesn't clear it, open System Settings > Privacy & Security and allow enchiridion to run."
     fi
     die "downloaded binary failed to execute: $(cat "$tmp_dir/exec-err")"
 fi
 
-mv "$tmp_dir/enchiridion" "$binary_path"
+mv "$tmp_dir/enchiridion${exe}" "$binary_path"
 echo "$binary_path"
