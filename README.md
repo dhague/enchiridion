@@ -2,7 +2,7 @@
 
 Personal knowledge management powered by LLM agents. Turns raw documents into a structured, searchable, git-backed markdown wiki vault — then answers questions over it with typed-edge graph traversal and cited synthesis.
 
-Follows the [Karpathy LLM-wiki pattern](https://github.com/karpathy/llm-wiki).
+Follows the [Karpathy LLM-wiki pattern]([https://github.com/karpathy/llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)).
 
 ## What's inside
 
