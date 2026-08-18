@@ -36,6 +36,12 @@ jobs:
       - name: Tag and push if new
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # RELEASE_GITHUB_TOKEN is a PAT (Contents: write on this repo)
+          # rather than the default GITHUB_TOKEN. A GITHUB_TOKEN-authenticated
+          # push does not trigger downstream workflow runs (GitHub safety
+          # measure against infinite loops), so the go-enchiridion release job
+          # would never fire. A PAT push does trigger them.
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
         run: |
           tag="v$VERSION"
           if git ls-remote --tags origin "refs/tags/$tag" | grep -q "refs/tags/$tag$"; then
@@ -44,5 +50,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/dhague/enchiridion.git"
           git tag -a "$tag" -m "Release $tag"
           git push origin "$tag"
