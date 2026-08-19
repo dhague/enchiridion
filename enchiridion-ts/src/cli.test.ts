@@ -462,3 +462,72 @@ test("place: unknown kind errors non-zero", () => {
   assert.notEqual(status, 0);
   assert.match(stderr, /unknown kind/);
 });
+
+test("superseded-by: resolves a seed to its current head", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ssby-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "old.md"),
+    "---\ntitle: Old\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "new.md"),
+    '---\ntitle: New\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\nsupersedes:\n  - "[Old](old.md)"\n---\n\n',
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stdout, stderr } = runEnv(
+    ["superseded-by", "wiki/concepts/old.md"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), "wiki/concepts/old.md  ->  wiki/concepts/new.md");
+});
+
+test("superseded-by: a current page prints (current)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ssby-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\nsummary: s\ntags: []\nsource_date: 2026-01-01\nvolatility: stable\n---\n\n",
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stdout, stderr } = runEnv(
+    ["superseded-by", "wiki/concepts/a.md"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), "wiki/concepts/a.md  (current)");
+});
+
+test("superseded-by: no args errors non-zero", () => {
+  const { status } = run(["superseded-by"]);
+  assert.notEqual(status, 0);
+});
+
+test("ingest-scan: lists eligible raw files", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-iscan-"));
+  fs.mkdirSync(path.join(root, "raw"), { recursive: true });
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(path.join(root, "raw", "foo.md"), "raw");
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\n---\n\n",
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stdout, stderr } = runEnv(["ingest-scan", "--json"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.equal(status, 0, stderr);
+  const records = stdout
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  assert.equal(records.length, 1);
+  assert.equal(records[0].kind, "eligible");
+  assert.equal(records[0].raw_rel, "raw/foo.md");
+  assert.equal(records[0].reason, "never-ingested");
+});
