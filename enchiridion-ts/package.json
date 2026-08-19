@@ -1,0 +1,23 @@
+{
+  "name": "enchiridion-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npx tsx --test src/searchindex.test.ts",
+    "test:bun": "bun test src/searchindex.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "isomorphic-git": "^1.27.2",
+    "node-sqlite3-wasm": "^0.8.60",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.2"
+  }
+}
