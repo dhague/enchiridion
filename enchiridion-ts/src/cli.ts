@@ -22,6 +22,8 @@ import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
 import { Kinds, path as placePath } from "./place.js";
 import { Vault, resolveRoot } from "./vault.js";
 import { VaultGit } from "./vaultgit.js";
+import { resolve as resolveSuperseded } from "./supersededby.js";
+import { scan as scanIngest } from "./ingestscan.js";
 import { commit as commitManifest, type Manifest } from "./commit.js";
 
 /** Prints the standard stub message and marks the process failed. */
@@ -75,10 +77,42 @@ const FLAT_SUBCOMMANDS = [
   "init",
   "ingest",
   "discover",
-  "ingest-scan",
   "watch",
-  "superseded-by",
 ] as const;
+
+/** Normalise a CLI folder argument: "" and "raw/" both mean all of raw/; a
+ * "raw/" prefix is stripped, so "notes" and "raw/notes" are interchangeable.
+ */
+function normalizeFolderArg(arg: string): string {
+  if (arg === "" || arg === "raw/") return "";
+  return arg.startsWith("raw/") ? arg.slice("raw/".length) : arg;
+}
+
+/** Render the scan result's tabular form (parity with the Go renderScanTable):
+ * right-aligned raw/ paths followed by their reason, then the ignored block. */
+function renderScanTable(result: {
+  eligible: { rawRel: string; reason: string }[];
+  ignored: string[];
+}): void {
+  if (result.eligible.length === 0 && result.ignored.length === 0) {
+    console.log("no eligible files; 0 ignored");
+    return;
+  }
+  let width = 10;
+  for (const c of result.eligible) {
+    if (c.rawRel.length > width) width = c.rawRel.length;
+  }
+  for (const rawRel of result.ignored) {
+    if (rawRel.length > width) width = rawRel.length;
+  }
+  for (const c of result.eligible) {
+    console.log(`${c.rawRel.padEnd(width)}  ${c.reason}`);
+  }
+  if (result.ignored.length > 0) {
+    console.log(`\n${result.ignored.length} ignored by .ingestignore:`);
+    for (const rawRel of result.ignored) console.log(`  ${rawRel}`);
+  }
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -257,6 +291,68 @@ export function buildProgram(): Command {
       }
       const updated = p.merge(key, values);
       writePageFile(file, updated);
+    });
+
+  // superseded-by <page_ref>... — resolve a candidate set's supersession
+  // chains to current heads (parity with
+  // enchiridion-go/internal/cli/supersededby.go).
+  program
+    .command("superseded-by <page_ref...>")
+    .description("Resolve page refs to their current supersession heads")
+    .option("--json", "emit results as JSON Lines (one object per line)")
+    .action(async (pageRefs: string[], opts: { json?: boolean }) => {
+      const { root } = resolveRoot();
+      const records = new Vault(root).pages();
+      const resolutions = resolveSuperseded(pageRefs, records);
+
+      if (opts.json) {
+        for (const res of resolutions) console.log(JSON.stringify(res));
+        return;
+      }
+      for (const res of resolutions) {
+        if (res.chain.length === 0) {
+          console.log(`${res.seed}  (current)`);
+          continue;
+        }
+        let via = "";
+        if (res.chain.length > 1) {
+          via = ` via ${res.chain.slice(0, -1).join(" -> ")}`;
+        }
+        console.log(`${res.seed}  ->  ${res.active}${via}`);
+      }
+    });
+
+  // ingest-scan [folder] — scan raw/ for files that need ingestion (parity
+  // with enchiridion-go/internal/cli/ingestscan.go).
+  program
+    .command("ingest-scan [folder]")
+    .description("Scan raw/ for files that need ingestion")
+    .option(
+      "--json",
+      "emit JSON Lines (one eligible or ignored record per line)",
+    )
+    .action(async (folderArg: string | undefined, opts: { json?: boolean }) => {
+      const { root } = resolveRoot();
+      const folder =
+        folderArg === undefined ? "" : normalizeFolderArg(folderArg);
+      const result = await scanIngest(root, folder, new VaultGit(root));
+      if (opts.json) {
+        for (const c of result.eligible) {
+          console.log(
+            JSON.stringify({
+              kind: "eligible",
+              raw_rel: c.rawRel,
+              reason: c.reason,
+              back_pointers: c.backPointers,
+            }),
+          );
+        }
+        for (const rawRel of result.ignored) {
+          console.log(JSON.stringify({ kind: "ignored", raw_rel: rawRel }));
+        }
+        return;
+      }
+      renderScanTable(result);
     });
 
   // commit — write one structured git commit per manifest (parity with
