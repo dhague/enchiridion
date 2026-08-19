@@ -18,6 +18,12 @@ import { parse as parseYaml } from "yaml";
 import fs from "node:fs";
 import path from "node:path";
 
+// The Git surface and its types are owned by the vaultgit module (§256):
+// this index consumes them, and re-exports the type names so existing callers
+// (and the test fake) keep compiling unchanged.
+export type { Git, Snapshot, PageChange, VaultGit } from "./vaultgit.js";
+import type { Git, Snapshot, PageChange } from "./vaultgit.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -73,30 +79,6 @@ export interface Query {
 export interface TagCount {
   tag: string;
   count: number;
-}
-
-/** One page change in a git snapshot. */
-export interface PageChange {
-  pageRef: string;
-  content: string;
-  date: string;
-  deleted: boolean;
-}
-
-/** One read from the git layer. */
-export interface Snapshot {
-  head: string;
-  fullRebuild: boolean;
-  pages: PageChange[];
-}
-
-/**
- * Git surface the index consumes. Defined here (consumer convention: the
- * Searcher interface goes in the caller package; Git is internal to
- * searchindex, analogous to Go's unexported-in-package interface).
- */
-export interface Git {
-  committedPages(since: string): Promise<Snapshot>;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,8 +238,8 @@ export class Index {
    * there via isomorphic-git.
    */
   static async open(root: string): Promise<Index> {
-    const { IsoGit } = await import("./isogit.js");
-    return Index.openWithGit(root, new IsoGit(root));
+    const { VaultGit } = await import("./vaultgit.js");
+    return Index.openWithGit(root, new VaultGit(root));
   }
 
   /**
