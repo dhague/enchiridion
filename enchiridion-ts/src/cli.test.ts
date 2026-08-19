@@ -91,7 +91,7 @@ test("--help: prints help, exits 0", () => {
   assert.match(stdout, /Usage:/);
 });
 
-for (const name of ["search", "ingest", "discover", "watch"]) {
+for (const name of ["search", "discover", "watch"]) {
   test(`${name}: stub exits non-zero with "not yet implemented"`, () => {
     const { status, stderr } = run([name]);
     assert.notEqual(status, 0);
@@ -491,6 +491,168 @@ test("tool-call-stats: errors when no log exists for the session", () => {
 test("unknown command: commander itself errors non-zero", () => {
   const { status } = run(["totally-bogus-command"]);
   assert.notEqual(status, 0);
+});
+
+test("ingest: executes a plan against a real git vault, printing the SHA first", async () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-ingest-"),
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  await git.init({ fs, dir: root });
+  await git.commit({
+    fs,
+    dir: root,
+    message: "initial",
+    author: { name: "test", email: "t@e.com", timestamp: 1, timezoneOffset: 0 },
+    committer: {
+      name: "test",
+      email: "t@e.com",
+      timestamp: 1,
+      timezoneOffset: 0,
+    },
+  });
+  fs.mkdirSync(path.join(root, "raw"), { recursive: true });
+  fs.writeFileSync(path.join(root, "raw", "doc.md"), "raw\n");
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\n---\nbody\n",
+  );
+
+  const planPath = path.join(root, "plan.json");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({
+      title: "Deploy notes",
+      action: "ingest",
+      source_date: "2026-03-01",
+      raw: "raw/doc.md",
+      pages: [
+        {
+          op: "create",
+          title: "Doc",
+          kind: "source",
+          body: "stub body\n",
+          frontmatter: { summary: "the doc", raw_source: true },
+        },
+        {
+          op: "create",
+          title: "Prepared Statements",
+          kind: "concept",
+          body: "page body\n",
+          frontmatter: { summary: "s" },
+          edges: { source: ["wiki/sources/doc.md"] },
+        },
+        {
+          op: "update",
+          title: "A",
+          page_ref: "wiki/concepts/a.md",
+          body: "new body\n",
+          edges: { source: ["wiki/sources/doc.md"] },
+        },
+      ],
+    }),
+  );
+
+  const { status, stdout, stderr } = runEnv(["ingest", "--plan", planPath], {
+    cwd: root,
+    env: { WIKI_ROOT: root, CLAUDE_CODE_SESSION_ID: "" },
+  });
+  assert.equal(status, 0, stderr);
+  // The commit SHA is always the first line of stdout.
+  const firstLine = stdout.split("\n")[0];
+  assert.match(firstLine, /^[0-9a-f]{40}$/);
+  // The pages were written and committed.
+  assert.ok(fs.existsSync(path.join(root, "wiki", "sources", "doc.md")));
+  assert.ok(
+    fs.existsSync(
+      path.join(root, "wiki", "concepts", "prepared-statements.md"),
+    ),
+  );
+  const { status: logStatus } = spawnSync(
+    "git",
+    ["-C", root, "log", "--oneline"],
+    {
+      encoding: "utf8",
+    },
+  );
+  assert.equal(logStatus, 0);
+});
+
+test("ingest: --dry-run prints the describe, writes nothing", async () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-ingest-"),
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  await git.init({ fs, dir: root });
+  await git.commit({
+    fs,
+    dir: root,
+    message: "initial",
+    author: { name: "test", email: "t@e.com", timestamp: 1, timezoneOffset: 0 },
+    committer: {
+      name: "test",
+      email: "t@e.com",
+      timestamp: 1,
+      timezoneOffset: 0,
+    },
+  });
+
+  const planPath = path.join(root, "plan.json");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({
+      title: "T",
+      pages: [{ op: "create", title: "A", kind: "concept", body: "b\n" }],
+    }),
+  );
+
+  const { status, stdout, stderr } = runEnv(
+    ["ingest", "--plan", planPath, "--dry-run"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), "ingest: T\n  create wiki/concepts/a.md");
+  assert.ok(!fs.existsSync(path.join(root, "wiki", "concepts", "a.md")));
+});
+
+test("ingest: --plan and --ignore are mutually exclusive, one required", () => {
+  const { status, stderr } = run(["ingest"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /--plan|--ignore/);
+});
+
+test("ingest: --ignore appends to the folder's .ingestignore", () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-ingest-"),
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  fs.mkdirSync(path.join(root, "raw", "emails"), { recursive: true });
+  fs.writeFileSync(path.join(root, "raw", "emails", "foo.eml"), "x");
+
+  const { status, stderr } = runEnv(
+    ["ingest", "--ignore", "raw/emails/foo.eml", "--ignore-comment", "done"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  const ignoreFile = fs.readFileSync(
+    path.join(root, "raw", "emails", ".ingestignore"),
+    "utf8",
+  );
+  assert.equal(ignoreFile, "foo.eml  # done\n");
+});
+
+test("ingest: --ignore rejects a path outside raw/", () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-ingest-"),
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  const { status, stderr } = runEnv(["ingest", "--ignore", "notes/x.md"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /under raw\//);
 });
 
 test("commit: writes one structured commit per manifest, printing the SHA", async () => {
