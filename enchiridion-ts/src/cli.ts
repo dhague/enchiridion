@@ -16,6 +16,7 @@
 
 import { Command } from "commander";
 import fs from "node:fs";
+import path from "node:path";
 import { Page } from "./wikipage.js";
 import { captureSession } from "./transcriptcapture.js";
 import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
@@ -27,6 +28,8 @@ import { scan as scanIngest } from "./ingestscan.js";
 import { commit as commitManifest, type Manifest } from "./commit.js";
 import { init as initWiki, Modes } from "./initwiki.js";
 import { sessionStart, postToolUse } from "./hooks.js";
+import { decodePlan, resolve, type Plan } from "./ingest.js";
+import { append as appendIngestignore } from "./ingestignore.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -74,7 +77,7 @@ function canonicalSourceDate(value: unknown): unknown {
   return m[1];
 }
 
-const FLAT_SUBCOMMANDS = ["search", "ingest", "discover", "watch"] as const;
+const FLAT_SUBCOMMANDS = ["search", "discover", "watch"] as const;
 
 /** Normalise a CLI folder argument: "" and "raw/" both mean all of raw/; a
  * "raw/" prefix is stripped, so "notes" and "raw/notes" are interchangeable.
@@ -108,6 +111,65 @@ function renderScanTable(result: {
     console.log(`\n${result.ignored.length} ignored by .ingestignore:`);
     for (const rawRel of result.ignored) console.log(`  ${rawRel}`);
   }
+}
+
+/** Execute an IngestPlan from a plan file (or stdin when planPath is '-'),
+ * printing the commit SHA first, then the tool-call summary if a log exists. */
+async function runPlan(
+  planPath: string,
+  root: string,
+  dryRun: boolean,
+): Promise<void> {
+  let text: string;
+  if (planPath === "-") {
+    text = fs.readFileSync(0, "utf8");
+  } else {
+    text = fs.readFileSync(planPath, "utf8");
+  }
+  const plan: Plan = decodePlan(text);
+  const resolved = resolve(plan, root);
+  resolved.validate();
+  if (dryRun) {
+    console.log(resolved.describe());
+    return;
+  }
+
+  const sha = await resolved.execute(new VaultGit(root));
+  console.log(sha);
+  printToolCallSummary();
+}
+
+/** Reports what this run cost, after the SHA, when the PostToolUse hook has
+ * been logging calls for the session.
+ *
+ * Best-effort and silent on failure: a missing or unreadable log just means
+ * the run happened outside a hooked session, which is not an ingest error.
+ * The SHA stays the first line either way, so callers can still capture it. */
+function printToolCallSummary(): void {
+  const sessionID = process.env.CLAUDE_CODE_SESSION_ID;
+  if (!sessionID) return;
+  const events = readLog(sessionID, "");
+  if (events.length === 0) return;
+  console.log(formatSummary(summarize(events)));
+}
+
+/** Appends rawRel to its own folder's `.ingestignore`.
+ *
+ * rawRel is vault-relative, exactly as the sweep prints it
+ * (`raw/emails/foo.eml`). */
+function ignoreRawFile(root: string, rawRel: string, comment: string): void {
+  const rel = path.posix.normalize(rawRel);
+  if (!rel.startsWith("raw/") || rel.length <= "raw/".length) {
+    throw new Error(
+      `--ignore takes a vault-relative path under raw/, got ${JSON.stringify(rawRel)}`,
+    );
+  }
+  const folder = path.join(
+    root,
+    "raw",
+    path.posix.dirname(rel.slice("raw/".length)),
+  );
+  appendIngestignore(folder, path.posix.basename(rel), comment);
 }
 
 export function buildProgram(): Command {
@@ -381,6 +443,55 @@ export function buildProgram(): Command {
       }
       renderScanTable(result);
     });
+
+  // ingest — execute an IngestPlan against the resolved vault (parity with
+  // enchiridion-go/internal/cli/ingest.go). Validates the whole plan up front
+  // (shape, then the vault-dependent checks) then writes every page and
+  // commits in one pass, printing the commit SHA as the first stdout line.
+  program
+    .command("ingest")
+    .description("Execute an IngestPlan against the resolved vault")
+    .option(
+      "--plan <file>",
+      "path to an IngestPlan JSON file ('-' reads stdin)",
+    )
+    .option(
+      "--ignore <rawRel>",
+      "never offer this raw/ file again for a sweep (appends it to its folder's .ingestignore)",
+    )
+    .option(
+      "--ignore-comment <comment>",
+      "optional trailing comment for the --ignore entry",
+    )
+    .option(
+      "--dry-run",
+      "resolve and validate the plan, print what would be written, write nothing",
+    )
+    .action(
+      async (opts: {
+        plan?: string;
+        ignore?: string;
+        ignoreComment?: string;
+        dryRun?: boolean;
+      }) => {
+        const planPath = opts.plan ?? "";
+        const ignoreRel = opts.ignore ?? "";
+        if (opts.dryRun && planPath === "") {
+          throw new Error(
+            "--dry-run only applies to --plan; --ignore always writes",
+          );
+        }
+        if ((planPath === "") === (ignoreRel === "")) {
+          throw new Error("exactly one of --plan or --ignore is required");
+        }
+        const { root } = resolveRoot();
+        if (ignoreRel !== "") {
+          ignoreRawFile(root, ignoreRel, opts.ignoreComment ?? "");
+          return;
+        }
+        await runPlan(planPath, root, opts.dryRun ?? false);
+      },
+    );
 
   // commit — write one structured git commit per manifest (parity with
   // enchiridion-go/internal/cli/commit.go): a hand-built manifest in, one
