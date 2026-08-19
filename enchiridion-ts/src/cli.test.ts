@@ -58,6 +58,26 @@ function writeTempPage(frontmatter: string, body: string): string {
   return file;
 }
 
+/** Run the CLI with `input` piped to its stdin. */
+function runWithStdin(
+  args: string[],
+  input: string,
+): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+} {
+  const result = spawnSync(tsxBin, [cliPath, ...args], {
+    encoding: "utf8",
+    input,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
 test("no arguments: prints help, exits 0 (parity with the Go/cobra binary)", () => {
   const { status, stdout } = run([]);
   assert.equal(status, 0);
@@ -71,7 +91,7 @@ test("--help: prints help, exits 0", () => {
   assert.match(stdout, /Usage:/);
 });
 
-for (const name of ["search", "init", "ingest", "discover", "watch"]) {
+for (const name of ["search", "ingest", "discover", "watch"]) {
   test(`${name}: stub exits non-zero with "not yet implemented"`, () => {
     const { status, stderr } = run([name]);
     assert.notEqual(status, 0);
@@ -230,10 +250,124 @@ test("page merge: unions values into a list-valued key", () => {
   );
 });
 
-test("hook session-start: stub exits non-zero", () => {
-  const { status, stderr } = run(["hook", "session-start"]);
+test("hook session-start: reads stdin, records transcript path, exits 0", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-hook-"));
+  const sessionID = "hook-sess-1";
+  const payload = JSON.stringify({
+    session_id: sessionID,
+    transcript_path: "/x/transcript.jsonl",
+    cwd: project,
+  });
+  const { status, stderr } = runWithStdin(["hook", "session-start"], payload);
+  assert.equal(status, 0, stderr);
+  const stateDir = path.join(project, ".claude", "wiki-knowledge", "sessions");
+  assert.equal(
+    fs.readFileSync(path.join(stateDir, `${sessionID}.json`), "utf8"),
+    JSON.stringify({ transcript_path: "/x/transcript.jsonl" }),
+  );
+});
+
+test("hook session-start: malformed stdin fails open, exits 0", () => {
+  const { status, stderr } = runWithStdin(
+    ["hook", "session-start"],
+    "not json",
+  );
+  assert.equal(status, 0, stderr);
+});
+
+test("hook post-tool-use: reads stdin, appends one JSON line, exits 0", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-hook-"));
+  const sessionID = "hook-sess-2";
+  const payload = JSON.stringify({
+    session_id: sessionID,
+    cwd: project,
+    tool_name: "Bash",
+    tool_use_id: "tu_1",
+    prompt_id: "pr_1",
+    duration_ms: 42,
+  });
+  const { status, stderr } = runWithStdin(["hook", "post-tool-use"], payload);
+  assert.equal(status, 0, stderr);
+  const logDir = path.join(project, ".claude", "wiki-knowledge", "sessions");
+  const lines = fs
+    .readFileSync(path.join(logDir, `${sessionID}-tool-calls.jsonl`), "utf8")
+    .trim()
+    .split("\n");
+  assert.equal(lines.length, 1);
+  const event = JSON.parse(lines[0]);
+  assert.equal(event.tool, "Bash");
+  assert.equal(event.duration_ms, 42);
+});
+
+test("hook post-tool-use: malformed stdin fails open, exits 0", () => {
+  const { status, stderr } = runWithStdin(
+    ["hook", "post-tool-use"],
+    "not json",
+  );
+  assert.equal(status, 0, stderr);
+});
+
+test("hook (bare): errors listing the events, non-zero", () => {
+  const { status, stderr } = run(["hook"]);
   assert.notEqual(status, 0);
-  assert.match(stderr, /not yet implemented/);
+  assert.match(stderr, /name the event, one of session-start, post-tool-use/);
+});
+
+test("init: scaffolds a vault, commits it, and prints the root", () => {
+  const root = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-")),
+    "vault",
+  );
+  const { status, stdout, stderr } = run(["init", root, "--mode", "dedicated"]);
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), path.resolve(root));
+  for (const folder of ["concepts", "entities", "sources", "synthesis"]) {
+    assert.ok(
+      fs.existsSync(path.join(root, "wiki", folder, ".gitkeep")),
+      `${folder} missing`,
+    );
+  }
+  assert.ok(fs.existsSync(path.join(root, "raw", ".gitkeep")));
+  assert.ok(fs.existsSync(path.join(root, ".gitignore")));
+  // The scaffold is committed — the vault's git history is complete from page
+  // one.
+  const { status: logStatus } = spawnSync("git", ["-C", root, "log"], {
+    encoding: "utf8",
+  });
+  assert.equal(logStatus, 0);
+});
+
+test("init: requires --mode", () => {
+  const root = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-")),
+    "vault",
+  );
+  const { status, stderr } = run(["init", root]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /mode/);
+});
+
+test("init: refuses a directory that already looks like a vault", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-"));
+  fs.mkdirSync(path.join(root, "wiki"));
+  const { status, stderr } = run(["init", root, "--mode", "dedicated"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /already looks like a vault/);
+});
+
+test("init: query-from-anywhere requires --plugin-root", () => {
+  const root = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-")),
+    "vault",
+  );
+  const { status, stderr } = run([
+    "init",
+    root,
+    "--mode",
+    "query-from-anywhere",
+  ]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /requires a plugin root/);
 });
 
 test("save-session: writes a raw capture and prints its vault-relative path", () => {

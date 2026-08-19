@@ -25,6 +25,8 @@ import { VaultGit } from "./vaultgit.js";
 import { resolve as resolveSuperseded } from "./supersededby.js";
 import { scan as scanIngest } from "./ingestscan.js";
 import { commit as commitManifest, type Manifest } from "./commit.js";
+import { init as initWiki, Modes } from "./initwiki.js";
+import { sessionStart, postToolUse } from "./hooks.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -72,13 +74,7 @@ function canonicalSourceDate(value: unknown): unknown {
   return m[1];
 }
 
-const FLAT_SUBCOMMANDS = [
-  "search",
-  "init",
-  "ingest",
-  "discover",
-  "watch",
-] as const;
+const FLAT_SUBCOMMANDS = ["search", "ingest", "discover", "watch"] as const;
 
 /** Normalise a CLI folder argument: "" and "raw/" both mean all of raw/; a
  * "raw/" prefix is stripped, so "notes" and "raw/notes" are interchangeable.
@@ -130,6 +126,37 @@ export function buildProgram(): Command {
       .description("not yet implemented");
     stub(sub, name);
   }
+
+  // init <path> — scaffold a brand-new wiki vault (parity with
+  // enchiridion-go/internal/cli/init.go). Takes an explicit path argument, not
+  // a resolved root; prints the resolved vault root on success — the only
+  // thing on stdout, so a caller can capture it.
+  program
+    .command("init <path>")
+    .description(
+      `Scaffold a brand-new wiki vault; --mode is one of: ${Modes.join(", ")}`,
+    )
+    .requiredOption(
+      "--mode <mode>",
+      `deployment mode: one of ${Modes.join(", ")}`,
+    )
+    .option(
+      "--plugin-root <dir>",
+      "this plugin's install dir (required for query-from-anywhere)",
+    )
+    .action(
+      async (
+        vaultPath: string,
+        opts: { mode: string; pluginRoot?: string },
+      ) => {
+        const root = await initWiki(
+          vaultPath,
+          opts.mode,
+          opts.pluginRoot ?? "",
+        );
+        console.log(root);
+      },
+    );
 
   // place <kind> <title> — compute a new page's vault-relative path from its
   // kind and title. Resolves no vault root and reads nothing from disk: only
@@ -383,12 +410,40 @@ export function buildProgram(): Command {
     });
 
   // hook session-start|post-tool-use — read their payload on stdin, fail
-  // open (CLAUDE.md). Stub still exits non-zero for now; the real
-  // handlers will swallow errors and exit 0 once implemented.
-  const hook = program.command("hook").description("not yet implemented");
+  // open (CLAUDE.md). Hooks fire automatically rather than being
+  // agent-invoked, so every handler error is swallowed and the command exits
+  // 0, and the session continues with that hook's side effect missing for
+  // this run.
+  const hook = program
+    .command("hook")
+    .description("Handle a Claude Code hook payload read from stdin")
+    .action(() => {
+      // A bare `hook`, or an unrecognised event name, is an error rather than
+      // commander's default "print help, exit 0" — a hooks.json typo must not
+      // look like it worked.
+      throw new Error(
+        `hook: name the event, one of ${["session-start", "post-tool-use"].join(", ")}`,
+      );
+    });
   for (const action of ["session-start", "post-tool-use"] as const) {
-    const sub = hook.command(action).description("not yet implemented");
-    stub(sub, `hook ${action}`);
+    hook
+      .command(action)
+      .description("Handle the " + action + " hook event")
+      .action(() => {
+        // Fail open: read the payload, run the handler, and swallow every
+        // error so a hook failure can never interrupt the session it
+        // triggered. Malformed JSON on stdin is one such failure, not a
+        // reason to exit non-zero.
+        try {
+          const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+          if (action === "session-start") sessionStart(payload);
+          else postToolUse(payload);
+        } catch {
+          // The error is deliberately dropped, not reported: stderr from a
+          // hook is surfaced to the user mid-session, and there is nothing
+          // they can act on.
+        }
+      });
   }
 
   return program;
