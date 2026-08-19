@@ -11,6 +11,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +31,14 @@ function run(args: string[]): {
     stdout: result.stdout,
     stderr: result.stderr,
   };
+}
+
+/** Write a temp markdown page and return its path. */
+function writeTempPage(frontmatter: string, body: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-page-"));
+  const file = path.join(dir, "page.md");
+  fs.writeFileSync(file, frontmatter + body);
+  return file;
 }
 
 test("no arguments: prints help, exits 0 (parity with the Go/cobra binary)", () => {
@@ -70,10 +80,44 @@ test("vault move: stub exits non-zero", () => {
   assert.match(stderr, /not yet implemented/);
 });
 
-test("page get: stub exits non-zero", () => {
-  const { status, stderr } = run(["page", "get", "file.md", "kind"]);
+test("page get: prints the frontmatter value", () => {
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status, stdout } = run(["page", "get", file, "kind"]);
+  assert.equal(status, 0);
+  assert.equal(stdout.trim(), "concept");
+});
+
+test("page get: prints a list as ['a', 'b']", () => {
+  const file = writeTempPage("---\ntags:\n  - a\n  - b\n---\nbody\n", "");
+  const { status, stdout } = run(["page", "get", file, "tags"]);
+  assert.equal(status, 0);
+  assert.equal(stdout.trim(), "['a', 'b']");
+});
+
+test("page get: absent key exits non-zero", () => {
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status } = run(["page", "get", file, "nope"]);
   assert.notEqual(status, 0);
-  assert.match(stderr, /not yet implemented/);
+});
+
+test("page set: writes the file back", () => {
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status } = run(["page", "set", file, "volatility", "stable"]);
+  assert.equal(status, 0);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "---\nkind: concept\nvolatility: stable\n---\nbody\n",
+  );
+});
+
+test("page merge: unions values into a list-valued key", () => {
+  const file = writeTempPage("---\ntags:\n  - a\n---\nbody\n", "");
+  const { status } = run(["page", "merge", file, "tags", '["b", "a"]']);
+  assert.equal(status, 0);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "---\ntags:\n  - a\n  - b\n---\nbody\n",
+  );
 });
 
 test("hook session-start: stub exits non-zero", () => {
