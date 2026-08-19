@@ -37,6 +37,19 @@ Two facts, sourced from Microsoft Learn, close off the obvious "just sign it" an
 
 esbuild produces one bundled `.js` and the `.wasm` asset, shipped **inside the plugin** and — for Joule Desktop — as **skill supporting files under a `scripts/` subdirectory** (confirmed: Joule Desktop grants sandbox read+execute on installed skill directories at runtime, and its `skill-creator` documents the `scripts/` convention). There is **no runtime `npm install`, no registry, no network, no lazy fetch, no per-platform binaries, and no checksums/attestation/GoReleaser pipeline**. `wiki-plugin/bin/enchiridion` collapses to a thin `exec node <bundled.js> "$@"` shim (preferring `node` on `PATH`; the `ENCHIRIDION_BIN` dev override is retained). CI flips from GoReleaser's six-binary + Chocolatey + Homebrew + checksum matrix to a single esbuild bundle step.
 
+## Gate 0 result
+
+**Verified 2026-08-19 on branch `spike/247-node-sqlite3-wasm-fts5` (spikes #247 and #248).**
+
+The go/no-go spike ran the exact FTS5 + bm25 surface the TypeScript `searchindex` module will use — production-identical schema (`SchemaVersion "4"`, `porter unicode61`, bm25 weights `0.0,10.0,5.0,1.0`) in an in-memory database — on both runtimes. All seven assertions passed on both runtimes.
+
+| Runtime | Version | Result |
+|---------|---------|--------|
+| Node.js | v22.22.2 | All 7 PASS |
+| Bun | 1.3.14 (Node.js compat v24.3.0) | All 7 PASS |
+
+Assertions covered: WASM module load, FTS5 virtual table creation, porter unicode61 tokenizer registration, insert, keyword MATCH, bm25 column weights (distinct non-zero scores), and phrase-quoted query matching. Bun's Node.js compat layer handles `node-sqlite3-wasm`'s WASM-based approach without issue. No `bun:sqlite` fallback adapter is needed. The dual-engine requirement from the Consequences section is confirmed satisfiable via `node-sqlite3-wasm` alone.
+
 ## Consequences
 
 - **The zero-runtime-dependency promise is gone.** Node (and Bun for OpenCode) becomes a stated prerequisite — the deliberate reversal of [ADR-0011](0011-go-rewrite-scope-sequencing-toolchain.md). This is accepted because the surviving driver (Claude Code on corporate-managed Windows under ASR, and inside Joule Desktop's sandbox) already has Node, and coding-harness users accept it. Hosts that lack Node — the pure non-coding-agent case ADR-0011 courted (Claude Desktop, Cowork) — must now install it; that regression is the price of clearing ASR, recorded honestly rather than papered over.
