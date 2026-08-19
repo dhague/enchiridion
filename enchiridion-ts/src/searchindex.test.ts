@@ -67,7 +67,12 @@ function pageChange(
   extra: string,
   date: string,
 ): PageChange {
-  return { pageRef, content: page(title, summary, body, tags, extra), date, deleted: false };
+  return {
+    pageRef,
+    content: page(title, summary, body, tags, extra),
+    date,
+    deleted: false,
+  };
 }
 
 /** Extract pageRef from Hit array. */
@@ -123,7 +128,10 @@ describe("search", () => {
       assert.equal(hits[0].kind, "concept");
       assert.deepEqual(hits[0].tags, ["database"]);
       assert.ok(hits[0].score > 0, "score must be positive (higher-is-better)");
-      assert.ok(hits[0].snippet !== null && hits[0].snippet !== "", "expect snippet on text hit");
+      assert.ok(
+        hits[0].snippet !== null && hits[0].snippet !== "",
+        "expect snippet on text hit",
+      );
     } finally {
       index.close();
     }
@@ -132,8 +140,24 @@ describe("search", () => {
   it("ranks title match above body-only mention", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/titled.md", "Pooling", "About it.", "Nothing else here.", [], "", ""),
-      pageChange("wiki/concepts/bodied.md", "Something else", "Unrelated.", "A passing mention of pooling.", [], "", ""),
+      pageChange(
+        "wiki/concepts/titled.md",
+        "Pooling",
+        "About it.",
+        "Nothing else here.",
+        [],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/concepts/bodied.md",
+        "Something else",
+        "Unrelated.",
+        "A passing mention of pooling.",
+        [],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -150,8 +174,24 @@ describe("search", () => {
   it("filters on tags_all", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", ["alpha", "shared"], "source_date: 2026-07-01\nvolatility: stable\n", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", ["beta", "shared"], "source_date: 2026-08-01\nvolatility: volatile\n", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        ["alpha", "shared"],
+        "source_date: 2026-07-01\nvolatility: stable\n",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        ["beta", "shared"],
+        "source_date: 2026-08-01\nvolatility: volatile\n",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -165,12 +205,31 @@ describe("search", () => {
   it("tags_all conjunctive (both required)", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", ["alpha", "shared"], "", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", ["beta", "shared"], "", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        ["alpha", "shared"],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        ["beta", "shared"],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
-      const hits = await index.search({ text: "shared", tagsAll: ["alpha", "beta"] });
+      const hits = await index.search({
+        text: "shared",
+        tagsAll: ["alpha", "beta"],
+      });
       assert.equal(hits.length, 0);
     } finally {
       index.close();
@@ -180,12 +239,31 @@ describe("search", () => {
   it("filters on tags_any", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", ["alpha", "shared"], "", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", ["beta", "shared"], "", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        ["alpha", "shared"],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        ["beta", "shared"],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
-      const hits = await index.search({ text: "shared", tagsAny: ["alpha", "beta"] });
+      const hits = await index.search({
+        text: "shared",
+        tagsAny: ["alpha", "beta"],
+      });
       assert.equal(hits.length, 2);
     } finally {
       index.close();
@@ -195,8 +273,24 @@ describe("search", () => {
   it("filters on kind", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", [], "", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", [], "", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        [],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        [],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -210,8 +304,24 @@ describe("search", () => {
   it("filters on since", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", [], "source_date: 2026-07-01\n", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", [], "source_date: 2026-08-01\n", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        [],
+        "source_date: 2026-07-01\n",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        [],
+        "source_date: 2026-08-01\n",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -225,8 +335,24 @@ describe("search", () => {
   it("filters on until", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", [], "source_date: 2026-07-01\n", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", [], "source_date: 2026-08-01\n", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        [],
+        "source_date: 2026-07-01\n",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        [],
+        "source_date: 2026-08-01\n",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -240,12 +366,31 @@ describe("search", () => {
   it("filters on volatility", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "First.", "shared word", [], "volatility: stable\n", ""),
-      pageChange("wiki/entities/b.md", "B", "Second.", "shared word", [], "volatility: volatile\n", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "First.",
+        "shared word",
+        [],
+        "volatility: stable\n",
+        "",
+      ),
+      pageChange(
+        "wiki/entities/b.md",
+        "B",
+        "Second.",
+        "shared word",
+        [],
+        "volatility: volatile\n",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
-      const hits = await index.search({ text: "shared", volatility: ["stable"] });
+      const hits = await index.search({
+        text: "shared",
+        volatility: ["stable"],
+      });
       assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md"]);
     } finally {
       index.close();
@@ -267,13 +412,33 @@ describe("search", () => {
   it("until includes a same-day timestamp (source_date normalised to YYYY-MM-DD)", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/dated.md", "Dated", "Bare date.", "shared word", [], "source_date: 2026-07-20\n", ""),
-      pageChange("wiki/concepts/timed.md", "Timed", "A clock.", "shared word", [], "source_date: 2026-07-20T14:30:00Z\n", ""),
+      pageChange(
+        "wiki/concepts/dated.md",
+        "Dated",
+        "Bare date.",
+        "shared word",
+        [],
+        "source_date: 2026-07-20\n",
+        "",
+      ),
+      pageChange(
+        "wiki/concepts/timed.md",
+        "Timed",
+        "A clock.",
+        "shared word",
+        [],
+        "source_date: 2026-07-20T14:30:00Z\n",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
       const hits = await index.search({ text: "shared", until: "2026-07-20" });
-      assert.equal(hits.length, 2, "both pages should be within --until 2026-07-20");
+      assert.equal(
+        hits.length,
+        2,
+        "both pages should be within --until 2026-07-20",
+      );
       for (const hit of hits) {
         assert.equal(hit.sourceDate, "2026-07-20");
       }
@@ -285,16 +450,34 @@ describe("search", () => {
   it("excludes superseded pages by default", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/old.md", "Old", "The old take.", "shared word", [], "", ""),
-      pageChange("wiki/concepts/new.md", "New", "The new take.", "shared word", [],
-        'supersedes:\n  - "[Old](old.md)"\n', ""),
+      pageChange(
+        "wiki/concepts/old.md",
+        "Old",
+        "The old take.",
+        "shared word",
+        [],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/concepts/new.md",
+        "New",
+        "The new take.",
+        "shared word",
+        [],
+        'supersedes:\n  - "[Old](old.md)"\n',
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
       const hits = await index.search({ text: "shared" });
       assert.deepEqual(refsOf(hits), ["wiki/concepts/new.md"]);
 
-      const allHits = await index.search({ text: "shared", includeSuperseded: true });
+      const allHits = await index.search({
+        text: "shared",
+        includeSuperseded: true,
+      });
       assert.equal(allHits.length, 2);
       const old = allHits.find((h) => h.pageRef === "wiki/concepts/old.md");
       assert.ok(old, "old page must be present with includeSuperseded");
@@ -313,7 +496,10 @@ describe("search", () => {
     const index = await openIndex(fake);
     try {
       const hits = await index.search({ tagsAll: ["x"] });
-      assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md", "wiki/entities/b.md"]);
+      assert.deepEqual(refsOf(hits), [
+        "wiki/concepts/a.md",
+        "wiki/entities/b.md",
+      ]);
     } finally {
       index.close();
     }
@@ -353,7 +539,15 @@ describe("search", () => {
   it("syncs committed history on every search", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "s", "original wording", [], "", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "s",
+        "original wording",
+        [],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -365,7 +559,15 @@ describe("search", () => {
         head: "head2",
         fullRebuild: false,
         pages: [
-          pageChange("wiki/concepts/a.md", "A", "s", "replacement wording", [], "", ""),
+          pageChange(
+            "wiki/concepts/a.md",
+            "A",
+            "s",
+            "replacement wording",
+            [],
+            "",
+            "",
+          ),
         ],
       });
       hits = await index.search({ text: "replacement" });
@@ -375,7 +577,14 @@ describe("search", () => {
       fake.snapshots.set("head2", {
         head: "head3",
         fullRebuild: false,
-        pages: [{ pageRef: "wiki/concepts/a.md", content: "", date: "", deleted: true }],
+        pages: [
+          {
+            pageRef: "wiki/concepts/a.md",
+            content: "",
+            date: "",
+            deleted: true,
+          },
+        ],
       });
       hits = await index.search({ text: "replacement" });
       assert.equal(hits.length, 0);
@@ -421,13 +630,20 @@ describe("reindex", () => {
         fullRebuild: false,
         pages: [
           pageChange("wiki/concepts/a.md", "A", "s", "edited body", [], "", ""),
-          { pageRef: "wiki/concepts/b.md", content: "", date: "", deleted: true },
+          {
+            pageRef: "wiki/concepts/b.md",
+            content: "",
+            date: "",
+            deleted: true,
+          },
         ],
       });
       fake.snapshots.set("", {
         head: "head2",
         fullRebuild: true,
-        pages: [pageChange("wiki/concepts/a.md", "A", "s", "edited body", [], "", "")],
+        pages: [
+          pageChange("wiki/concepts/a.md", "A", "s", "edited body", [], "", ""),
+        ],
       });
       stats = await index.reindex(false);
       assert.equal(stats.inserted, 0, "no new pages");
@@ -467,16 +683,26 @@ describe("schema", () => {
       // We re-open just to patch, then close again.
       const { createRequire } = await import("node:module");
       const _req = createRequire(import.meta.url);
-      const { Database } = _req("node-sqlite3-wasm") as { Database: new (p: string) => { exec(s: string): void; close(): void } };
-      const patchDb = new Database(path.join(tmpDir, ".wiki-knowledge", "index.db"));
-      patchDb.exec("UPDATE meta SET value = '999' WHERE key = 'schema_version'");
+      const { Database } = _req("node-sqlite3-wasm") as {
+        Database: new (p: string) => { exec(s: string): void; close(): void };
+      };
+      const patchDb = new Database(
+        path.join(tmpDir, ".wiki-knowledge", "index.db"),
+      );
+      patchDb.exec(
+        "UPDATE meta SET value = '999' WHERE key = 'schema_version'",
+      );
       patchDb.close();
 
       // Reopen — should detect mismatch and rebuild from full tree.
       const idx2 = await Index.openWithGit(tmpDir, fake);
       try {
         const status = await idx2.status();
-        assert.equal(status.schemaVersion, SCHEMA_VERSION, "rebuild must reset schema version");
+        assert.equal(
+          status.schemaVersion,
+          SCHEMA_VERSION,
+          "rebuild must reset schema version",
+        );
         assert.equal(status.pages, 1, "rebuild must re-index pages from HEAD");
       } finally {
         idx2.close();
@@ -519,8 +745,24 @@ describe("tagCounts", () => {
   it("returns tags ordered by count desc, name asc", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/a.md", "A", "s", "body", ["shared", "alpha"], "", ""),
-      pageChange("wiki/concepts/b.md", "B", "s", "body", ["shared", "beta"], "", ""),
+      pageChange(
+        "wiki/concepts/a.md",
+        "A",
+        "s",
+        "body",
+        ["shared", "alpha"],
+        "",
+        "",
+      ),
+      pageChange(
+        "wiki/concepts/b.md",
+        "B",
+        "s",
+        "body",
+        ["shared", "beta"],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
@@ -544,13 +786,41 @@ describe("git_date filter", () => {
   it("bounds on backdated commits", async () => {
     const fake = fakeAtHead(
       "head1",
-      pageChange("wiki/concepts/old.md", "old", "s", "shared body", [], "", "2020-01-01"),
-      pageChange("wiki/concepts/new.md", "new", "s", "shared body", [], "", "2026-06-01"),
-      pageChange("wiki/concepts/nodatemd.md", "nodate", "s", "shared body", [], "", ""),
+      pageChange(
+        "wiki/concepts/old.md",
+        "old",
+        "s",
+        "shared body",
+        [],
+        "",
+        "2020-01-01",
+      ),
+      pageChange(
+        "wiki/concepts/new.md",
+        "new",
+        "s",
+        "shared body",
+        [],
+        "",
+        "2026-06-01",
+      ),
+      pageChange(
+        "wiki/concepts/nodatemd.md",
+        "nodate",
+        "s",
+        "shared body",
+        [],
+        "",
+        "",
+      ),
     );
     const index = await openIndex(fake);
     try {
-      const hits = await index.search({ text: "shared", dateField: "git_date", since: "2026-01-01" });
+      const hits = await index.search({
+        text: "shared",
+        dateField: "git_date",
+        since: "2026-01-01",
+      });
       assert.deepEqual(refsOf(hits), ["wiki/concepts/new.md"]);
 
       const allHits = await index.search({ text: "shared" });

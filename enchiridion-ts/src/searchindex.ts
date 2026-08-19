@@ -168,7 +168,9 @@ function splitFrontmatter(src: string): [string, string] {
   const end = rest.search(/\n---(\r?\n|$)/);
   if (end === -1) return ["", src];
   const fm = rest.slice(0, end);
-  const body = rest.slice(end + 4 /* \n--- */ + (rest[end + 4] === "\r" ? 2 : 1));
+  const body = rest.slice(
+    end + 4 /* \n--- */ + (rest[end + 4] === "\r" ? 2 : 1),
+  );
   return [fm, body];
 }
 
@@ -204,8 +206,9 @@ function normaliseDate(raw: unknown): string {
 
 function parsePageRecord(pageRef: string, content: string): PageRecord {
   const [fmText] = splitFrontmatter(content);
-  const fm: Record<string, unknown> =
-    fmText ? (parseYaml(fmText) as Record<string, unknown>) ?? {} : {};
+  const fm: Record<string, unknown> = fmText
+    ? ((parseYaml(fmText) as Record<string, unknown>) ?? {})
+    : {};
 
   const pageDir = path.posix.dirname(pageRef);
   const kind = kindFromRef(pageRef);
@@ -332,7 +335,13 @@ export class Index {
     const watermark = this.watermark();
     const snap = await this.git.committedPages(watermark);
     if (snap.head === watermark && !snap.fullRebuild) {
-      return { pages: this.countPages(), inserted: 0, updated: 0, removed: 0, durationMs: 0 };
+      return {
+        pages: this.countPages(),
+        inserted: 0,
+        updated: 0,
+        removed: 0,
+        durationMs: 0,
+      };
     }
     return this.apply(snap);
   }
@@ -399,9 +408,10 @@ export class Index {
   }
 
   private pageIndexed(pageRef: string): boolean {
-    const row = this.db.get("SELECT COUNT(*) AS n FROM page WHERE page_ref = ?", [
-      pageRef,
-    ]) as { n: number };
+    const row = this.db.get(
+      "SELECT COUNT(*) AS n FROM page WHERE page_ref = ?",
+      [pageRef],
+    ) as { n: number };
     return (row?.n ?? 0) > 0;
   }
 
@@ -559,7 +569,11 @@ export class Index {
     return this.queryFts(matchExpr, where, params, limit);
   }
 
-  private queryMetadataOnly(where: string, params: unknown[], limit: number): Hit[] {
+  private queryMetadataOnly(
+    where: string,
+    params: unknown[],
+    limit: number,
+  ): Hit[] {
     const rows = this.db.all(
       `SELECT p.page_ref, 0.0 AS score, p.title, p.summary, p.kind,
               p.source_date, p.git_date, p.volatility, p.superseded_by
@@ -582,8 +596,17 @@ export class Index {
     }));
   }
 
-  private queryFts(matchExpr: string, where: string, params: unknown[], limit: number): Hit[] {
-    const args = [matchExpr, ...params, limit] as import("node-sqlite3-wasm").JSValue[];
+  private queryFts(
+    matchExpr: string,
+    where: string,
+    params: unknown[],
+    limit: number,
+  ): Hit[] {
+    const args = [
+      matchExpr,
+      ...params,
+      limit,
+    ] as import("node-sqlite3-wasm").JSValue[];
     const rows = this.db.all(
       `SELECT p.page_ref, bm25(page_fts, ${BM25_WEIGHTS}) AS raw_score,
               p.title, p.summary, p.kind,
@@ -708,7 +731,9 @@ function countWikiMarkdownFiles(root: string): number {
     for (const kindEntry of fs.readdirSync(wikiDir, { withFileTypes: true })) {
       if (!kindEntry.isDirectory()) continue;
       const kindDir = path.join(wikiDir, kindEntry.name);
-      for (const fileEntry of fs.readdirSync(kindDir, { withFileTypes: true })) {
+      for (const fileEntry of fs.readdirSync(kindDir, {
+        withFileTypes: true,
+      })) {
         if (fileEntry.isFile() && fileEntry.name.endsWith(".md")) count++;
       }
     }

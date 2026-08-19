@@ -1,132 +1,78 @@
 #!/usr/bin/env bats
-# Covers the PATH-preference / version-drift decision that bin/enchiridion
-# makes before falling back to its lazy-fetch bootstrap (docs/adr/0014,
-# issue #210): a PATH-installed `enchiridion` whose `version` output matches
-# plugin.json is exec'd; a mismatch halts with a nonzero exit instead of
-# silently fetching a second binary; and no PATH binary falls through to the
-# existing bootstrap, unchanged.
+# Covers wiki-plugin/bin/enchiridion's post-ADR-0017 shim behaviour (issue
+# #254): by default it execs `node` against the sibling enchiridion-ts
+# bundle, forwarding every argument; ENCHIRIDION_BIN overrides that
+# entirely, for local dev against unbundled source or an alternate
+# runtime. This replaces the pre-#254 lazy-fetch/PATH-preference suite,
+# which tested logic that no longer exists (ADR-0013 is retired).
 
 setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../bin/enchiridion"
 
-    PLUGIN_ROOT="$BATS_TEST_TMPDIR/plugin"
-    mkdir -p "$PLUGIN_ROOT/.claude-plugin"
-    cat > "$PLUGIN_ROOT/.claude-plugin/plugin.json" <<'EOF'
-{
-  "name": "wiki-knowledge",
-  "version": "0.8.0"
-}
-EOF
+    # Recreate the monorepo layout the shim assumes: wiki-plugin/ and
+    # enchiridion-ts/ as siblings, with a stub dist/cli.js standing in for
+    # the real esbuild bundle.
+    REPO_ROOT="$BATS_TEST_TMPDIR/repo"
+    PLUGIN_ROOT="$REPO_ROOT/wiki-plugin"
     mkdir -p "$PLUGIN_ROOT/bin"
     cp "$SCRIPT" "$PLUGIN_ROOT/bin/enchiridion"
     chmod +x "$PLUGIN_ROOT/bin/enchiridion"
 
-    # A stub bootstrap that records its arguments and "fetches" a fake
-    # binary, so tests can assert whether the fetch path ran at all.
-    mkdir -p "$PLUGIN_ROOT/bootstrap"
-    FETCH_LOG="$BATS_TEST_TMPDIR/fetch.log"
-    cat > "$PLUGIN_ROOT/bootstrap/install.sh" <<EOF
-#!/bin/sh
-echo "\$@" >> "$FETCH_LOG"
-echo "$BATS_TEST_TMPDIR/fetched-binary"
+    mkdir -p "$REPO_ROOT/enchiridion-ts/dist"
+    cat > "$REPO_ROOT/enchiridion-ts/dist/cli.js" <<'EOF'
+console.log("bundle invoked: " + process.argv.slice(2).join(" "));
 EOF
-    chmod +x "$PLUGIN_ROOT/bootstrap/install.sh"
-    cat > "$BATS_TEST_TMPDIR/fetched-binary" <<'EOF'
+
+    # A stub `node` on PATH: proves the shim resolves the right script and
+    # forwards arguments, without depending on a real Node install or a
+    # real esbuild bundle.
+    STUB_BIN_DIR="$BATS_TEST_TMPDIR/stubbin"
+    mkdir -p "$STUB_BIN_DIR"
+    cat > "$STUB_BIN_DIR/node" <<'EOF'
 #!/bin/sh
-echo "fetched-binary invoked: $*"
+echo "node invoked with: $*"
 EOF
-    chmod +x "$BATS_TEST_TMPDIR/fetched-binary"
-
-    PATH_BIN_DIR="$BATS_TEST_TMPDIR/pathbin"
-    mkdir -p "$PATH_BIN_DIR"
+    chmod +x "$STUB_BIN_DIR/node"
 }
 
-path_binary_with_version() {
-    cat > "$PATH_BIN_DIR/enchiridion" <<EOF
-#!/bin/sh
-if [ "\$1" = "version" ]; then
-    echo "$1"
-    exit 0
-fi
-echo "path-binary invoked: \$*"
-EOF
-    chmod +x "$PATH_BIN_DIR/enchiridion"
-}
-
-@test "matching PATH binary version execs the PATH binary, no fetch" {
-    path_binary_with_version "0.8.0"
-
-    PATH="$PATH_BIN_DIR:$PATH" run "$PLUGIN_ROOT/bin/enchiridion" search foo
+@test "default: execs node against the sibling enchiridion-ts bundle, args forwarded" {
+    PATH="$STUB_BIN_DIR:$PATH" run "$PLUGIN_ROOT/bin/enchiridion" search foo --json
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"path-binary invoked: search foo"* ]]
-    [ ! -e "$FETCH_LOG" ]
+    [[ "$output" == *"node invoked with:"* ]]
+    [[ "$output" == *"enchiridion-ts/dist/cli.js search foo --json"* ]]
 }
 
-@test "mismatched PATH binary version halts, no fetch" {
-    path_binary_with_version "0.7.0"
-
-    PATH="$PATH_BIN_DIR:$PATH" run "$PLUGIN_ROOT/bin/enchiridion" search foo
-
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"0.7.0"* ]]
-    [[ "$output" == *"0.8.0"* ]]
-    [[ "$output" == *"upgrade"* ]]
-    [ ! -e "$FETCH_LOG" ]
-}
-
-@test "matching PATH binary version tolerates a v-prefixed version string" {
-    path_binary_with_version "v0.8.0"
-
-    PATH="$PATH_BIN_DIR:$PATH" run "$PLUGIN_ROOT/bin/enchiridion" search foo
+@test "no arguments: still execs node against the bundle" {
+    PATH="$STUB_BIN_DIR:$PATH" run "$PLUGIN_ROOT/bin/enchiridion"
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"path-binary invoked: search foo"* ]]
-    [ ! -e "$FETCH_LOG" ]
+    [[ "$output" == *"enchiridion-ts/dist/cli.js"* ]]
 }
 
-@test "no PATH binary falls through to the existing bootstrap" {
-    run env PATH="$PATH_BIN_DIR:$PATH" "$PLUGIN_ROOT/bin/enchiridion" search foo
-
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"fetched-binary invoked: search foo"* ]]
-    [ -e "$FETCH_LOG" ]
-}
-
-@test "a PATH binary that only resolves to this script itself falls through to the bootstrap" {
-    # Simulate the plugin's own bin/ directory being on PATH: `command -v
-    # enchiridion` would then resolve back to bin/enchiridion itself, which
-    # must not be treated as an installed binary (infinite self-exec).
-    PATH="$PLUGIN_ROOT/bin:$PATH" run "$PLUGIN_ROOT/bin/enchiridion" search foo
-
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"fetched-binary invoked: search foo"* ]]
-    [ -e "$FETCH_LOG" ]
-}
-
-@test "ENCHIRIDION_BIN still wins over any PATH binary" {
-    path_binary_with_version "0.8.0"
-
+@test "ENCHIRIDION_BIN overrides the bundle entirely" {
     cat > "$BATS_TEST_TMPDIR/dev-binary" <<'EOF'
 #!/bin/sh
 echo "dev-binary invoked: $*"
 EOF
     chmod +x "$BATS_TEST_TMPDIR/dev-binary"
 
-    PATH="$PATH_BIN_DIR:$PATH" ENCHIRIDION_BIN="$BATS_TEST_TMPDIR/dev-binary" run "$PLUGIN_ROOT/bin/enchiridion" search foo
+    ENCHIRIDION_BIN="$BATS_TEST_TMPDIR/dev-binary" run "$PLUGIN_ROOT/bin/enchiridion" search foo
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"dev-binary invoked: search foo"* ]]
-    [ ! -e "$FETCH_LOG" ]
 }
 
-@test "ENCHIRIDION_VERSION skips the PATH-preference check entirely, even with a matching PATH binary" {
-    path_binary_with_version "0.8.0"
+@test "ENCHIRIDION_BIN wins even when node is on PATH" {
+    cat > "$BATS_TEST_TMPDIR/dev-binary" <<'EOF'
+#!/bin/sh
+echo "dev-binary invoked: $*"
+EOF
+    chmod +x "$BATS_TEST_TMPDIR/dev-binary"
 
-    PATH="$PATH_BIN_DIR:$PATH" ENCHIRIDION_VERSION="0.9.0-dev" run "$PLUGIN_ROOT/bin/enchiridion" search foo
+    PATH="$STUB_BIN_DIR:$PATH" ENCHIRIDION_BIN="$BATS_TEST_TMPDIR/dev-binary" run "$PLUGIN_ROOT/bin/enchiridion" search foo
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"fetched-binary invoked: search foo"* ]]
-    [ -e "$FETCH_LOG" ]
-    grep -q "0.9.0-dev" "$FETCH_LOG"
+    [[ "$output" == *"dev-binary invoked: search foo"* ]]
+    [[ "$output" != *"node invoked"* ]]
 }

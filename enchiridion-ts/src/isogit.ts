@@ -9,7 +9,6 @@
 
 import * as git from "isomorphic-git";
 import fs from "node:fs";
-import path from "node:path";
 import type { Git, Snapshot, PageChange } from "./searchindex.js";
 
 export class IsoGit implements Git {
@@ -122,10 +121,7 @@ export class IsoGit implements Git {
       fs,
       dir: this.root,
       trees,
-      map: async (
-        filepath: string,
-        entries: (git.WalkerEntry | null)[],
-      ) => {
+      map: async (filepath: string, entries: (git.WalkerEntry | null)[]) => {
         if (!isWikiMdPath(filepath)) return null;
         const [cur, parent] = entries;
         if (cur === null && parent === null) return null;
