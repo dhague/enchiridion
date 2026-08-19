@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as git from "isomorphic-git";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.join(__dirname, "cli.ts");
@@ -356,6 +357,98 @@ test("tool-call-stats: errors when no log exists for the session", () => {
 test("unknown command: commander itself errors non-zero", () => {
   const { status } = run(["totally-bogus-command"]);
   assert.notEqual(status, 0);
+});
+
+test("commit: writes one structured commit per manifest, printing the SHA", async () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-commit-"),
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  await git.init({ fs, dir: root });
+  await git.commit({
+    fs,
+    dir: root,
+    message: "initial",
+    author: { name: "test", email: "t@e.com", timestamp: 1, timezoneOffset: 0 },
+    committer: {
+      name: "test",
+      email: "t@e.com",
+      timestamp: 1,
+      timezoneOffset: 0,
+    },
+  });
+
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\n---\nbody\n",
+  );
+
+  const manifest = path.join(root, "manifest.json");
+  fs.writeFileSync(
+    manifest,
+    JSON.stringify({ title: "T", created: ["wiki/concepts/a.md"] }),
+  );
+
+  const { status, stdout, stderr } = runEnv(
+    ["commit", "--manifest", manifest],
+    {
+      cwd: root,
+      env: { WIKI_ROOT: root },
+    },
+  );
+  assert.equal(status, 0, stderr);
+  assert.match(stdout.trim(), /^[0-9a-f]{40}$/);
+});
+
+test("commit: a missing --manifest flag errors non-zero", () => {
+  const { status, stderr } = run(["commit"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /manifest/);
+});
+
+test("commit: a manifest failing chain-of-evidence is rejected non-zero", async () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "enchiridion-cli-commit-"),
+  );
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\n---\nbody\n",
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  await git.init({ fs, dir: root });
+  await git.add({ fs, dir: root, filepath: "." });
+  await git.commit({
+    fs,
+    dir: root,
+    message: "initial",
+    author: { name: "test", email: "t@e.com", timestamp: 1, timezoneOffset: 0 },
+    committer: {
+      name: "test",
+      email: "t@e.com",
+      timestamp: 1,
+      timezoneOffset: 0,
+    },
+  });
+
+  const manifest = path.join(root, "manifest.json");
+  fs.writeFileSync(
+    manifest,
+    JSON.stringify({
+      title: "T",
+      created: ["wiki/concepts/a.md"],
+      raw_source: "raw/doc.md",
+    }),
+  );
+
+  const { status, stderr } = runEnv(["commit", "--manifest", manifest], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /needs a sources\/ page/);
 });
 
 test("place: prints the vault-relative path for a valid kind and title", () => {

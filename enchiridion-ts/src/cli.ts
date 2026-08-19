@@ -21,6 +21,8 @@ import { captureSession } from "./transcriptcapture.js";
 import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
 import { Kinds, path as placePath } from "./place.js";
 import { Vault, resolveRoot } from "./vault.js";
+import { VaultGit } from "./vaultgit.js";
+import { commit as commitManifest, type Manifest } from "./commit.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -75,7 +77,6 @@ const FLAT_SUBCOMMANDS = [
   "discover",
   "ingest-scan",
   "watch",
-  "commit",
   "superseded-by",
 ] as const;
 
@@ -256,6 +257,33 @@ export function buildProgram(): Command {
       }
       const updated = p.merge(key, values);
       writePageFile(file, updated);
+    });
+
+  // commit — write one structured git commit per manifest (parity with
+  // enchiridion-go/internal/cli/commit.go): a hand-built manifest in, one
+  // structured commit out. `enchiridion ingest` commits its own plan; this is
+  // for a manifest an agent assembles directly.
+  program
+    .command("commit")
+    .description("Write one structured git commit per manifest")
+    .option(
+      "--manifest <file>",
+      "path to a manifest JSON file ('-' reads stdin)",
+    )
+    .action(async (opts: { manifest?: string }) => {
+      if (!opts.manifest) {
+        throw new Error("required option '--manifest <file>' not specified");
+      }
+      const { root } = resolveRoot();
+      let text: string;
+      if (opts.manifest === "-") {
+        text = fs.readFileSync(0, "utf8");
+      } else {
+        text = fs.readFileSync(opts.manifest, "utf8");
+      }
+      const manifest = JSON.parse(text) as Manifest;
+      const sha = await commitManifest(root, manifest, new VaultGit(root));
+      console.log(sha);
     });
 
   // hook session-start|post-tool-use — read their payload on stdin, fail
