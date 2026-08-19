@@ -15,6 +15,8 @@
  */
 
 import { Command } from "commander";
+import fs from "node:fs";
+import { Page } from "./wikipage.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -22,6 +24,44 @@ function stub(command: Command, label: string): void {
     console.error(`enchiridion ${label}: not yet implemented`);
     process.exitCode = 1;
   });
+}
+
+function loadPage(file: string): Page {
+  return new Page(fs.readFileSync(file, "utf8"));
+}
+
+function writePageFile(file: string, page: Page): void {
+  fs.writeFileSync(file, page.text, { mode: 0o644 });
+}
+
+/**
+ * Render a frontmatter value as plain text — notably a list as `['a', 'b']`,
+ * the form callers of `page get` have always parsed.
+ */
+function formatFrontmatterValue(value: unknown): string {
+  if (!Array.isArray(value)) return formatScalar(value);
+  return "[" + value.map((v) => `'${formatScalar(v)}'`).join(", ") + "]";
+}
+
+function formatScalar(value: unknown): string {
+  if (typeof value === "boolean") return value ? "True" : "False";
+  return String(value);
+}
+
+/**
+ * Canonicalise a `source_date` value to YYYY-MM-DD, truncating a clock. A
+ * value that isn't a valid date at all is refused — the same rejection
+ * ingest's validation applies.
+ */
+function canonicalSourceDate(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!m) {
+    throw new Error(
+      `source_date must be a valid date (YYYY-MM-DD), got ${String(value)}`,
+    );
+  }
+  return m[1];
 }
 
 const FLAT_SUBCOMMANDS = [
@@ -69,13 +109,70 @@ export function buildProgram(): Command {
 
   // page get|set|merge <file> <key> ... — the frontmatter trio. Resolves no
   // vault root (CLAUDE.md).
-  const page = program.command("page").description("not yet implemented");
-  for (const action of ["get", "set", "merge"] as const) {
-    const sub = page
-      .command(`${action} [args...]`)
-      .description("not yet implemented");
-    stub(sub, `page ${action}`);
-  }
+  const page = program
+    .command("page")
+    .description("Read and edit one page's frontmatter");
+
+  page
+    .command("get")
+    .argument("<file>", "markdown file")
+    .argument("<key>", "frontmatter key")
+    .description("Print a frontmatter value")
+    .action((file: string, key: string) => {
+      const p = loadPage(file);
+      const { value, ok } = p.get(key);
+      if (!ok || value === null || value === undefined) {
+        console.error(`no frontmatter key "${key}" in ${file}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(formatFrontmatterValue(value));
+    });
+
+  page
+    .command("set")
+    .argument("<file>", "markdown file")
+    .argument("<key>", "frontmatter key")
+    .argument("<value>", "frontmatter value")
+    .option("--json", "parse value as JSON")
+    .description("Set a frontmatter value in place")
+    .action(
+      (file: string, key: string, raw: string, opts: { json?: boolean }) => {
+        const p = loadPage(file);
+        let value: unknown = raw;
+        if (opts.json) {
+          try {
+            value = JSON.parse(raw);
+          } catch {
+            throw new Error(`parsing ${key} as JSON: invalid JSON`);
+          }
+        }
+        if (key === "source_date") value = canonicalSourceDate(value);
+        const updated = p.set(key, value);
+        writePageFile(file, updated);
+      },
+    );
+
+  page
+    .command("merge")
+    .argument("<file>", "markdown file")
+    .argument("<key>", "frontmatter key")
+    .argument("<json-list>", "JSON list of values to union in")
+    .description("Union a JSON list into an existing list-valued key")
+    .action((file: string, key: string, raw: string) => {
+      const p = loadPage(file);
+      let values: unknown[];
+      try {
+        values = JSON.parse(raw);
+      } catch {
+        throw new Error(`merge expects a JSON list for ${key}`);
+      }
+      if (!Array.isArray(values)) {
+        throw new Error(`merge expects a JSON list for ${key}`);
+      }
+      const updated = p.merge(key, values);
+      writePageFile(file, updated);
+    });
 
   // hook session-start|post-tool-use — read their payload on stdin, fail
   // open (CLAUDE.md). Stub still exits non-zero for now; the real
