@@ -25,7 +25,23 @@ function run(args: string[]): {
   stdout: string;
   stderr: string;
 } {
-  const result = spawnSync(tsxBin, [cliPath, ...args], { encoding: "utf8" });
+  return runEnv(args, {});
+}
+
+/** Run the CLI with a custom cwd and/or extra env layered over the current. */
+function runEnv(
+  args: string[],
+  opts: { cwd?: string; env?: Record<string, string> } = {},
+): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+} {
+  const result = spawnSync(tsxBin, [cliPath, ...args], {
+    encoding: "utf8",
+    cwd: opts.cwd,
+    env: opts.env ? { ...process.env, ...opts.env } : undefined,
+  });
   return {
     status: result.status,
     stdout: result.stdout,
@@ -124,6 +140,124 @@ test("hook session-start: stub exits non-zero", () => {
   const { status, stderr } = run(["hook", "session-start"]);
   assert.notEqual(status, 0);
   assert.match(stderr, /not yet implemented/);
+});
+
+test("save-session: writes a raw capture and prints its vault-relative path", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
+  const vault = path.join(project, "vault");
+  fs.mkdirSync(vault, { recursive: true });
+  fs.writeFileSync(path.join(vault, ".wiki-root"), "");
+
+  const stateDir = path.join(project, ".claude", "wiki-knowledge", "sessions");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const sessionID = "abc123-deadbeef";
+  const transcript = path.join(project, `${sessionID}.jsonl`);
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      isMeta: false,
+      isSidechain: false,
+      message: { role: "user", content: "hello" },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      isMeta: false,
+      isSidechain: false,
+      message: { role: "assistant", content: "world" },
+    }),
+  ];
+  fs.writeFileSync(transcript, lines.join("\n"));
+  fs.writeFileSync(
+    path.join(stateDir, `${sessionID}.json`),
+    JSON.stringify({ transcript_path: transcript }),
+  );
+
+  // cwd must be inside `project` (which carries `.claude`) so the SessionStart
+  // hook's state is found; WIKI_ROOT points at the vault. OPENCODE_SESSION_ID is
+  // cleared so an inherited value can't divert this onto the OpenCode path.
+  const { status, stdout, stderr } = runEnv(
+    ["save-session", "--slug", "a session"],
+    {
+      cwd: project,
+      env: {
+        CLAUDE_CODE_SESSION_ID: sessionID,
+        OPENCODE_SESSION_ID: "",
+        WIKI_ROOT: vault,
+      },
+    },
+  );
+  assert.equal(status, 0, stderr);
+  const rel = stdout.trim();
+  assert.match(
+    rel,
+    /^raw\/conversations\/\d{4}-\d{2}-\d{2}-\d{4}-a-session-abc123\.md$/,
+  );
+  assert.ok(fs.existsSync(path.join(vault, ...rel.split("/"))));
+});
+
+test("save-session: errors and exits non-zero when no session id is set", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
+  const vault = path.join(project, "vault");
+  fs.mkdirSync(vault, { recursive: true });
+  fs.writeFileSync(path.join(vault, ".wiki-root"), "");
+
+  const { status, stderr } = runEnv(["save-session"], {
+    cwd: project,
+    env: {
+      WIKI_ROOT: vault,
+      // Explicitly clear any inherited session-id vars (the outer process may
+      // run inside a real session) so this exercises the no-id path.
+      CLAUDE_CODE_SESSION_ID: "",
+      OPENCODE_SESSION_ID: "",
+    },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /CLAUDE_CODE_SESSION_ID|OPENCODE_SESSION_ID/);
+});
+
+test("tool-call-stats: prints the summary for a session log", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-tcs-"));
+  const sessionID = "abc123-deadbeef";
+  const logDir = path.join(project, ".claude", "wiki-knowledge", "sessions");
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(logDir, `${sessionID}-tool-calls.jsonl`),
+    `${JSON.stringify({ tool: "Bash", prompt_id: "p1" })}\n` +
+      `${JSON.stringify({ tool: "Bash", prompt_id: "p1" })}\n` +
+      `${JSON.stringify({ tool: "Read", prompt_id: "p2" })}\n`,
+  );
+
+  const { status, stdout, stderr } = runEnv(
+    ["tool-call-stats", "--session-id", sessionID],
+    {
+      cwd: project,
+    },
+  );
+  assert.equal(status, 0, stderr);
+  assert.match(stdout, /Total tool calls: 3/);
+  assert.match(stdout, /Bash/);
+  assert.match(stdout, /Read/);
+  assert.match(stdout, /1\.5 calls\/prompt/);
+});
+
+test("tool-call-stats: errors when no session id is set", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-tcs-"));
+  const { status, stderr } = runEnv(["tool-call-stats"], {
+    cwd: project,
+    env: { CLAUDE_CODE_SESSION_ID: "" },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /no session_id/);
+});
+
+test("tool-call-stats: errors when no log exists for the session", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-tcs-"));
+  const { status, stderr } = runEnv(
+    ["tool-call-stats", "--session-id", "nope-none"],
+    { cwd: project },
+  );
+  assert.notEqual(status, 0);
+  assert.match(stderr, /no log found/);
 });
 
 test("unknown command: commander itself errors non-zero", () => {

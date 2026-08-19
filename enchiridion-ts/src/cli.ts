@@ -16,7 +16,10 @@
 
 import { Command } from "commander";
 import fs from "node:fs";
+import path from "node:path";
 import { Page } from "./wikipage.js";
+import { captureSession } from "./transcriptcapture.js";
+import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -71,12 +74,39 @@ const FLAT_SUBCOMMANDS = [
   "discover",
   "ingest-scan",
   "watch",
-  "save-session",
-  "tool-call-stats",
   "commit",
   "superseded-by",
   "place",
 ] as const;
+
+// Vault markers, matching enchiridion-go/internal/vault (ADR-0004): a `wiki/`
+// directory or a `.wiki-root` sentinel file makes a directory a vault root.
+const VAULT_MARKERS = ["wiki", ".wiki-root"] as const;
+
+/**
+ * Minimal vault-root resolution for `save-session`, matching ADR-0004's
+ * order: `$WIKI_ROOT` (wins always) -> the nearest ancestor of cwd carrying a
+ * vault marker -> cwd.
+ *
+ * TODO(#259): replaced by the real `vault.ResolveRoot` when the vault module
+ * lands.
+ */
+function resolveRoot(): string {
+  const wikiRoot = process.env.WIKI_ROOT;
+  if (wikiRoot !== undefined && wikiRoot !== "") return wikiRoot;
+
+  const start = process.cwd();
+  let dir = start;
+  for (;;) {
+    if (VAULT_MARKERS.some((m) => fs.existsSync(path.join(dir, m)))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return start;
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -94,6 +124,52 @@ export function buildProgram(): Command {
       .description("not yet implemented");
     stub(sub, name);
   }
+
+  // save-session — find, render, and write this session's transcript,
+  // printing the vault-relative path of the raw file written (parity with
+  // enchiridion-go/internal/cli/savesession.go).
+  program
+    .command("save-session")
+    .description("Save this session's transcript as a raw file in the vault")
+    .option(
+      "--slug <phrase>",
+      "phrase naming what this session covered; sanitized, first-save only",
+    )
+    .action(async (opts: { slug?: string }) => {
+      const root = resolveRoot();
+      const rel = await captureSession(
+        root,
+        opts.slug ?? "",
+        "",
+        undefined,
+        new Date(),
+      );
+      console.log(rel);
+    });
+
+  // tool-call-stats — summarise the tool-call log for one session (parity
+  // with enchiridion-go/internal/cli/toolcallstats.go).
+  program
+    .command("tool-call-stats")
+    .description("Summarise a session's tool-call log")
+    .option(
+      "--session-id <id>",
+      "session to summarise (default: $CLAUDE_CODE_SESSION_ID)",
+    )
+    .action((opts: { sessionId?: string }) => {
+      let id = opts.sessionId ?? "";
+      if (id === "") id = process.env.CLAUDE_CODE_SESSION_ID ?? "";
+      if (id === "") {
+        throw new Error(
+          "no session_id — pass --session-id or set $CLAUDE_CODE_SESSION_ID",
+        );
+      }
+      const events = readLog(id, "");
+      if (events.length === 0) {
+        throw new Error(`no log found at ${logPath(id, "")}`);
+      }
+      console.log(formatSummary(summarize(events)));
+    });
 
   // vault — bare or `vault root` prints the resolved root; `vault move
   // <old_ref> <new_ref>` moves a page and fixes every link. The one
