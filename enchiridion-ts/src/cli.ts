@@ -16,11 +16,11 @@
 
 import { Command } from "commander";
 import fs from "node:fs";
-import path from "node:path";
 import { Page } from "./wikipage.js";
 import { captureSession } from "./transcriptcapture.js";
 import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
 import { Kinds, path as placePath } from "./place.js";
+import { Vault, resolveRoot } from "./vault.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -79,35 +79,6 @@ const FLAT_SUBCOMMANDS = [
   "superseded-by",
 ] as const;
 
-// Vault markers, matching enchiridion-go/internal/vault (ADR-0004): a `wiki/`
-// directory or a `.wiki-root` sentinel file makes a directory a vault root.
-const VAULT_MARKERS = ["wiki", ".wiki-root"] as const;
-
-/**
- * Minimal vault-root resolution for `save-session`, matching ADR-0004's
- * order: `$WIKI_ROOT` (wins always) -> the nearest ancestor of cwd carrying a
- * vault marker -> cwd.
- *
- * TODO(#259): replaced by the real `vault.ResolveRoot` when the vault module
- * lands.
- */
-function resolveRoot(): string {
-  const wikiRoot = process.env.WIKI_ROOT;
-  if (wikiRoot !== undefined && wikiRoot !== "") return wikiRoot;
-
-  const start = process.cwd();
-  let dir = start;
-  for (;;) {
-    if (VAULT_MARKERS.some((m) => fs.existsSync(path.join(dir, m)))) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return start;
-}
-
 export function buildProgram(): Command {
   const program = new Command();
   program
@@ -150,7 +121,7 @@ export function buildProgram(): Command {
       "phrase naming what this session covered; sanitized, first-save only",
     )
     .action(async (opts: { slug?: string }) => {
-      const root = resolveRoot();
+      const { root } = resolveRoot();
       const rel = await captureSession(
         root,
         opts.slug ?? "",
@@ -187,15 +158,38 @@ export function buildProgram(): Command {
 
   // vault — bare or `vault root` prints the resolved root; `vault move
   // <old_ref> <new_ref>` moves a page and fixes every link. The one
-  // subcommand that resolves a vault root (CLAUDE.md).
-  const vault = program.command("vault").description("not yet implemented");
-  stub(vault, "vault");
-  const vaultRoot = vault.command("root").description("not yet implemented");
-  stub(vaultRoot, "vault root");
-  const vaultMove = vault
-    .command("move [args...]")
-    .description("not yet implemented");
-  stub(vaultMove, "vault move");
+  // subcommand that resolves a vault root (CLAUDE.md). The parent's action
+  // runs for bare `vault`, and is inherited by `vault root` and `vault move`
+  // (commander runs a parent's action when a subcommand has no handler of its
+  // own; the subcommand's own args are parsed before it).
+  const vault = program
+    .command("vault")
+    .description(
+      "Resolve the vault root, or move a page within it (moves need exactly two page refs)",
+    )
+    .action(() => {
+      const { root } = resolveRoot();
+      console.log(root);
+    });
+  vault
+    .command("root")
+    .description("Print the resolved vault root (the no-argument default)")
+    .action(() => {
+      const { root } = resolveRoot();
+      console.log(root);
+    });
+  vault
+    .command("move")
+    .description(
+      "Move a page within the vault and fix every link, inbound and outbound",
+    )
+    .argument("<old_ref>", "vault-relative path of the page to move")
+    .argument("<new_ref>", "vault-relative destination path")
+    .action((oldRef: string, newRef: string) => {
+      const { root } = resolveRoot();
+      const changed = new Vault(root).movePage(oldRef, newRef);
+      for (const pageRef of changed) console.log(pageRef);
+    });
 
   // page get|set|merge <file> <key> ... — the frontmatter trio. Resolves no
   // vault root (CLAUDE.md).

@@ -99,22 +99,94 @@ test("place: errors on wrong argument count", () => {
   assert.notEqual(status, 0);
 });
 
-test("vault (bare): stub exits non-zero", () => {
-  const { status, stderr } = run(["vault"]);
-  assert.notEqual(status, 0);
-  assert.match(stderr, /not yet implemented/);
+test("vault (bare): prints the resolved root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-vault-"));
+  fs.mkdirSync(path.join(root, "wiki"));
+  const { status, stdout, stderr } = runEnv(["vault"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), fs.realpathSync(root));
 });
 
-test("vault root: stub exits non-zero", () => {
-  const { status, stderr } = run(["vault", "root"]);
-  assert.notEqual(status, 0);
-  assert.match(stderr, /not yet implemented/);
+test("vault root: prints the resolved root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-vault-"));
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  const { status, stdout, stderr } = runEnv(["vault", "root"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), fs.realpathSync(root));
 });
 
-test("vault move: stub exits non-zero", () => {
-  const { status, stderr } = run(["vault", "move", "old.md", "new.md"]);
+test("vault move: moves a page and fixes inbound links", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-vault-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.mkdirSync(path.join(root, "wiki", "entities"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "See [B](b.md).\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "b.md"),
+    "Back to [A](a.md).\n",
+  );
+  const { status, stdout, stderr } = runEnv(
+    ["vault", "move", "wiki/concepts/b.md", "wiki/entities/b.md"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  // The moved page is newly written and the referencing page changed — both
+  // are reported, sorted (matches MovePage's changed set).
+  assert.equal(stdout.trim(), "wiki/concepts/a.md\nwiki/entities/b.md");
+  assert.equal(
+    fs.existsSync(path.join(root, "wiki", "concepts", "b.md")),
+    false,
+  );
+  assert.ok(
+    fs
+      .readFileSync(path.join(root, "wiki", "concepts", "a.md"), "utf8")
+      .includes("../entities/b.md"),
+  );
+});
+
+test("vault move: wrong argument count errors non-zero", () => {
+  const { status } = run(["vault", "move", "only-one-arg"]);
   assert.notEqual(status, 0);
-  assert.match(stderr, /not yet implemented/);
+});
+
+test("vault move: missing source errors non-zero", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-vault-"));
+  fs.mkdirSync(path.join(root, "wiki"));
+  const { status } = runEnv(
+    ["vault", "move", "wiki/concepts/missing.md", "wiki/entities/missing.md"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.notEqual(status, 0);
+});
+
+test("vault move resolves the vault root; place resolves none (boundary)", () => {
+  // `place` is pure path computation: it must succeed from a directory with
+  // no vault marker and no WIKI_ROOT, resolving no vault root at all.
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-vault-"));
+  const place = runEnv(["place", "concept", "A Thing"], {
+    cwd: plain,
+    env: { WIKI_ROOT: "" },
+  });
+  assert.equal(place.status, 0, place.stderr);
+  assert.equal(place.stdout.trim(), "wiki/concepts/a-thing.md");
+
+  // A `vault` subcommand with no marker anywhere above cwd and no WIKI_ROOT
+  // falls back to cwd as the root (ADR-0004 step 3) — so `vault root` prints
+  // the cwd itself, not a path computed in isolation.
+  const vault = runEnv(["vault", "root"], {
+    cwd: plain,
+    env: { WIKI_ROOT: "" },
+  });
+  assert.equal(vault.status, 0, vault.stderr);
+  assert.equal(vault.stdout.trim(), fs.realpathSync(plain));
 });
 
 test("page get: prints the frontmatter value", () => {
