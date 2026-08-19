@@ -1,0 +1,15 @@
+{
+  "name": "sqlite-bun-spike",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npx esbuild spike.ts --bundle --platform=node --format=cjs --outfile=spike-bundle.js && cp node_modules/node-sqlite3-wasm/dist/node-sqlite3-wasm.wasm .",
+    "run": "node spike-bundle.js"
+  },
+  "dependencies": {
+    "node-sqlite3-wasm": "^0.8.60"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
