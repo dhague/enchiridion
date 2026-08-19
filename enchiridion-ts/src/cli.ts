@@ -20,6 +20,7 @@ import path from "node:path";
 import { Page } from "./wikipage.js";
 import { captureSession } from "./transcriptcapture.js";
 import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
+import { Kinds, path as placePath } from "./place.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -76,7 +77,6 @@ const FLAT_SUBCOMMANDS = [
   "watch",
   "commit",
   "superseded-by",
-  "place",
 ] as const;
 
 // Vault markers, matching enchiridion-go/internal/vault (ADR-0004): a `wiki/`
@@ -124,6 +124,20 @@ export function buildProgram(): Command {
       .description("not yet implemented");
     stub(sub, name);
   }
+
+  // place <kind> <title> — compute a new page's vault-relative path from its
+  // kind and title. Resolves no vault root and reads nothing from disk: only
+  // the four canonical kinds are accepted, never a vault's discovered custom
+  // kind-folders. placePath rejects anything else.
+  program
+    .command("place <kind> <title>")
+    .description(
+      `Compute a new page's vault-relative path from its kind and title; kind is one of: ${Kinds.join(", ")}`,
+    )
+    .action((kind: string, title: string) => {
+      const rel = placePath(kind, title, undefined);
+      console.log(rel);
+    });
 
   // save-session — find, render, and write this session's transcript,
   // printing the vault-relative path of the raw file written (parity with

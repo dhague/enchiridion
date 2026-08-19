@@ -78,6 +78,27 @@ for (const name of ["search", "init", "ingest", "discover", "watch"]) {
   });
 }
 
+test("place: prints the vault-relative path from kind and title", () => {
+  const { status, stdout, stderr } = run([
+    "place",
+    "concept",
+    "Connection Pooling",
+  ]);
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), "wiki/concepts/connection-pooling.md");
+});
+
+test("place: errors non-zero on an unknown kind", () => {
+  const { status, stderr } = run(["place", "nonsense", "X"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /unknown kind "nonsense"/);
+});
+
+test("place: errors on wrong argument count", () => {
+  const { status } = run(["place", "concept"]);
+  assert.notEqual(status, 0);
+});
+
 test("vault (bare): stub exits non-zero", () => {
   const { status, stderr } = run(["vault"]);
   assert.notEqual(status, 0);
@@ -263,4 +284,16 @@ test("tool-call-stats: errors when no log exists for the session", () => {
 test("unknown command: commander itself errors non-zero", () => {
   const { status } = run(["totally-bogus-command"]);
   assert.notEqual(status, 0);
+});
+
+test("place: prints the vault-relative path for a valid kind and title", () => {
+  const { status, stdout } = run(["place", "concept", "Connection Pooling"]);
+  assert.equal(status, 0);
+  assert.equal(stdout.trim(), "wiki/concepts/connection-pooling.md");
+});
+
+test("place: unknown kind errors non-zero", () => {
+  const { status, stderr } = run(["place", "nonsense", "X"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /unknown kind/);
 });
