@@ -3,43 +3,24 @@
 #
 #   "${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "<terms>" --json
 #
-# Resolves the platform binary — lazy-fetching it on first use via
-# bootstrap/install.sh (docs/adr/0013) — and execs it with every argument
-# passed through untouched. The plugin's own version, read from
-# .claude-plugin/plugin.json, selects the release to fetch, so a plugin
-# upgrade pulls the matching binary without anything else being edited.
+# A thin shim over the TypeScript port's esbuild bundle (ADR-0017,
+# issue #254). Execs `node` against the bundle built from enchiridion-ts/,
+# forwarding every argument untouched. This retires ADR-0013's lazy-fetch
+# bootstrap: there is no download, no per-platform binary, and no PATH-
+# preference check to make — `node` itself is the already-installed,
+# already-trusted interpreter this rewrite exists to run inside of.
 #
-# Two escape hatches, both for development against an unreleased binary:
+# One escape hatch, for development against unbundled source or an
+# alternate runtime:
 #
-#   ENCHIRIDION_BIN      absolute path to a binary to use as-is; nothing is
-#                        downloaded. Set this to `go build`'s output when
-#                        working on enchiridion-go.
-#   ENCHIRIDION_VERSION  release version to fetch, overriding plugin.json.
+#   ENCHIRIDION_BIN   an executable to run as-is instead of `node <bundle>`;
+#                     nothing else in this script runs. Point it at a
+#                     `tsx`/`ts-node` invocation of enchiridion-ts/src/cli.ts
+#                     to iterate without rebuilding, or at `bun` to exercise
+#                     the OpenCode runtime locally.
 #
-# And one for callers that must not pay for a download:
-#
-#   ENCHIRIDION_NO_FETCH set to anything to use the cached binary if there is
-#                        one and fail immediately if there isn't, instead of
-#                        fetching. The PostToolUse hook sets it — it fires on
-#                        every tool call, so it must never retry a failing
-#                        download hundreds of times a session.
-#
-# Before falling back to the lazy-fetch bootstrap, prefer an already
-# PATH-installed binary (docs/adr/0014 — brew/choco distribution as an
-# optional accelerator over the fetch, never a signing substitute): if
-# `enchiridion` resolves on PATH to something other than this script itself,
-# its `version` output must match plugin.json's version exactly, or this
-# halts rather than silently fetching a second, divergent binary — the halt
-# is harmless in hooks (hooks.json already appends `|| exit 0`) and gives
-# skills the one corrective command to surface. Skipped entirely when
-# ENCHIRIDION_VERSION is set: that escape hatch means "fetch this exact
-# unreleased version," which an unrelated PATH binary can't satisfy either
-# way, so it takes precedence over PATH-preference rather than being checked
-# against it.
-#
-# Deliberately POSIX sh for the same reason the bootstrap is: it must not
-# depend on Python (the dependency this rewrite exists to remove) or on
-# anything less universal than /bin/sh.
+# Deliberately POSIX sh (no Python, no Node-only shebang trick) so the shim
+# itself never depends on the interpreter it is about to exec.
 
 set -eu
 
@@ -49,55 +30,10 @@ if [ -n "${ENCHIRIDION_BIN:-}" ]; then
     exec "$ENCHIRIDION_BIN" "$@"
 fi
 
-manifest="$plugin_root/.claude-plugin/plugin.json"
+# enchiridion-ts/ is a sibling of wiki-plugin/ in this monorepo; packaging
+# the bundle inside a distributed plugin directory (ADR-0017's "ships
+# inside the plugin directory") is a later distribution ticket, not yet
+# wired up here.
+bundle="$plugin_root/../enchiridion-ts/dist/cli.js"
 
-read_plugin_version() {
-    [ -f "$manifest" ] || {
-        echo "enchiridion: $manifest not found — cannot determine which release to fetch" >&2
-        exit 1
-    }
-    # One `"version": "X.Y.Z"` line, no JSON parser required.
-    v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
-    [ -n "$v" ] || {
-        echo "enchiridion: no \"version\" in $manifest" >&2
-        exit 1
-    }
-    echo "$v"
-}
-
-# Both sides may or may not carry a "v" prefix depending on how the binary
-# was built/tagged — normalize before comparing.
-strip_v() {
-    echo "${1#v}"
-}
-
-version=${ENCHIRIDION_VERSION:-}
-
-if [ -z "$version" ]; then
-    # -P so a symlinked bin/ directory (a plausible plugin-install layout)
-    # resolves to the same physical path either side of the comparison,
-    # instead of a false negative sending this into a self-exec loop.
-    self=$(unset CDPATH; cd -P -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
-
-    if path_bin=$(command -v enchiridion 2>/dev/null) && [ -n "$path_bin" ]; then
-        path_bin_resolved=$(unset CDPATH; cd -P -- "$(dirname -- "$path_bin")" && pwd)/$(basename -- "$path_bin")
-        if [ "$path_bin_resolved" != "$self" ]; then
-            path_version=$("$path_bin" version 2>/dev/null) || path_version=""
-            if [ -n "$path_version" ]; then
-                plugin_version=$(read_plugin_version)
-                path_version_norm=$(strip_v "$path_version")
-                plugin_version_norm=$(strip_v "$plugin_version")
-                if [ "$path_version_norm" = "$plugin_version_norm" ]; then
-                    exec "$path_bin" "$@"
-                fi
-                echo "enchiridion $path_version_norm is behind plugin $plugin_version_norm; run: brew upgrade enchiridion" >&2
-                exit 1
-            fi
-        fi
-    fi
-
-    version=$(read_plugin_version)
-fi
-
-binary=$("$plugin_root/bootstrap/install.sh" "$plugin_root" "$version")
-exec "$binary" "$@"
+exec node "$bundle" "$@"

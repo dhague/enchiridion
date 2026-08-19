@@ -45,14 +45,12 @@ jobs:
         working-directory: enchiridion-go
         run: go test ./...
 
-      - name: Lint the plugin's shell entrypoints
-        run: shellcheck -s sh wiki-plugin/bootstrap/install.sh wiki-plugin/bin/enchiridion
-
-      - name: Test the plugin's shell entrypoints
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats
-          bats wiki-plugin/tests/bin_enchiridion.bats
+      - name: Lint the Go release bootstrap script
+        # wiki-plugin/bin/enchiridion is now a thin node shim (ADR-0017,
+        # #254) and is linted/tested in ts-enchiridion.yml instead. Only
+        # the ADR-0013 bootstrap this workflow's release job still depends
+        # on stays here.
+        run: shellcheck -s sh wiki-plugin/bootstrap/install.sh
 
   goreleaser-check:
     name: Validate release pipeline (snapshot build, all 6 targets)

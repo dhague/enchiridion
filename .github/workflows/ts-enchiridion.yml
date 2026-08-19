@@ -1,0 +1,88 @@
+name: ts-enchiridion
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [node, bun]
+    defaults:
+      run:
+        working-directory: enchiridion-ts
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      # Always set up Node.js: npm ci and the esbuild step run under Node
+      # regardless of which runtime this matrix leg is testing against.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Set up Bun
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Build (esbuild bundle + wasm sidecar)
+        run: npm run build
+
+      - name: Test (Node.js)
+        if: matrix.runtime == 'node'
+        run: npm test
+
+      - name: Test (Bun)
+        if: matrix.runtime == 'bun'
+        run: npm run test:bun
+
+      - name: Smoke test the bundle prints usage and exits 0 (Node.js)
+        if: matrix.runtime == 'node'
+        run: node dist/cli.js
+
+      - name: Smoke test the bundle prints usage and exits 0 (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun dist/cli.js
+
+  shim:
+    name: Lint and test wiki-plugin/bin/enchiridion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck and bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Lint the shim
+        run: shellcheck -s sh wiki-plugin/bin/enchiridion
+
+      - name: Test the shim
+        run: bats wiki-plugin/tests/bin_enchiridion.bats

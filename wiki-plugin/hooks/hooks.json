@@ -1,5 +1,5 @@
 {
-  "description": "Records this session's transcript_path at start so /save-conversation can find it reliably (#23), and logs every tool call so `enchiridion tool-call-stats` can report the cost of a run (#100). Both fail open (#153): `|| exit 0` keeps a failed binary bootstrap — or any other error — from interrupting the session, at the cost of that hook's side effect for this run. PostToolUse additionally sets ENCHIRIDION_NO_FETCH, since it fires on every tool call and must never re-attempt a failing download hundreds of times a session; SessionStart is the one that warms the cache. That env prefix is POSIX-only, so on a cmd.exe host PostToolUse (cost telemetry) degrades while SessionStart (which /save-conversation depends on) still resolves bin/enchiridion.cmd via PATHEXT.",
+  "description": "Records this session's transcript_path at start so /save-conversation can find it reliably (#23), and logs every tool call so `enchiridion tool-call-stats` can report the cost of a run (#100). Both fail open (#153): `|| exit 0` keeps a hook handler error — or, pre-#254, a failed binary bootstrap — from interrupting the session, at the cost of that hook's side effect for this run. Since #254, bin/enchiridion is a thin `exec node <bundle>` shim with no fetch step, so there is no retry-storm risk left for PostToolUse (firing on every tool call) to guard against; it no longer sets ENCHIRIDION_NO_FETCH, which is now meaningless to the shim.",
   "hooks": {
     "SessionStart": [
       {
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ENCHIRIDION_NO_FETCH=1 \"${CLAUDE_PLUGIN_ROOT}/bin/enchiridion\" hook post-tool-use || exit 0"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/enchiridion\" hook post-tool-use || exit 0"
           }
         ]
       }
