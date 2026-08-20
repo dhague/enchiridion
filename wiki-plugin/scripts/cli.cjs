@@ -11395,16 +11395,16 @@ var require_deflate = __commonJS({
       return s.pending !== 0 ? Z_OK : Z_STREAM_END;
     }
     function deflateEnd(strm) {
-      var status2;
+      var status;
       if (!strm || !strm.state) {
         return Z_STREAM_ERROR;
       }
-      status2 = strm.state.status;
-      if (status2 !== INIT_STATE && status2 !== EXTRA_STATE && status2 !== NAME_STATE && status2 !== COMMENT_STATE && status2 !== HCRC_STATE && status2 !== BUSY_STATE && status2 !== FINISH_STATE) {
+      status = strm.state.status;
+      if (status !== INIT_STATE && status !== EXTRA_STATE && status !== NAME_STATE && status !== COMMENT_STATE && status !== HCRC_STATE && status !== BUSY_STATE && status !== FINISH_STATE) {
         return err(strm, Z_STREAM_ERROR);
       }
       strm.state = null;
-      return status2 === BUSY_STATE ? err(strm, Z_DATA_ERROR) : Z_OK;
+      return status === BUSY_STATE ? err(strm, Z_DATA_ERROR) : Z_OK;
     }
     function deflateSetDictionary(strm, dictionary) {
       var dictLength = dictionary.length;
@@ -11688,7 +11688,7 @@ var require_deflate2 = __commonJS({
       this.chunks = [];
       this.strm = new ZStream();
       this.strm.avail_out = 0;
-      var status2 = zlib_deflate.deflateInit2(
+      var status = zlib_deflate.deflateInit2(
         this.strm,
         opt.level,
         opt.method,
@@ -11696,8 +11696,8 @@ var require_deflate2 = __commonJS({
         opt.memLevel,
         opt.strategy
       );
-      if (status2 !== Z_OK) {
-        throw new Error(msg[status2]);
+      if (status !== Z_OK) {
+        throw new Error(msg[status]);
       }
       if (opt.header) {
         zlib_deflate.deflateSetHeader(this.strm, opt.header);
@@ -11711,9 +11711,9 @@ var require_deflate2 = __commonJS({
         } else {
           dict = opt.dictionary;
         }
-        status2 = zlib_deflate.deflateSetDictionary(this.strm, dict);
-        if (status2 !== Z_OK) {
-          throw new Error(msg[status2]);
+        status = zlib_deflate.deflateSetDictionary(this.strm, dict);
+        if (status !== Z_OK) {
+          throw new Error(msg[status]);
         }
         this._dict_set = true;
       }
@@ -11721,7 +11721,7 @@ var require_deflate2 = __commonJS({
     Deflate.prototype.push = function(data, mode) {
       var strm = this.strm;
       var chunkSize = this.options.chunkSize;
-      var status2, _mode;
+      var status, _mode;
       if (this.ended) {
         return false;
       }
@@ -11741,9 +11741,9 @@ var require_deflate2 = __commonJS({
           strm.next_out = 0;
           strm.avail_out = chunkSize;
         }
-        status2 = zlib_deflate.deflate(strm, _mode);
-        if (status2 !== Z_STREAM_END && status2 !== Z_OK) {
-          this.onEnd(status2);
+        status = zlib_deflate.deflate(strm, _mode);
+        if (status !== Z_STREAM_END && status !== Z_OK) {
+          this.onEnd(status);
           this.ended = true;
           return false;
         }
@@ -11754,12 +11754,12 @@ var require_deflate2 = __commonJS({
             this.onData(utils.shrinkBuf(strm.output, strm.next_out));
           }
         }
-      } while ((strm.avail_in > 0 || strm.avail_out === 0) && status2 !== Z_STREAM_END);
+      } while ((strm.avail_in > 0 || strm.avail_out === 0) && status !== Z_STREAM_END);
       if (_mode === Z_FINISH) {
-        status2 = zlib_deflate.deflateEnd(this.strm);
-        this.onEnd(status2);
+        status = zlib_deflate.deflateEnd(this.strm);
+        this.onEnd(status);
         this.ended = true;
-        return status2 === Z_OK;
+        return status === Z_OK;
       }
       if (_mode === Z_SYNC_FLUSH) {
         this.onEnd(Z_OK);
@@ -11771,8 +11771,8 @@ var require_deflate2 = __commonJS({
     Deflate.prototype.onData = function(chunk) {
       this.chunks.push(chunk);
     };
-    Deflate.prototype.onEnd = function(status2) {
-      if (status2 === Z_OK) {
+    Deflate.prototype.onEnd = function(status) {
+      if (status === Z_OK) {
         if (this.options.to === "string") {
           this.result = this.chunks.join("");
         } else {
@@ -11780,7 +11780,7 @@ var require_deflate2 = __commonJS({
         }
       }
       this.chunks = [];
-      this.err = status2;
+      this.err = status;
       this.msg = this.strm.msg;
     };
     function deflate(input, options) {
@@ -13699,12 +13699,12 @@ var require_inflate2 = __commonJS({
       this.chunks = [];
       this.strm = new ZStream();
       this.strm.avail_out = 0;
-      var status2 = zlib_inflate.inflateInit2(
+      var status = zlib_inflate.inflateInit2(
         this.strm,
         opt.windowBits
       );
-      if (status2 !== c.Z_OK) {
-        throw new Error(msg[status2]);
+      if (status !== c.Z_OK) {
+        throw new Error(msg[status]);
       }
       this.header = new GZheader();
       zlib_inflate.inflateGetHeader(this.strm, this.header);
@@ -13715,9 +13715,9 @@ var require_inflate2 = __commonJS({
           opt.dictionary = new Uint8Array(opt.dictionary);
         }
         if (opt.raw) {
-          status2 = zlib_inflate.inflateSetDictionary(this.strm, opt.dictionary);
-          if (status2 !== c.Z_OK) {
-            throw new Error(msg[status2]);
+          status = zlib_inflate.inflateSetDictionary(this.strm, opt.dictionary);
+          if (status !== c.Z_OK) {
+            throw new Error(msg[status]);
           }
         }
       }
@@ -13726,7 +13726,7 @@ var require_inflate2 = __commonJS({
       var strm = this.strm;
       var chunkSize = this.options.chunkSize;
       var dictionary = this.options.dictionary;
-      var status2, _mode;
+      var status, _mode;
       var next_out_utf8, tail, utf8str;
       var allowBufError = false;
       if (this.ended) {
@@ -13748,21 +13748,21 @@ var require_inflate2 = __commonJS({
           strm.next_out = 0;
           strm.avail_out = chunkSize;
         }
-        status2 = zlib_inflate.inflate(strm, c.Z_NO_FLUSH);
-        if (status2 === c.Z_NEED_DICT && dictionary) {
-          status2 = zlib_inflate.inflateSetDictionary(this.strm, dictionary);
+        status = zlib_inflate.inflate(strm, c.Z_NO_FLUSH);
+        if (status === c.Z_NEED_DICT && dictionary) {
+          status = zlib_inflate.inflateSetDictionary(this.strm, dictionary);
         }
-        if (status2 === c.Z_BUF_ERROR && allowBufError === true) {
-          status2 = c.Z_OK;
+        if (status === c.Z_BUF_ERROR && allowBufError === true) {
+          status = c.Z_OK;
           allowBufError = false;
         }
-        if (status2 !== c.Z_STREAM_END && status2 !== c.Z_OK) {
-          this.onEnd(status2);
+        if (status !== c.Z_STREAM_END && status !== c.Z_OK) {
+          this.onEnd(status);
           this.ended = true;
           return false;
         }
         if (strm.next_out) {
-          if (strm.avail_out === 0 || status2 === c.Z_STREAM_END || strm.avail_in === 0 && (_mode === c.Z_FINISH || _mode === c.Z_SYNC_FLUSH)) {
+          if (strm.avail_out === 0 || status === c.Z_STREAM_END || strm.avail_in === 0 && (_mode === c.Z_FINISH || _mode === c.Z_SYNC_FLUSH)) {
             if (this.options.to === "string") {
               next_out_utf8 = strings.utf8border(strm.output, strm.next_out);
               tail = strm.next_out - next_out_utf8;
@@ -13781,15 +13781,15 @@ var require_inflate2 = __commonJS({
         if (strm.avail_in === 0 && strm.avail_out === 0) {
           allowBufError = true;
         }
-      } while ((strm.avail_in > 0 || strm.avail_out === 0) && status2 !== c.Z_STREAM_END);
-      if (status2 === c.Z_STREAM_END) {
+      } while ((strm.avail_in > 0 || strm.avail_out === 0) && status !== c.Z_STREAM_END);
+      if (status === c.Z_STREAM_END) {
         _mode = c.Z_FINISH;
       }
       if (_mode === c.Z_FINISH) {
-        status2 = zlib_inflate.inflateEnd(this.strm);
-        this.onEnd(status2);
+        status = zlib_inflate.inflateEnd(this.strm);
+        this.onEnd(status);
         this.ended = true;
-        return status2 === c.Z_OK;
+        return status === c.Z_OK;
       }
       if (_mode === c.Z_SYNC_FLUSH) {
         this.onEnd(c.Z_OK);
@@ -13801,8 +13801,8 @@ var require_inflate2 = __commonJS({
     Inflate.prototype.onData = function(chunk) {
       this.chunks.push(chunk);
     };
-    Inflate.prototype.onEnd = function(status2) {
-      if (status2 === c.Z_OK) {
+    Inflate.prototype.onEnd = function(status) {
+      if (status === c.Z_OK) {
         if (this.options.to === "string") {
           this.result = this.chunks.join("");
         } else {
@@ -13810,7 +13810,7 @@ var require_inflate2 = __commonJS({
         }
       }
       this.chunks = [];
-      this.err = status2;
+      this.err = status;
       this.msg = this.strm.msg;
     };
     function inflate(input, options) {
@@ -21798,9 +21798,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             }
             unshallows.push(oid);
           } else if (line.startsWith("ACK")) {
-            const [, oid, status3] = line.split(" ");
-            acks.push({ oid, status: status3 });
-            if (!status3) done = true;
+            const [, oid, status2] = line.split(" ");
+            acks.push({ oid, status: status2 });
+            if (!status2) done = true;
           } else if (line.startsWith("NAK")) {
             nak = true;
             done = true;
@@ -24266,14 +24266,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       result.refs = {};
       for (const line2 of lines) {
         if (line2.trim() === "") continue;
-        const status3 = line2.slice(0, 2);
+        const status2 = line2.slice(0, 2);
         const refAndMessage = line2.slice(3);
         let space = refAndMessage.indexOf(" ");
         if (space === -1) space = refAndMessage.length;
         const ref = refAndMessage.slice(0, space);
         const error = refAndMessage.slice(space + 1);
         result.refs[ref] = {
-          ok: status3 === "ok",
+          ok: status2 === "ok",
           error
         };
       }
@@ -25567,7 +25567,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function status2({
+    async function status({
       fs: _fs,
       dir,
       gitdir = join3(dir, ".git"),
@@ -26185,7 +26185,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       resetIndex,
       updateIndex: updateIndex$1,
       resolveRef: resolveRef2,
-      status: status2,
+      status,
       statusMatrix,
       tag,
       version,
@@ -26258,7 +26258,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     exports2.resolveRef = resolveRef2;
     exports2.setConfig = setConfig;
     exports2.stash = stash;
-    exports2.status = status2;
+    exports2.status = status;
     exports2.statusMatrix = statusMatrix;
     exports2.tag = tag;
     exports2.updateIndex = updateIndex$1;
@@ -26300,6 +26300,9 @@ function coveredByPaths(file, paths) {
 }
 function formatDate(timestampSeconds) {
   return new Date(timestampSeconds * 1e3).toISOString().slice(0, 10);
+}
+function normalizeEol(s) {
+  return s.replace(/\r\n/g, "\n");
 }
 function fallbackUser() {
   try {
@@ -26497,11 +26500,50 @@ var init_vaultgit = __esm({
        * `git status --porcelain -- rel` signal. Untracked counts: a brand-new
        * file isn't in git's index at all, and finding it is the point.
        * Lenient: false when root isn't a work tree or the status can't be read.
+       *
+       * The working-tree-vs-blob content comparison is done here, not via
+       * isomorphic-git's `status`: it doesn't apply `core.autocrlf` reliably (its
+       * normalisation only reads the *local* config and compares the value to the
+       * literal string `"true"`), so a clean CRLF checkout of an LF blob — the
+       * norm under `core.autocrlf=true` on Windows — reports `*modified`. We read
+       * the blob and the working-tree file ourselves and compare them
+       * line-ending-insensitively, so a CRLF/LF-only difference is not a false
+       * "modified".
        */
       async porcelainMentions(rel) {
         try {
-          const status2 = await git.status({ fs: import_node_fs6.default, dir: this.root, filepath: rel });
-          return status2 !== "unmodified" && status2 !== "absent";
+          const diskPath = import_node_path8.default.join(this.root, rel);
+          let work = null;
+          try {
+            work = await import_node_fs6.default.promises.readFile(diskPath);
+          } catch {
+            work = null;
+          }
+          const onDisk = work !== null;
+          let headBlob = null;
+          try {
+            const headOid = await git.resolveRef({
+              fs: import_node_fs6.default,
+              dir: this.root,
+              ref: "HEAD"
+            });
+            const oid = await resolveFilePath(this.root, headOid, rel);
+            const { blob } = await git.readBlob({ fs: import_node_fs6.default, dir: this.root, oid });
+            headBlob = Buffer.from(blob);
+          } catch {
+            headBlob = null;
+          }
+          const inHead = headBlob !== null;
+          if (!inHead && !onDisk) return false;
+          if (!inHead && onDisk) return true;
+          if (inHead && !onDisk) return true;
+          if (headBlob.equals(work)) return false;
+          if (!headBlob.includes(0) && !work.includes(0)) {
+            if (normalizeEol(headBlob.toString("utf8")) === normalizeEol(work.toString("utf8"))) {
+              return false;
+            }
+          }
+          return true;
         } catch {
           return false;
         }
@@ -27150,7 +27192,7 @@ var require_node_sqlite3_wasm = __commonJS({
     }
     var programArgs = [];
     var thisProgram = "./this.program";
-    var quit_ = (status2, toThrow) => {
+    var quit_ = (status, toThrow) => {
       throw toThrow;
     };
     var _scriptName;
@@ -27187,8 +27229,8 @@ var require_node_sqlite3_wasm = __commonJS({
       if (typeof module2 != "undefined") {
         module2["exports"] = Module;
       }
-      quit_ = (status2, toThrow) => {
-        process.exitCode = status2;
+      quit_ = (status, toThrow) => {
+        process.exitCode = status;
         throw toThrow;
       };
     } else {
@@ -27289,9 +27331,9 @@ var require_node_sqlite3_wasm = __commonJS({
     }
     var ExitStatus = class {
       name = "ExitStatus";
-      constructor(status2) {
-        this.message = `Program terminated with exit(${status2})`;
-        this.status = status2;
+      constructor(status) {
+        this.message = `Program terminated with exit(${status})`;
+        this.status = status;
       }
     };
     var HEAP8;
@@ -27363,9 +27405,9 @@ var require_node_sqlite3_wasm = __commonJS({
       }
       quit_(code2, new ExitStatus(code2));
     };
-    var exitJS = (status2, implicit) => {
-      EXITSTATUS = status2;
-      _proc_exit(status2);
+    var exitJS = (status, implicit) => {
+      EXITSTATUS = status;
+      _proc_exit(status);
     };
     var _exit = exitJS;
     var maybeExit = () => {
