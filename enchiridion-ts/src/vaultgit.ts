@@ -290,7 +290,11 @@ export class VaultGit implements Git {
 
       let headBlob: Buffer | null = null;
       try {
-        const headOid = await git.resolveRef({ fs, dir: this.root, ref: "HEAD" });
+        const headOid = await git.resolveRef({
+          fs,
+          dir: this.root,
+          ref: "HEAD",
+        });
         const oid = await resolveFilePath(this.root, headOid, rel);
         const { blob } = await git.readBlob({ fs, dir: this.root, oid });
         headBlob = Buffer.from(blob);
