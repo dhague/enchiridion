@@ -289,6 +289,50 @@ test("scan: dirty working tree overrides date equality", async () => {
   assert.equal(result.eligible[0].reason, ReasonChangedSinceIngestion);
 });
 
+test("scan: raw file in subfolder matched by back-pointer in wiki/sources", async () => {
+  // Regression test for #299: raw/notes/foo.md linked via "../../raw/notes/foo.md"
+  // must not be reported as never-ingested — the path resolution was never broken,
+  // but wiki/_index.md (see next test) prevented the back-pointer map from forming.
+  const root = tmpRoot();
+  seedVault(root);
+  write(root, "raw/notes/foo.md", "raw notes content");
+  write(
+    root,
+    "wiki/sources/foo-notes.md",
+    '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/notes/foo.md)"\n---\n# Foo\n',
+  );
+
+  // No git: lenient defaults mean the file is offered (changed-since-ingestion),
+  // but it must NOT be reported as never-ingested.
+  const result = await scan(root, "", null);
+  assert.equal(result.eligible.length, 1);
+  const cand = result.eligible[0];
+  assert.equal(cand.rawRel, "raw/notes/foo.md");
+  assert.equal(cand.reason, ReasonChangedSinceIngestion);
+  assert.deepEqual(cand.backPointers, ["wiki/sources/foo-notes.md"]);
+});
+
+test("scan: wiki/_index.md does not break back-pointer recognition", async () => {
+  // Regression test for #299: wiki/_index.md was included in page enumeration,
+  // causing loadRecords to throw and preventing any back-pointer from being built.
+  const root = tmpRoot();
+  seedVault(root);
+  write(root, "wiki/_index.md", "generated table of contents\n");
+  write(root, "raw/notes/foo.md", "raw notes content");
+  write(
+    root,
+    "wiki/sources/foo-notes.md",
+    '---\ntitle: Foo\nraw_source: "[foo.md](../../raw/notes/foo.md)"\n---\n# Foo\n',
+  );
+
+  const result = await scan(root, "", null);
+  assert.equal(result.eligible.length, 1);
+  const cand = result.eligible[0];
+  assert.equal(cand.rawRel, "raw/notes/foo.md");
+  assert.equal(cand.reason, ReasonChangedSinceIngestion);
+  assert.deepEqual(cand.backPointers, ["wiki/sources/foo-notes.md"]);
+});
+
 // --- Scan: shape -------------------------------------------------------------
 
 test("scan: malformed .ingestignore is an error", async () => {

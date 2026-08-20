@@ -90,8 +90,14 @@ function resolve(p: string): string {
   }
 }
 
+/** The generated `wiki/_index.md` the old build_index wrote — a derived
+ * artifact, not a page, so it is excluded from page enumeration (the same rule
+ * the pre-#117 Python layer enforced and the TS port dropped). */
+const GeneratedIndexRef = "wiki/_index.md";
+
 /** Return every markdown file under the vault's `wiki/` tree at root, as
- * vault-relative page refs (ADR-0009), sorted. `raw/` is never walked. */
+ * vault-relative page refs (ADR-0009), sorted. `raw/` is never walked, and the
+ * generated `wiki/_index.md` is never a page. */
 export function pageRefs(root: string): string[] {
   const wikiDir = path.join(root, "wiki");
   let entries: fs.Dirent[];
@@ -109,7 +115,8 @@ export function pageRefs(root: string): string[] {
       if (entry.isDirectory()) {
         walk(abs, fs.readdirSync(abs, { withFileTypes: true }));
       } else if (entry.name.endsWith(".md")) {
-        refs.push(toSlash(path.relative(root, abs)));
+        const rel = toSlash(path.relative(root, abs));
+        if (rel !== GeneratedIndexRef) refs.push(rel);
       }
     }
   };
