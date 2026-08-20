@@ -37638,6 +37638,7 @@ function resolve(p) {
     return abs;
   }
 }
+var GeneratedIndexRef = "wiki/_index.md";
 function pageRefs(root) {
   const wikiDir = import_node_path7.default.join(root, "wiki");
   let entries;
@@ -37654,7 +37655,8 @@ function pageRefs(root) {
       if (entry.isDirectory()) {
         walk2(abs, import_node_fs5.default.readdirSync(abs, { withFileTypes: true }));
       } else if (entry.name.endsWith(".md")) {
-        refs.push(toSlash(import_node_path7.default.relative(root, abs)));
+        const rel = toSlash(import_node_path7.default.relative(root, abs));
+        if (rel !== GeneratedIndexRef) refs.push(rel);
       }
     }
   };
