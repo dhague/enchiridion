@@ -6,7 +6,7 @@ description: Watch a vault's raw/ folder and auto-ingest new or changed files as
 
 Per [Auto-ingest new files as they appear](https://github.com/dhague/enchiridion/issues/37): user-initiated, foreground, event-driven watcher — not system daemon, not hook. User runs `/wiki-watch` in open session, Ctrl-Cs when done. Nothing installed as service, nothing auto-starts.
 
-Substantive logic in the `watch` subcommand of the Go binary (`<plugin-root>/bin/enchiridion watch` — event detection, per-file debounce, lock file, queue file) and existing sweep machinery (`enchiridion ingest-scan`, `wiki-ingest` agent, `enchiridion ingest`). This file is procedural glue: launch watcher, run startup sweep, poll queue, dispatch one `wiki-ingest` subagent per file.
+Substantive logic in the `watch` subcommand of the enchiridion script layer (`<plugin-root>/bin/enchiridion watch` — event detection, per-file debounce, lock file, queue file) and existing sweep machinery (`enchiridion ingest-scan`, `wiki-ingest` agent, `enchiridion ingest`). This file is procedural glue: launch watcher, run startup sweep, poll queue, dispatch one `wiki-ingest` subagent per file.
 
 ## Procedure
 
@@ -18,7 +18,7 @@ Substantive logic in the `watch` subcommand of the Go binary (`<plugin-root>/bin
    ```
    using `Bash` with `run_in_background: true`. Accepts `--debounce <seconds>` (default 30) if user asked for different debounce window.
 
-3. **Poll for startup**, up to ~10s deadline (checking every ~0.5s) — slow machine or a first-run binary fetch can take longer than a couple seconds. Check background output each poll:
+3. **Poll for startup**, up to ~10s deadline (checking every ~0.5s) — a slow machine can take longer than a couple seconds. Check background output each poll:
    - Printed `another watcher is already running (lock at ...)` and exited: **surface to user** and stop — do not start second watcher against same vault.
    - Printed `watching <raw/> (debounce=...s, pid=...)`: running normally, continue.
    - Deadline reached with neither line: **surface to user** and stop — watcher startup unconfirmed.

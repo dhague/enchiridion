@@ -1,80 +1,79 @@
 # Architecture
 
-Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.7.6`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
+Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.8.2`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
-The script layer is a single static Go binary at `enchiridion-go/` (`enchiridion`, one subcommand per capability), invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that lazy-fetches the release binary ([ADR-0013](adr/0013-go-binary-lazy-fetch-dependency-free-bootstrap.md)). The names in these diagrams are Go packages under `enchiridion-go/internal/`.
+The script layer is a single TypeScript implementation at `enchiridion-ts/` (`enchiridion`, one subcommand per capability), bundled by esbuild and invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that execs `node` against the bundle ([ADR-0017](adr/0017-typescript-rewrite-approved-interpreter-asr.md)). The names in these diagrams are TypeScript modules under `enchiridion-ts/src/`.
 
 Diagrams:
 
-1. **Package dependency graph** — how `enchiridion-go/internal/*` depends on each other, clustered by responsibility.
+1. **Module dependency graph** — how `enchiridion-ts/src/*` depends on each other, clustered by responsibility.
 2. **Skill → agent → cluster flow** — how each of the plugin's five slash-command entrypoints reaches the code in diagram 1.
-3. **Struct/interface diagrams by cluster** — one diagram per cluster from (1), showing its actual structs, interfaces, and package functions.
+3. **Type diagrams by cluster** — one diagram per cluster from (1), sketching its types and module-level functions.
 
 Two seams worth keeping straight, since the diagrams show them:
 
-- **Go's `Vault` has no search-index facade.** `searchindex` imports `vault`, so proxying back would be an import cycle; the arrow that used to run `vault → search_index` is reversed to `search → vaultops`, and there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does. Since [ADR-0015](adr/0015-search-index-view-of-committed-history.md), `searchindex`'s centre of gravity within `vaultops` has moved from `vault` to `vaultgit`: page content and dates come from `vaultgit.Repo.CommittedPages` (git blobs), and `vault` survives only for `Status()`'s on-disk-vs-indexed count.
-- **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the cobra command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section).
+- **The `Vault` has no search-index facade.** `searchindex` depends only on `vaultgit` (blobs, dates) and otherwise walks the wiki tree itself, so proxying back through `vault` would be an import cycle; there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does. Since [ADR-0015](adr/0015-search-index-view-of-committed-history.md), `searchindex`'s centre of gravity has been `vaultgit`: page content and dates come from `VaultGit.CommittedPages` (git blobs), and `Status()`'s on-disk-vs-indexed count is computed internally by counting `wiki/**.md` files on disk.
+- **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the CLI command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section, carried across).
 
-**How this stays current.** The redraw keeps the diagrams hand-drawn rather than generated, and the opening warning stays honest about that. Mechanical generation was weighed and set aside: `go list` can emit the raw import graph, but the value of this file is the responsibility *clustering* and the reasoning about the seams — the parts tooling cannot produce. The class diagrams are kept for the same reason: they are the cheap, nameable API contract of each package, and a reader who finds a stale method name is told to trust the code. The cost is the warning above: the next structural change to the package set should touch this file again.
+**How this stays current.** The redraw keeps the diagrams hand-drawn rather than generated, and the opening warning stays honest about that. Mechanical generation was weighed and set aside: a tool could emit the raw import graph, but the value of this file is the responsibility *clustering* and the reasoning about the seams — the parts tooling cannot produce. The type diagrams are kept for the same reason: they are the cheap, nameable API contract of each module, and a reader who finds a stale method name is told to trust the code. The cost is the warning above: the next structural change to the module set should touch this file again.
 
-## Package dependency graph
+## Module dependency graph
 
-Packages are grouped into the same responsibility clusters as the retired scripts, plus a composite root. An arrow between clusters means at least one package in the source cluster imports at least one package in the target cluster; individual package-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are the `cli` package importing every cluster — it is the composition root, one cobra file per subcommand, and the wiring that used to live in a `__main__` per script now passes through it.
+Modules are grouped into the same responsibility clusters as the retired scripts, plus a composite root. An arrow between clusters means at least one module in the source cluster imports at least one module in the target cluster; individual module-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are `cli.ts` importing every cluster — it is the composition root, one commander file per subcommand, and the wiring that used to live in a `__main__` per script now passes through it.
 
 ```mermaid
 flowchart TB
     subgraph cli_root["Composite root"]
-        cli["cli — one cobra file per subcommand"]
+        cli["cli.ts — one commander file per subcommand"]
     end
 
     subgraph core["Core library"]
-        wikipage["wikipage"]
-        place["place"]
-        pagerecord["pagerecord"]
+        wikipage["wikipage.ts"]
+        place["place.ts"]
+        pagerecord["pagerecord.ts"]
     end
 
     subgraph vaultops["Vault ops"]
-        vault["vault"]
-        vault_git["vaultgit"]
-        init_wiki["initwiki"]
+        vault["vault.ts"]
+        vault_git["vaultgit.ts"]
+        init_wiki["initwiki.ts"]
     end
 
     subgraph search["Search"]
-        search_index["searchindex"]
+        search_index["searchindex.ts"]
     end
 
     subgraph ingestion["Ingestion pipeline"]
-        ingest["ingest"]
-        ingest_scan["ingestscan"]
-        ingest_ignore["ingestignore"]
-        discover["discover"]
-        chain_of_evidence["chainofevidence"]
-        commit["commit"]
-        superseded_by["supersededby"]
+        ingest["ingest.ts"]
+        ingest_scan["ingestscan.ts"]
+        ingest_ignore["ingestignore.ts"]
+        discover["discover.ts"]
+        chain_of_evidence["chainofevidence.ts"]
+        commit["commit.ts"]
+        superseded_by["supersededby.ts"]
     end
 
     subgraph sessioncap["Session capture"]
-        session_state["sessionstate"]
-        transcript_capture["transcriptcapture"]
+        session_state["sessionstate.ts"]
+        transcript_capture["transcriptcapture.ts"]
     end
 
     subgraph watch["Watch"]
-        watch_pkg["watch"]
+        watch_pkg["watch.ts"]
     end
 
     subgraph stats["Stats"]
-        tool_call_stats["toolcallstats"]
+        tool_call_stats["toolcallstats.ts"]
     end
 
     subgraph hooks["Hooks"]
-        hooks_pkg["hooks"]
+        hooks_pkg["hooks.ts"]
     end
 
     ingestion --> core
     ingestion --> vaultops
     vaultops --> core
-    search -->|imports vaultgit (blobs, dates) and vault (Status only) — the old facade arrow, reversed| vaultops
-    search --> core
+    search -->|imports vaultgit (blobs, dates) — the old facade arrow, reversed; no vault import| vaultops
     ingestion --> search
     hooks --> sessioncap
     hooks --> stats
@@ -92,15 +91,15 @@ flowchart TB
 
 Cluster contents:
 
-- **Core library** — `wikipage` (the pure page model: `Page` get/set/merge/retarget, link machinery — `IterLinks`, `PercentEncode`/`PercentDecode`, `PlanMove`; no I/O), `place` (kebab-slug + kind-folder path computation; `KindFolders` is the single source of truth), `pagerecord` (frontmatter schema reader; derives `kind` from folder and `superseded_by` by inverting `supersedes` edges).
-- **Vault ops** — `vault` (the `Vault` I/O type — all reads/writes, cross-page `MovePage`/`RewriteInboundLinks`, and `ResolveRoot`), `vaultgit` (sole git access, embedded go-git), `initwiki` (vault scaffolding for `/wiki-init`).
-- **Search** — `searchindex` (SQLite FTS5 index over `ncruces/go-sqlite3`; `Open`/`Close` lifetime, ADR-0006/0010/0015 — a materialised view of `HEAD`'s committed `wiki/` tree, watermarked in `meta.git_head`, not a working-tree scan).
-- **Ingestion pipeline** — `ingest` (the `Plan`/`Resolved` schema + `Resolve`→`Validate`→`Execute` executor), `ingestscan` (`raw/` sweep eligibility, ADR-0009 `page_ref`), `ingestignore` (`.ingestignore` parse/append), `discover` (overlap-candidate + tag-vocabulary lookup), `chainofevidence` (page→stub→raw-file rule), `commit` (structured git commit per manifest, gated by chain of evidence), `supersededby` (supersession queries).
-- **Session capture** — `sessionstate` (session→transcript-path lookup under `.claude/wiki-knowledge/sessions/`), `transcriptcapture` (JSONL→page rendering + the `save-session` writer).
-- **Watch** — `watch` (debounce, lock file, queue file; pure — no I/O beyond what callers hand it).
-- **Stats** — `toolcallstats` (summarizes a session's hook-logged tool calls).
-- **hooks** — `hooks` (`SessionStart`/`PostToolUse`, the handlers for the `hook` subcommands). It isn't imported by anything but `cli`; it runs as Claude Code hook events and writes the JSON state files Session capture and Stats later read. The `hooks` package imports `sessionstate` and `toolcallstats` directly, so those are real edges.
-- **Composite root** — `cli`, one file per subcommand (`root.go` for the root `enchiridion` command and `version`, then `search.go`, `ingest.go`, `hook.go`, `vault.go`, `page.go`, `place.go`, `savesession.go`, `watch.go`, `toolcallstats.go`, `supersededby.go`, `commit.go`, `init.go`, `ingestscan.go`, `discover.go`). It resolves the vault root, opens the single `searchindex.Index` handle, and passes it down.
+- **Core library** — `wikipage.ts` (the pure page model: `Page` get/set/merge/retarget, link machinery — `IterLinks`, `PercentEncode`/`PercentDecode`, `PlanMove`; no I/O), `place.ts` (kebab-slug + kind-folder path computation; `KindFolders` is the single source of truth), `pagerecord.ts` (frontmatter schema reader; derives `kind` from folder and `superseded_by` by inverting `supersedes` edges).
+- **Vault ops** — `vault.ts` (the `Vault` I/O type — all reads/writes, cross-page `MovePage`/`RewriteInboundLinks`, and `ResolveRoot`), `vaultgit.ts` (sole git access, isomorphic-git), `initwiki.ts` (vault scaffolding for `/wiki-init`).
+- **Search** — `searchindex.ts` (SQLite FTS5 index over `node-sqlite3-wasm`; `Open`/`Close` lifetime, ADR-0006/0010/0015 — a materialised view of `HEAD`'s committed `wiki/` tree, watermarked in `meta.git_head`, not a working-tree scan).
+- **Ingestion pipeline** — `ingest.ts` (the `Plan`/`Resolved` schema + `Resolve`→`Validate`→`Execute` executor), `ingestscan.ts` (`raw/` sweep eligibility, ADR-0009 `page_ref`), `ingestignore.ts` (`.ingestignore` parse/append), `discover.ts` (overlap-candidate + tag-vocabulary lookup), `chainofevidence.ts` (page→stub→raw-file rule), `commit.ts` (structured git commit per manifest, gated by chain of evidence), `supersededby.ts` (supersession queries).
+- **Session capture** — `sessionstate.ts` (session→transcript-path lookup under `.claude/wiki-knowledge/sessions/`), `transcriptcapture.ts` (JSONL→page rendering + the `save-session` writer).
+- **Watch** — `watch.ts` (debounce, lock file, queue file; pure — no I/O beyond what callers hand it).
+- **Stats** — `toolcallstats.ts` (summarizes a session's hook-logged tool calls).
+- **hooks** — `hooks.ts` (`SessionStart`/`PostToolUse`, the handlers for the `hook` subcommands). It isn't imported by anything but `cli`; it runs as Claude Code hook events and writes the JSON state files Session capture and Stats later read. The `hooks` module imports `sessionstate` and `toolcallstats` directly, so those are real edges.
+- **Composite root** — `cli.ts`, one file per subcommand (`search`, `ingest`, `hook`, `vault`, `page`, `place`, `save-session`, `watch`, `tool-call-stats`, `superseded-by`, `commit`, `init`, `ingest-scan`, `discover`, plus `version`). It resolves the vault root, opens the single `searchindex.Index` handle, and passes it down.
 
 ## Skill → agent → cluster flow
 
@@ -132,15 +131,15 @@ flowchart LR
 
 Notes:
 
-- `/wiki-init` calls `enchiridion init` directly (from `initwiki`, using `vault`/`vaultgit`) — no agent involved, it's pure scaffolding.
-- `/wiki-watch` runs `enchiridion watch` (Watch cluster, `cli/watch.go` — fsnotify observer + `watch` debounce/lock/queue) with `enchiridion ingest-scan` (Ingestion pipeline cluster) as the eligibility check, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
-- `/save-conversation` runs `enchiridion save-session` (Session capture cluster, `cli/savesession.go` → `transcriptcapture.CaptureSession`) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
-- `enchiridion hook session-start` / `hook post-tool-use` (`cli/hook.go` → `hooks`) run as Claude Code hook events per `wiki-plugin/hooks/hooks.json`, **not** from a skill: SessionStart records the transcript path `save-session` later reads, PostToolUse appends one JSON line per tool call for `enchiridion tool-call-stats`. Both fail open (`|| exit 0`), and PostToolUse sets `ENCHIRIDION_NO_FETCH=1` so a failing binary bootstrap never re-downloads hundreds of times a session.
-- Clusters here are the same ones named in the package dependency graph above.
+- `/wiki-init` calls `enchiridion init` directly (from `initwiki.ts`, using `vault`/`vaultgit`) — no agent involved, it's pure scaffolding.
+- `/wiki-watch` runs `enchiridion watch` (Watch cluster, the `cli.ts` watch subcommand — a chokidar observer over `raw/` + the pure `watch.ts` debounce/lock/queue) with `enchiridion ingest-scan` (Ingestion pipeline cluster) as the eligibility check, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
+- `/save-conversation` runs `enchiridion save-session` (Session capture cluster, the `cli.ts` save-session subcommand → `transcriptcapture.CaptureSession`) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
+- `enchiridion hook session-start` / `hook post-tool-use` (the `cli.ts` hook subcommand → `hooks.ts`) run as Claude Code hook events per `wiki-plugin/hooks/hooks.json`, **not** from a skill: SessionStart records the transcript path `save-session` later reads, PostToolUse appends one JSON line per tool call for `enchiridion tool-call-stats`. Both fail open (`|| exit 0`) — there is no binary bootstrap left to guard against, since `bin/enchiridion` is a thin `exec node <bundle>` shim with no fetch step.
+- Clusters here are the same ones named in the module dependency graph above.
 
-## Struct/interface diagrams by cluster
+## Type diagrams by cluster
 
-One diagram per cluster from the package dependency graph. Go has no classes; types are shown as structs (`<<struct>>`) with their exported fields and methods, and module-level functions as `<<package>>` boxes. Interfaces are `<<interface>>`. Cross-cluster references are dashed and named after the target cluster.
+One diagram per cluster from the module dependency graph. The port's types are shown as class boxes with their methods, and module-level functions as `<<package>>` boxes; interfaces are `<<interface>>`. Cross-cluster references are dashed and named after the target cluster.
 
 ### Core library
 
@@ -251,16 +250,16 @@ classDiagram
         +Text string
     }
     class vault {
-        <<package · root.go>>
+        <<package · vault.ts>>
         +Markers = ["wiki", ".wiki-root"]
         +HasMarker(dir) bool
         +ResolveRoot(start, lookupEnv) (string, error)
         +PageRefs(root) ([]string, error)
     }
-    class Repo {
+    class VaultGit {
         <<struct · vaultgit>>
         +Root string
-        +New(root)$ *Repo
+        +constructor(root)
         +IsWorkTree() bool
         +Init() error
         +Add(paths...) error
@@ -288,10 +287,10 @@ classDiagram
     Vault --> Page : Load/Write
     Vault --> PageRecord : Pages()
     Vault ..> place : Placement via KindFolders
-    initwiki ..> Repo : scaffold commit
+    initwiki ..> VaultGit : scaffold commit
 ```
 
-No `SearchIndex` relationship here on purpose — the first *two seams* note above: `searchindex` imports `vault`, so the old facade arrow is reversed, and `enchiridion search` opens the index itself.
+No `SearchIndex` relationship here on purpose — the first *two seams* note above: `searchindex` does not go through `vault`, so the old facade arrow is reversed (it imports `vaultgit` only), and `enchiridion search` opens the index itself.
 
 ### Search
 
@@ -363,10 +362,7 @@ classDiagram
         <<interface · searchindex>>
         +CommittedPages(since) (vaultgit.Snapshot, error)
     }
-    class Repo {
-        <<Vault ops cluster>>
-    }
-    class Vault {
+    class VaultGit {
         <<Vault ops cluster>>
     }
 
@@ -375,11 +371,10 @@ classDiagram
     Index ..> Status : Status() returns
     Index ..> TagCount : TagCounts() returns
     Index --> Git : holds — sync() calls CommittedPages(watermark)
-    Repo ..|> Git : *vaultgit.Repo satisfies
-    Index ..> Vault : imports — Status() only, on-disk count
+    VaultGit ..|> Git : VaultGit satisfies
 ```
 
-Search correctness lives in `Index.sync`, which every `Search` and a bare `--reindex` run before matching: it compares `meta.git_head` (the watermark) against `Git.CommittedPages(watermark)`'s reported `Head`, and does nothing when they're equal — one commit lookup, no filesystem work. When they differ, it applies the returned delta (or, on an unreachable watermark or a first build, a full rebuild from `HEAD`'s tree — [ADR-0015](adr/0015-search-index-view-of-committed-history.md)) — so the FTS5 table can never go stale because a caller forgot an inline update, and a page that was never committed is never seen at all. There is no `ForRoot` per-root cache and no `Vault` facade (the *two seams* above): the cobra command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
+Search correctness lives in `Index.sync`, which every `Search` and a bare `--reindex` run before matching: it compares `meta.git_head` (the watermark) against `Git.CommittedPages(watermark)`'s reported `Head`, and does nothing when they're equal — one commit lookup, no filesystem work. When they differ, it applies the returned delta (or, on an unreachable watermark or a first build, a full rebuild from `HEAD`'s tree — [ADR-0015](adr/0015-search-index-view-of-committed-history.md)) — so the FTS5 table can never go stale because a caller forgot an inline update, and a page that was never committed is never seen at all. There is no `ForRoot` per-root cache and no `Vault` facade (the *two seams* above): the CLI command opens the one `Index` via `searchindex.Open`, and passes it down as a `discover.Searcher` (ADR-0010).
 
 ### Ingestion pipeline
 
@@ -510,7 +505,7 @@ classDiagram
     class Vault {
         <<Vault ops cluster>>
     }
-    class Repo {
+    class VaultGit {
         <<Vault ops cluster>>
     }
     class Page {
@@ -530,7 +525,7 @@ classDiagram
     ResolvedPage ..> Page : Page
     Resolved ..> Manifest : Execute() builds
     Resolved ..> Vault : Execute() writes via
-    Resolved ..> Git : Execute(git) — *vaultgit.Repo satisfies
+    Resolved ..> Git : Execute(git) — VaultGit satisfies
     Manifest ..> chainofevidence : Commit() gated by Check()
     Manifest --> Supersession : Superseded
     Searcher ..> Index : implemented by searchindex.Index
@@ -538,7 +533,7 @@ classDiagram
     supersededby ..> PageRecord : Resolve() walks supersedes edges
     Result "1" --> "*" IngestCandidate : Eligible
     ingestscan ..> ScanGit : Scan() takes a Git
-    ScanGit ..> Repo : satisfied by vaultgit.Repo
+    ScanGit ..> VaultGit : satisfied by VaultGit
     ingestscan ..> Vault : raw/ reads
     ingestscan ..> ingestignore : LoadIngestignore() reads via Parse()
 ```
@@ -573,7 +568,7 @@ classDiagram
         +ReadTranscriptPath(sessionID, stateDir) (string, bool)
     }
     class saveSessionCLI {
-        <<cli/savesession.go>>
+        <<cli.ts · save-session subcommand>>
         +enchiridion save-session --slug
     }
 
@@ -583,7 +578,7 @@ classDiagram
     saveSessionCLI ..> transcriptcapture : CaptureSession()
 ```
 
-`enchiridion save-session` reads the transcript path the SessionStart hook recorded (under `.claude/wiki-knowledge/sessions/`), renders the JSONL transcript to markdown, and writes `raw/conversations/<YYYY-MM-DD-hhmm>-<slug>-<short-id>.md`, printing the vault-relative path. Claude Code only for now — there is no OpenCode path yet ([#188](https://github.com/dhague/enchiridion/issues/188)).
+`enchiridion save-session` reads the transcript path the SessionStart hook recorded (under `.claude/wiki-knowledge/sessions/`), renders the JSONL transcript to markdown, and writes `raw/conversations/<YYYY-MM-DD-hhmm>-<slug>-<short-id>.md`, printing the vault-relative path. It serves both hosts — Claude Code's hook-recorded transcript path on disk, or OpenCode's tracker-plugin state (fetched by shelling out to `opencode export`).
 
 ### Watch
 
@@ -611,26 +606,26 @@ classDiagram
         +CheckAndEnqueue(eligibleRels, settledRel, queuePath) (bool, error)
         +RelForEvent(root, path) (string, bool)
     }
-    class fsnotify {
-        <<external, github.com/fsnotify>>
+    class chokidar {
+        <<external, chokidar>>
         +Watcher
     }
     class watchCLI {
-        <<cli/watch.go>>
+        <<cli.ts · watch subcommand>>
         +enchiridion watch [--debounce] [--dequeue rel]
     }
     class ingestscan {
         <<Ingestion pipeline cluster>>
     }
 
-    watchCLI --> fsnotify : observes raw/ recursively
+    watchCLI --> chokidar : observes raw/ recursively
     watchCLI --> Debouncer : records events into
     watchCLI --> ingestscan : eligibility check before enqueue
     watchCLI --> Paths : lock/queue paths
     watchCLI ..> watch : AcquireLock / CheckAndEnqueue / RemoveFromQueue
 ```
 
-`watch` itself is pure — it holds no watcher and touches no filesystem it isn't handed. `cli/watch.go` is where the composition happens: an fsnotify observer feeds `Debouncer.RecordEvent`, a ticker drains `Debouncer.SettledFiles()`, and each settled file is queued only if `ingestscan.Scan` marks it eligible. `watch` and `ingestscan` don't import each other; that edge runs through the composite root.
+`watch.ts` itself is pure — it holds no watcher and touches no filesystem it isn't handed. The `cli.ts` watch subcommand is where the composition happens: a chokidar observer feeds `Debouncer.RecordEvent`, a ticker drains `Debouncer.SettledFiles()`, and each settled file is queued only if `ingestscan.Scan` marks it eligible. `watch` and `ingestscan` don't import each other; that edge runs through the composite root.
 
 ### Stats
 

@@ -7,6 +7,12 @@ name: tag-release
 # gated on the tag not already existing, makes this the single place a
 # release tag is created and ties it to the commit that actually carries the
 # bumped version.
+#
+# NOTE (#267): the Go release pipeline this tag used to feed is retired —
+# `enchiridion-go/` is deleted and go-enchiridion.yml is a no-op placeholder.
+# Deriving and pushing the tag is kept because it is harmless and remains the
+# single source of release tags for whatever TS-bundle release workflow the
+# deferred redesign (#267) lands; a tag currently triggers nothing.
 on:
   push:
     branches: [main]
@@ -39,8 +45,8 @@ jobs:
           # RELEASE_GITHUB_TOKEN is a PAT (Contents: write on this repo)
           # rather than the default GITHUB_TOKEN. A GITHUB_TOKEN-authenticated
           # push does not trigger downstream workflow runs (GitHub safety
-          # measure against infinite loops), so the go-enchiridion release job
-          # would never fire. A PAT push does trigger them.
+          # measure against infinite loops), so a downstream release job would
+          # never fire. A PAT push does trigger them.
           GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
         run: |
           tag="v$VERSION"

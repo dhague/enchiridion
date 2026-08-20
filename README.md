@@ -8,13 +8,13 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 
 - **wiki-knowledge** — a Claude Code plugin that provides ingestion and retrieval over a markdown wiki vault
 - **Agent pipeline** — Claude Sonnet for semantic ingestion (chunking, overlap classification, edge typing); Claude Haiku for retrieval (query expansion, BM25 search, frontier traversal, synthesis)
-- **Deterministic script layer** — a single static Go binary for vault I/O, placement, FTS5 search indexing, and commit construction (no model calls, no runtime to install)
+- **Deterministic script layer** — a single TypeScript bundle for vault I/O, placement, FTS5 search indexing, and commit construction (no model calls, no runtime to install — it runs on the already-installed Node)
 - **Full-text search** — SQLite FTS5 via stdlib, zero extra search dependencies
 
 ## Install
 
-1. Clone the repo — there is nothing to install, no runtime and no dependencies.
-   The plugin lazy-fetches its binary on first use.
+1. Clone the repo — there is nothing to install and no binary to fetch; the
+   script layer runs on the already-installed Node runtime.
    ```bash
    git clone https://github.com/dhague/enchiridion.git
    ```
@@ -25,36 +25,22 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
    - **Local**: `/wiki-init .` inside a project to keep the vault alongside your codebase.
    - **Remote**: `/wiki-init /some/remote/path` then set `WIKI_ROOT` to query it from anywhere. Useful when a wiki spans multiple projects or lives on a shared drive.
 
-### Standalone binary
+### Standalone CLI
 
-The plugin lazy-fetches `enchiridion` on first use, so most users never install
-it directly. If you want the binary on your PATH for scripting or manual vault
-maintenance, it's published via a Homebrew tap and a self-hosted Chocolatey
-package (see [ADR-0014](docs/adr/0014-package-manager-distribution.md)):
-
-- **Homebrew (macOS/Linux)**
-  ```bash
-  brew install dhague/homebrew-enchiridion/enchiridion
-  ```
-
-- **Chocolatey (Windows)** — the package isn't on the community repo; download
-  `enchiridion.<version>.nupkg` from the [latest release](https://github.com/dhague/enchiridion/releases/latest)
-  and install it from the file:
-  ```powershell
-  choco install -y .\enchiridion.<version>.nupkg
-  ```
-  The package installs the binary but does **not** add it to your PATH — the
-  install output explains how to add
-  `%ChocolateyInstall%\lib\enchiridion\tools` so `enchiridion` runs from any
-  terminal.
+The script layer ships as a TypeScript bundle invoked through
+`wiki-plugin/bin/enchiridion` (a thin shim that execs `node` against it), so
+there is no per-platform binary to install. A standalone distribution — the
+Homebrew tap and self-hosted Chocolatey package that shipped the retired Go
+binary (see [ADR-0014](docs/adr/0014-package-manager-distribution.md)) — is
+on hold until the TypeScript release workflow lands ([#267](https://github.com/dhague/enchiridion/issues/267)).
 
 ## Design principles
 
 **Cost-optimised by design.** Ingestion and retrieval run as subagents with model selection tuned to task. Sonnet handles the expensive judgment work (semantic chunking, edge typing); Haiku handles high-volume retrieval at a fraction of the cost. Each query only explores the frontier it needs — no expensive vector re-ranking, no full-graph traversal.
 
-**Predictability through scripts, not prompts.** Everything that can be deterministic *is*. Page placement, frontmatter parsing, link rewriting, search indexing, and commit construction run as subcommands of a single static binary — no model in the loop. The agents call it for side effects and read its output; they never generate file paths, YAML, or git operations from a prompt.
+**Predictability through scripts, not prompts.** Everything that can be deterministic *is*. Page placement, frontmatter parsing, link rewriting, search indexing, and commit construction run as subcommands of a single CLI (`bin/enchiridion` — a TypeScript bundle run on Node) — no model in the loop. The agents call it for side effects and read its output; they never generate file paths, YAML, or git operations from a prompt.
 
-**No new infrastructure.** SQLite FTS5 search runs in-process with zero extra dependencies. No language runtime to install, no vector database, no MCP server, no background daemons. The vault is just a git repo of markdown files — portable, diffable, and backup-friendly.
+**No new infrastructure.** SQLite FTS5 search runs in-process with zero extra dependencies. No additional runtime to install — the script layer runs on the already-installed Node interpreter. No vector database, no MCP server, no background daemons. The vault is just a git repo of markdown files — portable, diffable, and backup-friendly.
 
 **Trust and provenance.** Every derived page traces back to its raw source through a chain of evidence. Bitemporal metadata (when the knowledge is *from* vs. when it was *written*) and explicit volatility annotations make staleness visible, not hidden.
 
@@ -85,21 +71,22 @@ Every page has YAML frontmatter with a typed edge graph (`refines`, `contradicts
 
 ## Development
 
-The script layer is a single static Go binary
-([ADR-0011](docs/adr/0011-go-rewrite-scope-sequencing-toolchain.md)). The
-plugin lazy-fetches it on first use via `wiki-plugin/bin/enchiridion`;
-`ENCHIRIDION_BIN` points that entrypoint at a local build instead.
+The script layer is a single TypeScript implementation
+([ADR-0017](docs/adr/0017-typescript-rewrite-approved-interpreter-asr.md)),
+bundled by esbuild and invoked via `wiki-plugin/bin/enchiridion` — a thin shim
+that execs `node` against the bundle. `ENCHIRIDION_BIN` points that entrypoint
+at a local build or alternate runtime instead.
 
 ```bash
-cd enchiridion-go
-go test ./...
-go vet ./...
-gofmt -l .
+cd enchiridion-ts
+npm ci
+npm run typecheck && npm run lint && npm run format:check
+npm run build   # esbuild bundle to dist/cli.js + wasm sidecar
+npm test
 
-# Run any subcommand against a locally built binary
-go build -o /tmp/enchiridion ./cmd/enchiridion
-WIKI_ROOT=<path_to_vault> /tmp/enchiridion search "connection pooling" --limit 10
-WIKI_ROOT=<path_to_vault> /tmp/enchiridion ingest-scan --json
+# Run any subcommand against the built bundle
+WIKI_ROOT=<path_to_vault> node dist/cli.js search "connection pooling" --limit 10
+WIKI_ROOT=<path_to_vault> node dist/cli.js ingest-scan --json
 ```
 
 `wiki-plugin/scripts/` holds only OpenCode install-time tooling

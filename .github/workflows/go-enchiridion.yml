@@ -1,178 +1,33 @@
 name: go-enchiridion
 
+# RETIRED — placeholder only. Kept per the decision on #267 rather than
+# deleted outright.
+#
+# This workflow previously built, vetted, and tested the Go script layer and
+# released it via GoReleaser (six per-platform binaries, Chocolatey nupkg,
+# Homebrew tap, checksums, build-provenance attestation). That implementation
+# is gone: `enchiridion-go/` was deleted in #267, and the script layer is now
+# the TypeScript bundle at `enchiridion-ts/dist/cli.js` (ADR-0017), which
+# `ts-enchiridion.yml` tests on both Node and Bun and which runs through the
+# `wiki-plugin/bin/enchiridion` node shim.
+#
+# A TS-bundle release workflow (how a distributable plugin ships the esbuild
+# bundle + wasm sidecar, and what the GitHub Release attaches) is a SEPARATE
+# ticket — the redesign is deferred. Until it lands, this file intentionally
+# does nothing. Do not re-add Go steps: there is no `enchiridion-go/` anymore.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
-  # Manual trigger for re-running the release job against an existing tag.
-  # Run from the Actions tab targeting the main branch and set the `tag`
-  # input to the tag to release (e.g. v0.8.2). Using main as the ref ensures
-  # the workflow YAML is current (a tag may predate fixes applied to main).
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.8.2). Leave empty for a non-release run.'
-        required: false
-        default: ''
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Build, vet, and test
+  placeholder:
+    name: Retired — no-op
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: enchiridion-go/go.mod
-
-      - name: Build
-        working-directory: enchiridion-go
-        run: go build ./...
-
-      - name: Vet
-        working-directory: enchiridion-go
-        run: go vet ./...
-
-      - name: Test
-        working-directory: enchiridion-go
-        run: go test ./...
-
-      - name: Lint the Go release bootstrap script
-        # wiki-plugin/bin/enchiridion is now a thin node shim (ADR-0017,
-        # #254) and is linted/tested in ts-enchiridion.yml instead. Only
-        # the ADR-0013 bootstrap this workflow's release job still depends
-        # on stays here.
-        run: shellcheck -s sh wiki-plugin/bootstrap/install.sh
-
-  goreleaser-check:
-    name: Validate release pipeline (snapshot build, all 6 targets)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: enchiridion-go/go.mod
-
-      # GoReleaser's chocolatey pipe shells out to `choco pack` to build the
-      # .nupkg (docs/adr/0014), even in snapshot mode. choco is a .NET
-      # Framework app; on Linux it runs on Mono. Use Chocolatey's own
-      # pre-built mono tarball rather than building choco from source, and
-      # put a wrapper on PATH so GoReleaser's exec finds it.
-      - name: Install choco (Chocolatey CLI on Mono)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mono-devel
-          mkdir -p "$HOME/choco" "$HOME/.local/bin"
-          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors -o "$HOME/choco.tar.gz" https://github.com/chocolatey/choco/releases/download/2.7.3/chocolatey.v2.7.3.tar.gz
-          tar xzf "$HOME/choco.tar.gz" -C "$HOME/choco"
-          cat > "$HOME/.local/bin/choco" <<EOF
-          #!/bin/sh
-          exec mono "$HOME/choco/choco.exe" "\$@"
-          EOF
-          chmod +x "$HOME/.local/bin/choco"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Run GoReleaser (snapshot, no publish)
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --snapshot --clean --skip=publish
-          workdir: enchiridion-go
-
-  release:
-    name: Release
-    needs: [test, goreleaser-check]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-      # Build-provenance attestations (#183): id-token mints the Sigstore OIDC
-      # token, attestations writes the resulting statement. Deliberately scoped
-      # to this job only — the test jobs above need neither.
-      id-token: write
-      attestations: write
-    steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # When dispatched manually with a tag input, check out that tag so
-          # GoReleaser builds from the exact tagged commit. On a normal tag push
-          # (github.ref already points at the tag) this is a no-op.
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: enchiridion-go/go.mod
-
-      # See the same step in the goreleaser-check job: the chocolatey pipe
-      # needs `choco` on PATH to pack the .nupkg.
-      - name: Install choco (Chocolatey CLI on Mono)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mono-devel
-          mkdir -p "$HOME/choco" "$HOME/.local/bin"
-          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors -o "$HOME/choco.tar.gz" https://github.com/chocolatey/choco/releases/download/2.7.3/chocolatey.v2.7.3.tar.gz
-          tar xzf "$HOME/choco.tar.gz" -C "$HOME/choco"
-          cat > "$HOME/.local/bin/choco" <<EOF
-          #!/bin/sh
-          exec mono "$HOME/choco/choco.exe" "\$@"
-          EOF
-          chmod +x "$HOME/.local/bin/choco"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-          workdir: enchiridion-go
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pushing the formula to dhague/homebrew-enchiridion (a second repo)
-          # needs a repo-specific PAT — the default GITHUB_TOKEN only has
-          # rights to this repo (docs/adr/0014). One-time setup: create a
-          # fine-grained PAT with Contents write on homebrew-enchiridion and
-          # store it as the TAP_GITHUB_TOKEN repository secret.
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-
-      # Attest what GoReleaser just published, so a downloaded binary can be
-      # traced to this workflow, commit, and repo (`gh attestation verify`).
-      #
-      # This is NOT code signing (#154, deferred): an attestation says nothing
-      # to macOS Gatekeeper or Windows SmartScreen. It is the free,
-      # credential-free half of the same trust story, worth having on its own
-      # for a binary that bin/enchiridion downloads and executes unattended
-      # (docs/adr/0013).
-      #
-      # subject-checksums, not a subject-path glob. With `formats: [binary]`
-      # the released artifacts are not top-level files in dist/ at all — the
-      # only things `dist/enchiridion_*` matches are GoReleaser's per-target
-      # intermediate build directories (enchiridion_darwin_amd64_v1/ and
-      # friends). checksums.txt is the one place that names exactly the
-      # published archives (the six bare binaries plus the windows zip the
-      # Chocolatey package downloads), and its `sha256  name` lines are the
-      # format this input expects. The .nupkg itself is not checksummed here;
-      # it wraps the already-attested windows zip.
-      - name: Attest build provenance for the released binaries
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-checksums: enchiridion-go/dist/checksums.txt
+      - name: Confirm the Go release pipeline is retired
+        run: echo "Go script layer retired with #267; a TS-bundle release workflow is a separate ticket."
