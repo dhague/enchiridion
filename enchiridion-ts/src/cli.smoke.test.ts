@@ -1,17 +1,17 @@
 /**
- * Full-CLI smoke tests against the esbuild-bundled `dist/cli.js` artifact
+ * Full-CLI smoke tests against the esbuild-bundled `dist/cli.cjs` artifact
  * (#266). One smoke test per subcommand, each asserting stdout + exit code
  * against a representative golden input. This complements cli.test.ts (which
- * runs `tsx src/cli.ts`): the bundle's `.js` + `.wasm` sidecar are the real
+ * runs `tsx src/cli.ts`): the bundle's `.cjs` + `.wasm` sidecar are the real
  * artifacts under test here — no ts-node, no source maps in the smoke run.
  *
  * The same file runs under both runtimes via the CI matrix (`npm test` on
  * Node.js, `npm run test:bun` on Bun, both globbing `src/*.test.ts`). Each
  * test spawns the current process's runtime (`process.execPath` — node under
  * `npm test`, bun under `npm run test:bun`) against the bundle, so the Node
- * leg exercises `node dist/cli.js` and the Bun leg `bun dist/cli.js`.
+ * leg exercises `node dist/cli.cjs` and the Bun leg `bun dist/cli.cjs`.
  *
- * Requires `npm run build` first so `dist/cli.js` (and its
+ * Requires `npm run build` first so `dist/cli.cjs` (and its
  * `node-sqlite3-wasm.wasm` sidecar) exists. When it doesn't, every test is
  * skipped with a pointer to the build step rather than failing — so the
  * module tests can run standalone.
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import * as git from "isomorphic-git";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distCli = path.join(__dirname, "..", "dist", "cli.js");
+const distCli = path.join(__dirname, "..", "dist", "cli.cjs");
 
 // The current process's runtime — `process.execPath` is the node binary under
 // `npm test` and the bun binary under `npm run test:bun`, so the one spawn
@@ -38,7 +38,7 @@ const runtimeName = process.versions.bun !== undefined ? "bun" : "node";
 // run without it; CI and the verification workflow always build first.
 const skipReason = fs.existsSync(distCli)
   ? false
-  : "dist/cli.js not built — run `npm run build` first";
+  : "dist/cli.cjs not built — run `npm run build` first";
 
 /** Run the bundled CLI synchronously, layering optional env/cwd/stdin. */
 function runBundled(

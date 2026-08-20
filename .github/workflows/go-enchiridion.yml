@@ -7,7 +7,7 @@ name: go-enchiridion
 # released it via GoReleaser (six per-platform binaries, Chocolatey nupkg,
 # Homebrew tap, checksums, build-provenance attestation). That implementation
 # is gone: `enchiridion-go/` was deleted in #267, and the script layer is now
-# the TypeScript bundle at `enchiridion-ts/dist/cli.js` (ADR-0017), which
+# the TypeScript bundle at `enchiridion-ts/dist/cli.cjs` (ADR-0017), which
 # `ts-enchiridion.yml` tests on both Node and Bun and which runs through the
 # `wiki-plugin/bin/enchiridion` node shim.
 #
