@@ -520,6 +520,30 @@ test("porcelainMentions is false for a clean committed file", async () => {
   assert.equal(await repo.porcelainMentions("raw/notes.md"), false);
 });
 
+test("porcelainMentions ignores a CRLF/LF-only difference (autocrlf clean checkout)", async () => {
+  // Under core.autocrlf=true (the Windows norm) a clean checkout stores LF in
+  // the blob but writes CRLF to the working tree. isomorphic-git's status()
+  // doesn't apply autocrlf reliably and would report this as *modified; the
+  // working-tree-vs-blob comparison here must treat it as clean.
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "raw/notes.txt", "line one\nline two\n");
+  await commitAll(root, "first");
+  writeFile(root, "raw/notes.txt", "line one\r\nline two\r\n");
+  assert.equal(await repo.porcelainMentions("raw/notes.txt"), false);
+});
+
+test("porcelainMentions still reports a real change on a CRLF file", async () => {
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "raw/notes.txt", "line one\nline two\n");
+  await commitAll(root, "first");
+  writeFile(root, "raw/notes.txt", "line one\r\nline two EDITED\r\n");
+  assert.equal(await repo.porcelainMentions("raw/notes.txt"), true);
+});
+
 test("porcelainMentions is lenient on a non-repo", async () => {
   assert.equal(
     await new VaultGit(tmpRepo()).porcelainMentions("raw/notes.md"),
