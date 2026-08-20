@@ -40,8 +40,11 @@ import MarkdownIt from "markdown-it";
 /** The minimal charset that makes a raw/ filename linkable. */
 const ENCODE_CHARS = " #%()<>";
 
-/** Match a `---` fence on the VERY first line, closed by the next `---` line. */
-const FRONTMATTER_RE = /^---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|$)/s;
+/** Match a `---` fence on the VERY first line, closed by the next `---` line.
+ * `\r?` makes the opening and closing fences match both LF and CRLF line
+ * endings. The inner `.*?` already matches `\r` (via the `s` flag), so
+ * multi-line frontmatter with CRLF terminators is handled by backtracking. */
+const FRONTMATTER_RE = /^---[ \t]*\r?\n(.*?\n)?---[ \t]*(?:\r?\n|$)/s;
 
 /**
  * Build a regex fragment for an unbracketed link destination. Per CommonMark,

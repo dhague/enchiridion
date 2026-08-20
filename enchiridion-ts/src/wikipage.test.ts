@@ -64,6 +64,28 @@ describe("splitFrontmatter", () => {
       body: "",
       present: true,
     },
+    {
+      name: "CRLF line endings — parsed identically to LF",
+      text: "---\r\ntitle: A\r\n---\r\nbody\r\n",
+      fm: "title: A\r\n",
+      body: "body\r\n",
+      present: true,
+    },
+    {
+      name: "CRLF with multiple frontmatter fields",
+      text:
+        "---\r\ntitle: Foo\r\nraw_source: \"[f.txt](../../raw/f.txt)\"\r\n---\r\nbody\r\n",
+      fm: "title: Foo\r\nraw_source: \"[f.txt](../../raw/f.txt)\"\r\n",
+      body: "body\r\n",
+      present: true,
+    },
+    {
+      name: "CRLF closing fence at end of file",
+      text: "---\r\ntitle: A\r\n---",
+      fm: "title: A\r\n",
+      body: "",
+      present: true,
+    },
   ];
   for (const tc of cases) {
     it(tc.name, () => {
