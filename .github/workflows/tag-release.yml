@@ -8,11 +8,12 @@ name: tag-release
 # release tag is created and ties it to the commit that actually carries the
 # bumped version.
 #
-# NOTE (#267): the Go release pipeline this tag used to feed is retired —
-# `enchiridion-go/` is deleted and go-enchiridion.yml is a no-op placeholder.
-# Deriving and pushing the tag is kept because it is harmless and remains the
-# single source of release tags for whatever TS-bundle release workflow the
-# deferred redesign (#267) lands; a tag currently triggers nothing.
+# NOTE: the Go release pipeline this tag used to feed is retired (#267) —
+# `enchiridion-go/` is deleted and go-enchiridion.yml is gone. The TS-bundle
+# release workflow is `release.yml`, which this tag now triggers (D4 #289):
+# pushing the tag fires `gh release create` there. Deriving and pushing the
+# tag here remains the single source of release tags, tied to the commit that
+# actually carries the bumped version.
 on:
   push:
     branches: [main]
