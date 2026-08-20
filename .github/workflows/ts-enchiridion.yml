@@ -62,11 +62,11 @@ jobs:
 
       - name: Smoke test the bundle prints usage and exits 0 (Node.js)
         if: matrix.runtime == 'node'
-        run: node dist/cli.js
+        run: node dist/cli.cjs
 
       - name: Smoke test the bundle prints usage and exits 0 (Bun)
         if: matrix.runtime == 'bun'
-        run: bun dist/cli.js
+        run: bun dist/cli.cjs
 
   shim:
     name: Lint and test wiki-plugin/bin/enchiridion

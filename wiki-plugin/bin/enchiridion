@@ -4,11 +4,11 @@
 #   "${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "<terms>" --json
 #
 # A thin shim over the TypeScript port's esbuild bundle (ADR-0017,
-# issue #254). Execs `node` against the bundle built from enchiridion-ts/,
-# forwarding every argument untouched. This retires ADR-0013's lazy-fetch
-# bootstrap: there is no download, no per-platform binary, and no PATH-
-# preference check to make — `node` itself is the already-installed,
-# already-trusted interpreter this rewrite exists to run inside of.
+# issue #254). Execs `node` against the bundle, forwarding every argument
+# untouched. This retires ADR-0013's lazy-fetch bootstrap: there is no
+# download, no per-platform binary, and no PATH-preference check to make —
+# `node` itself is the already-installed, already-trusted interpreter this
+# rewrite exists to run inside of.
 #
 # One escape hatch, for development against unbundled source or an
 # alternate runtime:
@@ -30,10 +30,16 @@ if [ -n "${ENCHIRIDION_BIN:-}" ]; then
     exec "$ENCHIRIDION_BIN" "$@"
 fi
 
-# enchiridion-ts/ is a sibling of wiki-plugin/ in this monorepo; packaging
-# the bundle inside a distributed plugin directory (ADR-0017's "ships
-# inside the plugin directory") is a later distribution ticket, not yet
-# wired up here.
-bundle="$plugin_root/../enchiridion-ts/dist/cli.js"
+# Artifact resolution order after packaging (D3 #288):
+#   1. In-plugin bundle $plugin_root/scripts/cli.cjs if present — the shipped,
+#      committed artifact a marketplace install sees (enchiridion-ts absent).
+#   2. Sibling dev path $plugin_root/../enchiridion-ts/dist/cli.cjs — the
+#      pre-release monorepo build output (scripts/ has no bundle yet).
+# In a release both exist and the in-plugin bundle wins.
+if [ -f "$plugin_root/scripts/cli.cjs" ]; then
+    bundle="$plugin_root/scripts/cli.cjs"
+else
+    bundle="$plugin_root/../enchiridion-ts/dist/cli.cjs"
+fi
 
 exec node "$bundle" "$@"

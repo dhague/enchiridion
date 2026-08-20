@@ -7,11 +7,16 @@
  * corruption, ADR-0006).
  */
 
-import { createRequire } from "node:module";
+import nodeSqlite3Wasm from "node-sqlite3-wasm";
 import type { Database as DatabaseType } from "node-sqlite3-wasm";
-const _require = createRequire(import.meta.url);
-// node-sqlite3-wasm is CJS; named ESM imports don't resolve on all runtimes.
-const { Database } = _require("node-sqlite3-wasm") as {
+// node-sqlite3-wasm is a CJS package (module.exports = { Database,
+// SQLite3Error }). Importing it as a static default lets esbuild INLINE it
+// into the bundle (D3 #288 / #290): a packaged install ships cli.cjs +
+// node-sqlite3-wasm.wasm with no node_modules, so a runtime createRequire
+// would fail to resolve the package. esbuild does the CJS interop at build
+// time, so this is safe on both Node and Bun. The .wasm is located relative
+// to the bundle by the package itself.
+const { Database } = nodeSqlite3Wasm as unknown as {
   Database: typeof import("node-sqlite3-wasm").Database;
 };
 import { parse as parseYaml } from "yaml";

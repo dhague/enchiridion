@@ -81,12 +81,12 @@ at a local build or alternate runtime instead.
 cd enchiridion-ts
 npm ci
 npm run typecheck && npm run lint && npm run format:check
-npm run build   # esbuild bundle to dist/cli.js + wasm sidecar
+npm run build   # esbuild bundle to dist/cli.cjs + wasm sidecar
 npm test
 
 # Run any subcommand against the built bundle
-WIKI_ROOT=<path_to_vault> node dist/cli.js search "connection pooling" --limit 10
-WIKI_ROOT=<path_to_vault> node dist/cli.js ingest-scan --json
+WIKI_ROOT=<path_to_vault> node dist/cli.cjs search "connection pooling" --limit 10
+WIKI_ROOT=<path_to_vault> node dist/cli.cjs ingest-scan --json
 ```
 
 `wiki-plugin/scripts/` holds only OpenCode install-time tooling
