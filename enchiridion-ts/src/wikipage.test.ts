@@ -73,9 +73,8 @@ describe("splitFrontmatter", () => {
     },
     {
       name: "CRLF with multiple frontmatter fields",
-      text:
-        "---\r\ntitle: Foo\r\nraw_source: \"[f.txt](../../raw/f.txt)\"\r\n---\r\nbody\r\n",
-      fm: "title: Foo\r\nraw_source: \"[f.txt](../../raw/f.txt)\"\r\n",
+      text: '---\r\ntitle: Foo\r\nraw_source: "[f.txt](../../raw/f.txt)"\r\n---\r\nbody\r\n',
+      fm: 'title: Foo\r\nraw_source: "[f.txt](../../raw/f.txt)"\r\n',
       body: "body\r\n",
       present: true,
     },

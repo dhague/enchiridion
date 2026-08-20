@@ -341,7 +341,7 @@ test("scan: wiki page with CRLF line endings is recognised as a back-pointer", a
   write(
     root,
     "wiki/sources/foo-notes.md",
-    "---\r\ntitle: Foo\r\nraw_source: \"[foo.md](../../raw/notes/foo.md)\"\r\n---\r\n# Foo\r\n",
+    '---\r\ntitle: Foo\r\nraw_source: "[foo.md](../../raw/notes/foo.md)"\r\n---\r\n# Foo\r\n',
   );
 
   const result = await scan(root, "", null);

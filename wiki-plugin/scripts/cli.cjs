@@ -36454,7 +36454,7 @@ var MarkdownItCallable = callable(MarkdownIt);
 
 // src/wikipage.ts
 var ENCODE_CHARS = " #%()<>";
-var FRONTMATTER_RE = /^---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|$)/s;
+var FRONTMATTER_RE = /^---[ \t]*\r?\n(.*?\n)?---[ \t]*(?:\r?\n|$)/s;
 function nestedParenDest(depth) {
   let frag = "[^()\\s]*";
   for (let i = 0; i < depth; i++) {
