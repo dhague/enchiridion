@@ -16,6 +16,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "commander": "^15.0.0",
     "isomorphic-git": "^1.27.2",
     "markdown-it": "^15.0.0",

@@ -91,7 +91,7 @@ test("--help: prints help, exits 0", () => {
   assert.match(stdout, /Usage:/);
 });
 
-for (const name of ["search", "watch"]) {
+for (const name of ["search"]) {
   test(`${name}: stub exits non-zero with "not yet implemented"`, () => {
     const { status, stderr } = run([name]);
     assert.notEqual(status, 0);
@@ -826,6 +826,45 @@ test("ingest-scan: lists eligible raw files", () => {
   assert.equal(records[0].kind, "eligible");
   assert.equal(records[0].raw_rel, "raw/foo.md");
   assert.equal(records[0].reason, "never-ingested");
+});
+
+test("watch --dequeue: removes one queue entry and exits", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-watch-"));
+  const wk = path.join(root, ".wiki-knowledge");
+  fs.mkdirSync(wk, { recursive: true });
+  fs.writeFileSync(path.join(wk, "watch-queue.jsonl"), "raw/a.md\nraw/b.md\n");
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stderr } = runEnv(["watch", "--dequeue", "raw/a.md"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.equal(status, 0, stderr);
+  const remaining = fs
+    .readFileSync(path.join(wk, "watch-queue.jsonl"), "utf8")
+    .trim()
+    .split("\n");
+  assert.deepEqual(remaining, ["raw/b.md"]);
+});
+
+test("watch: without --dequeue requires a lock and errors when held", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-watch-"));
+  const wk = path.join(root, ".wiki-knowledge");
+  fs.mkdirSync(wk, { recursive: true });
+  fs.mkdirSync(path.join(root, "raw"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  // A live lock (this pid is alive) makes a second watcher refuse to start.
+  fs.writeFileSync(
+    path.join(wk, "watch.lock"),
+    JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }),
+  );
+
+  const { status, stderr } = runEnv(["watch", "--poll-interval", "1"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /another watcher is already running/);
 });
 
 // ---------------------------------------------------------------------------
