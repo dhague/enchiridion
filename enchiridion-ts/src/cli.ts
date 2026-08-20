@@ -30,6 +30,16 @@ import { init as initWiki, Modes } from "./initwiki.js";
 import { sessionStart, postToolUse } from "./hooks.js";
 import { decodePlan, resolve, type Plan } from "./ingest.js";
 import { append as appendIngestignore } from "./ingestignore.js";
+import { Index } from "./searchindex.js";
+import {
+  check as checkDiscover,
+  discover as discoverCandidates,
+  tagsContaining,
+  tagCounts,
+  DefaultLimit as DiscoverDefaultLimit,
+  DuplicateThreshold as DiscoverDuplicateThreshold,
+  RelatedThreshold as DiscoverRelatedThreshold,
+} from "./discover.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -77,7 +87,7 @@ function canonicalSourceDate(value: unknown): unknown {
   return m[1];
 }
 
-const FLAT_SUBCOMMANDS = ["search", "discover", "watch"] as const;
+const FLAT_SUBCOMMANDS = ["search", "watch"] as const;
 
 /** Normalise a CLI folder argument: "" and "raw/" both mean all of raw/; a
  * "raw/" prefix is stripped, so "notes" and "raw/notes" are interchangeable.
@@ -151,6 +161,87 @@ function printToolCallSummary(): void {
   const events = readLog(sessionID, "");
   if (events.length === 0) return;
   console.log(formatSummary(summarize(events)));
+}
+
+/** The JSON shape discover --plan emits: one entry per planned page with its
+ * classified candidates. */
+interface PagesPayload {
+  pages: { title: string; candidates: unknown[] }[];
+}
+
+/** The full plan payload: the pages plus the tag vocabulary, the no-flag form. */
+interface PlanPayload {
+  pages: { title: string; candidates: unknown[] }[];
+  vocabulary: { tag: string; count: number }[];
+}
+
+/** Write value as two-space-indented JSON, the shape discover emits. */
+function printIndentedJSON(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+/** Render a []string as `['a', 'b']` — the plain-text form --tags-containing
+ * emits. */
+function bracketListRepr(items: string[]): string {
+  if (items.length === 0) return "[]";
+  return "[" + items.map((item) => `'${item}'`).join(", ") + "]";
+}
+
+/** Split a comma-separated flag value into its parts, trimming whitespace and
+ * dropping empties. */
+function splitCommaList(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
+
+/** Execute the --plan mode of discover: classify every planned page and emit
+ * the pages payload, optionally replacing the full vocabulary dump with the
+ * plain-text tag results. */
+async function runDiscoverPlan(
+  index: Index,
+  planPath: string,
+  opts: {
+    limit: number;
+    duplicateThreshold: number;
+    relatedThreshold: number;
+  },
+  tagsContain: string,
+  tagCount: string,
+): Promise<void> {
+  let text: string;
+  if (planPath === "-") {
+    text = fs.readFileSync(0, "utf8");
+  } else {
+    text = fs.readFileSync(planPath, "utf8");
+  }
+  const plan: Plan = decodePlan(text);
+  const results = await discoverCandidates(index, plan.pages, opts);
+
+  const pages = results.map((r) => ({
+    title: r.title,
+    candidates: r.candidates,
+  }));
+
+  const vocab = await index.tagCounts();
+
+  if (tagsContain === "" && tagCount === "") {
+    printIndentedJSON({ pages, vocabulary: vocab } satisfies PlanPayload);
+    return;
+  }
+
+  printIndentedJSON({ pages } satisfies PagesPayload);
+  if (tagsContain !== "") {
+    const matches = tagsContaining(vocab, splitCommaList(tagsContain));
+    console.log(bracketListRepr(matches));
+  }
+  if (tagCount !== "") {
+    const counts = tagCounts(vocab, splitCommaList(tagCount));
+    for (const tc of counts) {
+      console.log(`${tc.tag} count: ${tc.count}`);
+    }
+  }
 }
 
 /** Appends rawRel to its own folder's `.ingestignore`.
@@ -519,6 +610,108 @@ export function buildProgram(): Command {
       const sha = await commitManifest(root, manifest, new VaultGit(root));
       console.log(sha);
     });
+
+  // discover — single-call discovery for ingestion (parity with
+  // enchiridion-go/internal/cli/discover.go). Two modes: --plan <draft.json>
+  // discovers candidates for every page in the draft plus the vault's tag
+  // vocabulary; --title/--summary/--body-file is single-page mode, emitting
+  // one candidate per line.
+  program
+    .command("discover")
+    .description(
+      "Find pages overlapping a planned page, plus the tag vocabulary",
+    )
+    .option(
+      "--plan <file>",
+      "path to a draft IngestPlan JSON ('-' reads stdin); discovers candidates for every page in it, plus the vault's tag vocabulary",
+    )
+    .option("--title <text>", "the planned page's own title (single-page mode)")
+    .option(
+      "--summary <text>",
+      "the planned page's own summary (single-page mode)",
+    )
+    .option(
+      "--body-file <file>",
+      "path to the planned page's own body text (single-page mode)",
+    )
+    .option(
+      "--limit <n>",
+      `max candidates per page (default ${DiscoverDefaultLimit})`,
+      (v: string) => Number(v),
+      DiscoverDefaultLimit,
+    )
+    .option(
+      "--duplicate-threshold <n>",
+      "",
+      (v: string) => Number(v),
+      DiscoverDuplicateThreshold,
+    )
+    .option(
+      "--related-threshold <n>",
+      "",
+      (v: string) => Number(v),
+      DiscoverRelatedThreshold,
+    )
+    .option(
+      "--tags-containing <substrings>",
+      "comma-separated substrings (case-insensitive OR match); with --plan, replaces the full tag-vocabulary JSON dump with the plain-text list of matching vault tags",
+    )
+    .option(
+      "--tag-count <tags>",
+      "comma-separated exact tag names; with --plan, replaces the full tag-vocabulary JSON dump with plain-text per-tag page counts (0 if the tag doesn't exist yet)",
+    )
+    .action(
+      async (opts: {
+        plan?: string;
+        title?: string;
+        summary?: string;
+        bodyFile?: string;
+        limit: number;
+        duplicateThreshold: number;
+        relatedThreshold: number;
+        tagsContaining?: string;
+        tagCount?: string;
+      }) => {
+        const { root } = resolveRoot();
+        const discoverOpts = {
+          limit: opts.limit,
+          duplicateThreshold: opts.duplicateThreshold,
+          relatedThreshold: opts.relatedThreshold,
+        };
+        // The one index handle for this run — one per vault at a time
+        // (ADR-0010), owned here because this command is the only thing that
+        // needs one.
+        const index = await Index.open(root);
+        try {
+          if (opts.plan) {
+            await runDiscoverPlan(
+              index,
+              opts.plan,
+              discoverOpts,
+              opts.tagsContaining ?? "",
+              opts.tagCount ?? "",
+            );
+            return;
+          }
+          let body = "";
+          if (opts.bodyFile) {
+            body = fs.readFileSync(opts.bodyFile, "utf8");
+          }
+          const candidates = await checkDiscover(
+            index,
+            opts.title ?? "",
+            opts.summary ?? "",
+            body,
+            discoverOpts,
+          );
+          for (const c of candidates) {
+            console.log(JSON.stringify(c));
+          }
+        } finally {
+          index.close();
+        }
+      },
+    );
 
   // hook session-start|post-tool-use — read their payload on stdin, fail
   // open (CLAUDE.md). Hooks fire automatically rather than being
