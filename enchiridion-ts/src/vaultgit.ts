@@ -266,15 +266,61 @@ export class VaultGit implements Git {
    * `git status --porcelain -- rel` signal. Untracked counts: a brand-new
    * file isn't in git's index at all, and finding it is the point.
    * Lenient: false when root isn't a work tree or the status can't be read.
+   *
+   * The working-tree-vs-blob content comparison is done here, not via
+   * isomorphic-git's `status`: it doesn't apply `core.autocrlf` reliably (its
+   * normalisation only reads the *local* config and compares the value to the
+   * literal string `"true"`), so a clean CRLF checkout of an LF blob — the
+   * norm under `core.autocrlf=true` on Windows — reports `*modified`. We read
+   * the blob and the working-tree file ourselves and compare them
+   * line-ending-insensitively, so a CRLF/LF-only difference is not a false
+   * "modified".
    */
   async porcelainMentions(rel: string): Promise<boolean> {
     try {
-      const status = await git.status({ fs, dir: this.root, filepath: rel });
-      // A clean committed file reports "unmodified"; "absent" means the path
-      // exists nowhere (HEAD/index/workdir), which is not a mention either.
-      // Anything else (modified, *modified, added, *added, deleted, *deleted)
-      // means it differs from HEAD/index or is untracked — mentioned.
-      return status !== "unmodified" && status !== "absent";
+      const diskPath = path.join(this.root, rel);
+
+      let work: Buffer | null = null;
+      try {
+        work = await fs.promises.readFile(diskPath);
+      } catch {
+        work = null; // not on disk
+      }
+      const onDisk = work !== null;
+
+      let headBlob: Buffer | null = null;
+      try {
+        const headOid = await git.resolveRef({
+          fs,
+          dir: this.root,
+          ref: "HEAD",
+        });
+        const oid = await resolveFilePath(this.root, headOid, rel);
+        const { blob } = await git.readBlob({ fs, dir: this.root, oid });
+        headBlob = Buffer.from(blob);
+      } catch {
+        headBlob = null; // no HEAD, or not in HEAD
+      }
+      const inHead = headBlob !== null;
+
+      if (!inHead && !onDisk) return false; // absent everywhere
+      if (!inHead && onDisk) return true; // untracked (a brand-new file)
+      if (inHead && !onDisk) return true; // deleted from the working tree
+
+      // Tracked and on disk. Byte-identical is clean. Otherwise a CRLF/LF-only
+      // difference is autocrlf's doing, not a real change — but only for text
+      // (no NUL byte): binary files aren't subject to autocrlf conversion, so
+      // a differing binary file is genuinely modified.
+      if (headBlob!.equals(work!)) return false;
+      if (!headBlob!.includes(0) && !work!.includes(0)) {
+        if (
+          normalizeEol(headBlob!.toString("utf8")) ===
+          normalizeEol(work!.toString("utf8"))
+        ) {
+          return false;
+        }
+      }
+      return true;
     } catch {
       return false;
     }
@@ -539,6 +585,11 @@ function coveredByPaths(file: string, paths: string[]): boolean {
 
 function formatDate(timestampSeconds: number): string {
   return new Date(timestampSeconds * 1000).toISOString().slice(0, 10);
+}
+
+/** Collapse CRLF to LF — the `core.autocrlf` clean-filter comparison. */
+function normalizeEol(s: string): string {
+  return s.replace(/\r\n/g, "\n");
 }
 
 function fallbackUser(): string {
