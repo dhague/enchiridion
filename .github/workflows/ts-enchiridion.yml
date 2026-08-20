@@ -86,3 +86,34 @@ jobs:
 
       - name: Test the shim
         run: bats wiki-plugin/tests/bin_enchiridion.bats
+
+  freshness:
+    name: Verify committed bundle is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: enchiridion-ts
+
+      - name: Build (esbuild bundle + wasm sidecar)
+        run: npm run build
+        working-directory: enchiridion-ts
+
+      # The shipped artifacts in wiki-plugin/scripts/ are committed by a human
+      # via scripts/release.sh (D2 #287). This job rebuilds from source and
+      # fails the PR if the committed bundle + wasm drift from a fresh build,
+      # so a source change can never silently ship a stale artifact. Paths are
+      # repo-root relative (fresh build output is enchiridion-ts/dist/).
+      - name: Fail if committed artifacts differ from a fresh build
+        run: |
+          cmp wiki-plugin/scripts/cli.cjs enchiridion-ts/dist/cli.cjs
+          cmp wiki-plugin/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm

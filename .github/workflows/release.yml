@@ -1,0 +1,33 @@
+name: release
+
+# Creates a GitHub Release for a pushed version tag (v*). `tag-release.yml`
+# derives and pushes the annotated tag from wiki-plugin/.claude-plugin/plugin.json;
+# this workflow is its consumer (D4 #289).
+#
+# The release carries only GitHub's default .zip/.tar.gz source archives. The
+# actual distributable — the esbuild bundle + wasm sidecar — ships by being
+# *committed* inside wiki-plugin/scripts/ (D1 #286, D2 #287), so a marketplace
+# install clones HEAD and runs it with no build/network step. The tag has no
+# marketplace consumer (marketplace.json pins no ref and tracks main); its only
+# purpose is to produce a visible GitHub Release on the UI.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release for ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Create release with source archives only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
