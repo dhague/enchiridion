@@ -91,7 +91,7 @@ test("--help: prints help, exits 0", () => {
   assert.match(stdout, /Usage:/);
 });
 
-for (const name of ["search", "discover", "watch"]) {
+for (const name of ["search", "watch"]) {
   test(`${name}: stub exits non-zero with "not yet implemented"`, () => {
     const { status, stderr } = run([name]);
     assert.notEqual(status, 0);
@@ -826,4 +826,129 @@ test("ingest-scan: lists eligible raw files", () => {
   assert.equal(records[0].kind, "eligible");
   assert.equal(records[0].raw_rel, "raw/foo.md");
   assert.equal(records[0].reason, "never-ingested");
+});
+
+// ---------------------------------------------------------------------------
+// discover — needs a committed vault (search is a view of committed history)
+// ---------------------------------------------------------------------------
+
+/** Write a page under a vault's wiki/, then init+commit the whole vault. */
+async function buildCommittedVault(): Promise<string> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-disc-"));
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  await git.init({ fs, dir: root });
+
+  const write = (rel: string, content: string) => {
+    const abs = path.join(root, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, content);
+  };
+  write(
+    "wiki/concepts/connection-pooling.md",
+    "---\ntitle: Connection Pooling in Postgres\nsummary: Reuse connections instead of opening a new one per request.\ntags:\n  - database\nvolatility: stable\n---\n\nConnection pooling reduces per-request handshake overhead by reusing a fixed set of open connections across callers.\n",
+  );
+  write(
+    "wiki/concepts/sourdough-starter.md",
+    "---\ntitle: Feeding a Sourdough Starter\nsummary: Daily flour-and-water feeding keeps a starter active.\ntags:\n  - baking\nvolatility: stable\n---\n\nA sourdough starter needs equal parts flour and water once a day, kept warm, to stay active enough to leaven bread.\n",
+  );
+
+  await git.add({ fs, dir: root, filepath: "." });
+  await git.commit({
+    fs,
+    dir: root,
+    message: "fixtures",
+    author: { name: "test", email: "t@e.com", timestamp: 1, timezoneOffset: 0 },
+    committer: {
+      name: "test",
+      email: "t@e.com",
+      timestamp: 1,
+      timezoneOffset: 0,
+    },
+  });
+  return root;
+}
+
+test("discover: single-page mode finds the overlapping page and emits one candidate per line", async () => {
+  const root = await buildCommittedVault();
+  const { status, stdout, stderr } = runEnv(
+    ["discover", "--title", "Connection Pooling in Postgres"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  const lines = stdout.trim().split("\n");
+  assert.ok(lines.length > 0);
+  const first = JSON.parse(lines[0]);
+  assert.equal(first.page_ref, "wiki/concepts/connection-pooling.md");
+});
+
+test("discover: --plan emits the pages and vocabulary payload", async () => {
+  const root = await buildCommittedVault();
+  const planPath = path.join(root, "draft.json");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({
+      title: "Draft",
+      pages: [
+        {
+          op: "create",
+          title: "Connection Pooling in Postgres",
+          kind: "concept",
+          frontmatter: { summary: "" },
+          body: "",
+        },
+      ],
+    }),
+  );
+  const { status, stdout, stderr } = runEnv(["discover", "--plan", planPath], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.equal(status, 0, stderr);
+  const payload = JSON.parse(stdout);
+  assert.ok(Array.isArray(payload.pages));
+  assert.ok(Array.isArray(payload.vocabulary));
+  assert.equal(payload.pages.length, 1);
+  assert.equal(payload.pages[0].title, "Connection Pooling in Postgres");
+});
+
+test("discover: --plan - reads the draft from stdin", async () => {
+  const root = await buildCommittedVault();
+  const draft = JSON.stringify({
+    title: "Draft",
+    pages: [
+      {
+        op: "create",
+        title: "Feeding a Sourdough Starter",
+        kind: "concept",
+        frontmatter: { summary: "" },
+        body: "",
+      },
+    ],
+  });
+  const result = spawnSync(tsxBin, [cliPath, "discover", "--plan", "-"], {
+    encoding: "utf8",
+    input: draft,
+    cwd: root,
+    env: { ...process.env, WIKI_ROOT: root },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.ok(Array.isArray(payload.pages));
+  assert.equal(payload.pages.length, 1);
+});
+
+test("discover: --plan with --tags-containing emits the bracket list", async () => {
+  const root = await buildCommittedVault();
+  const planPath = path.join(root, "draft.json");
+  fs.writeFileSync(planPath, JSON.stringify({ title: "Draft", pages: [] }));
+  const { status, stdout, stderr } = runEnv(
+    ["discover", "--plan", planPath, "--tags-containing", "data"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  const lines = stdout.trim().split("\n");
+  // pages payload is indented JSON spanning several lines; the bracket list is
+  // the final line.
+  const last = lines[lines.length - 1];
+  assert.match(last, /^\[.*database.*\]$/);
 });
