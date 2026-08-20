@@ -333,6 +333,25 @@ test("scan: wiki/_index.md does not break back-pointer recognition", async () =>
   assert.deepEqual(cand.backPointers, ["wiki/sources/foo-notes.md"]);
 });
 
+test("scan: wiki page with CRLF line endings is recognised as a back-pointer", async () => {
+  // On Windows, git core.autocrlf=true converts LF → CRLF on checkout.
+  const root = tmpRoot();
+  seedVault(root);
+  write(root, "raw/notes/foo.md", "raw notes content");
+  write(
+    root,
+    "wiki/sources/foo-notes.md",
+    "---\r\ntitle: Foo\r\nraw_source: \"[foo.md](../../raw/notes/foo.md)\"\r\n---\r\n# Foo\r\n",
+  );
+
+  const result = await scan(root, "", null);
+  assert.equal(result.eligible.length, 1);
+  const cand = result.eligible[0];
+  assert.equal(cand.rawRel, "raw/notes/foo.md");
+  assert.equal(cand.reason, ReasonChangedSinceIngestion);
+  assert.deepEqual(cand.backPointers, ["wiki/sources/foo-notes.md"]);
+});
+
 // --- Scan: shape -------------------------------------------------------------
 
 test("scan: malformed .ingestignore is an error", async () => {
