@@ -91,14 +91,6 @@ test("--help: prints help, exits 0", () => {
   assert.match(stdout, /Usage:/);
 });
 
-for (const name of ["search"]) {
-  test(`${name}: stub exits non-zero with "not yet implemented"`, () => {
-    const { status, stderr } = run([name]);
-    assert.notEqual(status, 0);
-    assert.match(stderr, /not yet implemented/);
-  });
-}
-
 test("place: prints the vault-relative path from kind and title", () => {
   const { status, stdout, stderr } = run([
     "place",
