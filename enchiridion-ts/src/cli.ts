@@ -40,18 +40,13 @@ import {
   DuplicateThreshold as DiscoverDuplicateThreshold,
   RelatedThreshold as DiscoverRelatedThreshold,
 } from "./discover.js";
-import { watch as watchRaw } from "chokidar";
-import { scan as scanEligible } from "./ingestscan.js";
 import {
   DefaultDebounceSeconds,
   DefaultPollIntervalSeconds,
-  Debouncer,
   acquireLock,
-  checkAndEnqueue,
   forRoot,
-  relForEvent,
   removeFromQueue,
-  removeLock,
+  runWatch,
 } from "./watch.js";
 
 /** Prints the standard stub message and marks the process failed. */
@@ -397,78 +392,6 @@ function ignoreRawFile(root: string, rawRel: string, comment: string): void {
     path.posix.dirname(rel.slice("raw/".length)),
   );
   appendIngestignore(folder, path.posix.basename(rel), comment);
-}
-
-/**
- * scanEligible is the production scan: one `ingest-scan` sweep per poll tick,
- * so eligibility matches the manual sweep exactly.
- */
-async function scanEligibleRels(root: string): Promise<Set<string>> {
-  const result = await scanEligible(root, "", null);
-  return new Set(result.eligible.map((c) => c.rawRel));
-}
-
-/**
- * runWatch runs the long-lived watch loop: chokidar over root/raw/ records
- * file events into the debouncer; on each poll tick settled files are scanned
- * for eligibility and enqueued. A SIGINT/SIGTERM stops the loop and removes the
- * lock file.
- */
-function runWatch(
-  paths: { root: string; lock: string; queue: string },
-  debounceSeconds: number,
-  pollInterval: number,
-): Promise<void> {
-  const rawRoot = path.join(paths.root, "raw");
-  fs.mkdirSync(rawRoot, { recursive: true, mode: 0o755 });
-
-  const watcher = watchRaw(rawRoot, { ignoreInitial: true });
-  const debouncer = new Debouncer(debounceSeconds);
-
-  return new Promise<void>((resolve) => {
-    const cleanup = (): void => {
-      clearInterval(ticker);
-      process.removeListener("SIGINT", onSignal);
-      process.removeListener("SIGTERM", onSignal);
-      void watcher.close();
-      removeLock(paths.lock);
-    };
-    const onSignal = (): void => {
-      console.log("watcher stopped");
-      cleanup();
-      resolve();
-    };
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
-
-    watcher.on("all", (_eventName: string, p: string) => {
-      const rel = relForEvent(paths.root, p);
-      if (rel !== null) debouncer.recordEvent(rel);
-    });
-    watcher.on("error", (_err: unknown) => {
-      // Log-and-keep-watching; a transient read error isn't fatal.
-    });
-    watcher.on("ready", () => {
-      console.log(
-        `watching ${rawRoot} (debounce=${debounceSeconds}s, pid=${process.pid})`,
-      );
-    });
-
-    const ticker = setInterval(() => {
-      const settled = debouncer.settledFiles();
-      if (settled.length === 0) return;
-      scanEligibleRels(paths.root)
-        .then((eligible) => {
-          for (const rel of settled) {
-            const queued = checkAndEnqueue(eligible, rel, paths.queue);
-            if (queued) console.log(`queued ${rel}`);
-          }
-        })
-        .catch((err) => {
-          console.log(`error scanning raw/: ${(err as Error).message}`);
-        });
-    }, pollInterval * 1000);
-  });
 }
 
 export function buildProgram(): Command {
@@ -916,7 +839,10 @@ export function buildProgram(): Command {
             `previous watcher exited without cleanup, removing stale lock (pid=${stalePID})`,
           );
         }
-        await runWatch(paths, opts.debounce, opts.pollInterval);
+        await runWatch(paths, {
+          debounceSeconds: opts.debounce,
+          pollIntervalSeconds: opts.pollInterval,
+        });
       },
     );
 

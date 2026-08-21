@@ -3,8 +3,13 @@
  * enchiridion-go/internal/watch.
  *
  * The `/wiki-watch` skill orchestrates; this is the half it launches in the
- * background and polls. Three pieces:
+ * background and polls. Four pieces:
  *
+ *   - [runWatch] — the long-lived loop that owns the watcher, the debouncer,
+ *     the per-poll-tick sweep, and the queue, with the file-watcher, the
+ *     sweep, and the clock injectable so the loop's timing is testable
+ *     without chokidar, real signals, or real sleeps. The CLI shrinks to
+ *     lock handling and one call to it.
  *   - [Debouncer] — per-file debounce, pure (injectable clock, no threads, no
  *     filesystem) so the timing is testable without real sleeps.
  *   - The lock file at `.wiki-knowledge/watch.lock` — one watcher per vault,
@@ -24,6 +29,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { watch as watchRaw } from "chokidar";
+import { scan as scanEligible } from "./ingestscan.js";
 
 /** The per-file settle window. */
 export const DefaultDebounceSeconds = 30;
@@ -342,4 +349,158 @@ function sleep(ms: number): void {
 
 function toSlash(p: string): string {
   return p.split(path.sep).join("/");
+}
+
+// --- the watch loop -----------------------------------------------------------
+
+/** The minimal file-watcher surface [runWatch] drives. Chokidar's FSWatcher
+ * satisfies it structurally. */
+export interface Watcher {
+  /** Registers a filesystem-event handler. The loop consumes only the "all"
+   * event, keyed by (eventName, path). */
+  on(event: "all", cb: (eventName: string, p: string) => void): void;
+  /** Registers the log-and-keep-watching error handler. */
+  on(event: "error", cb: (err: unknown) => void): void;
+  /** Registers the ready handler, which fires the "watching …" banner. */
+  on(event: "ready", cb: () => void): void;
+  /** Stops watching; resolves once fully closed. */
+  close(): Promise<void>;
+}
+
+/** One eligibility sweep, run per poll tick when files have settled. Returns
+ * the vault-relative paths the sweep offers. */
+export type Sweep = () => Promise<Set<string>>;
+
+/** Schedules `tick` every `ms`; the returned function cancels it. The default
+ * uses setInterval/clearInterval; tests inject a scheduler that stores the
+ * tick for manual driving, so no real sleeps are needed. */
+export type Scheduler = (tick: () => void, ms: number) => () => void;
+
+/** The injectable seams [runWatch] composes. Every field defaults to the
+ * production implementation; tests inject fakes for all of them. */
+export interface WatchOptions {
+  /** Per-file settle window, seconds (default [DefaultDebounceSeconds]). */
+  debounceSeconds?: number;
+  /** How often to check for settled files, seconds (default
+   * [DefaultPollIntervalSeconds]). */
+  pollIntervalSeconds?: number;
+  /** Creates the file watcher over the raw/ root (default: chokidar). */
+  makeWatcher?: (rawRoot: string) => Watcher;
+  /** One eligibility sweep per poll tick (default: the real ingest-scan over
+   * paths.root, matching the manual sweep exactly). */
+  sweep?: Sweep;
+  /** Monotonic-seconds clock for the debouncer (default: real time). */
+  clock?: () => number;
+  /** Registers a signal handler (default: process.on). */
+  onSignal?: (signal: "SIGINT" | "SIGTERM", cb: () => void) => void;
+  /** Removes a signal handler (default: process.removeListener). */
+  offSignal?: (signal: "SIGINT" | "SIGTERM", cb: () => void) => void;
+  /** Schedules the per-poll-tick sweep (default: setInterval). */
+  schedule?: Scheduler;
+  /** The pid printed in the "watching …" banner (default: process.pid). */
+  pid?: number;
+  /** Emits the loop's user-facing lines (default: console.log). */
+  log?: (line: string) => void;
+}
+
+/**
+ * runWatch runs the long-lived watch loop: a file watcher over root/raw/
+ * records events into the debouncer; on each poll tick settled files are
+ * swept for eligibility and enqueued. SIGINT/SIGTERM logs "watcher stopped",
+ * cancels the poll, closes the watcher, removes the lock, and resolves the
+ * returned promise.
+ *
+ * Creates root/raw/ if missing. The watcher, sweep, clock, signal handling,
+ * scheduler, and log are injectable, so the loop is testable with no
+ * chokidar, no real signals, and no real sleeps.
+ */
+export function runWatch(
+  paths: Paths,
+  options: WatchOptions = {},
+): Promise<void> {
+  const debounceSeconds = options.debounceSeconds ?? DefaultDebounceSeconds;
+  const pollIntervalSeconds =
+    options.pollIntervalSeconds ?? DefaultPollIntervalSeconds;
+  const rawRoot = path.join(paths.root, "raw");
+  fs.mkdirSync(rawRoot, { recursive: true, mode: 0o755 });
+
+  const watcher = (options.makeWatcher ?? defaultWatcher)(rawRoot);
+  const debouncer = new Debouncer(
+    debounceSeconds,
+    options.clock ?? defaultClock(),
+  );
+  const sweep = options.sweep ?? defaultSweep(paths.root);
+  const schedule = options.schedule ?? defaultSchedule;
+  const onSignal = options.onSignal ?? defaultOnSignal;
+  const offSignal = options.offSignal ?? defaultOffSignal;
+  const log = options.log ?? console.log;
+  const pid = options.pid ?? process.pid;
+
+  return new Promise<void>((resolve) => {
+    let cancel = (): void => {};
+    let stopped = false;
+    const stop = (): void => {
+      if (stopped) return;
+      stopped = true;
+      log("watcher stopped");
+      cancel();
+      offSignal("SIGINT", stop);
+      offSignal("SIGTERM", stop);
+      void watcher.close();
+      removeLock(paths.lock);
+      resolve();
+    };
+    onSignal("SIGINT", stop);
+    onSignal("SIGTERM", stop);
+
+    watcher.on("all", (_eventName: string, p: string) => {
+      const rel = relForEvent(paths.root, p);
+      if (rel !== null) debouncer.recordEvent(rel);
+    });
+    watcher.on("error", (_err: unknown) => {
+      // Log-and-keep-watching; a transient read error isn't fatal.
+    });
+    watcher.on("ready", () => {
+      log(`watching ${rawRoot} (debounce=${debounceSeconds}s, pid=${pid})`);
+    });
+
+    cancel = schedule(() => {
+      const settled = debouncer.settledFiles();
+      if (settled.length === 0) return;
+      sweep()
+        .then((eligible) => {
+          for (const rel of settled) {
+            const queued = checkAndEnqueue(eligible, rel, paths.queue);
+            if (queued) log(`queued ${rel}`);
+          }
+        })
+        .catch((err) => {
+          log(`error scanning raw/: ${(err as Error).message}`);
+        });
+    }, pollIntervalSeconds * 1000);
+  });
+}
+
+function defaultWatcher(rawRoot: string): Watcher {
+  return watchRaw(rawRoot, { ignoreInitial: true });
+}
+
+function defaultSweep(root: string): Sweep {
+  return async (): Promise<Set<string>> => {
+    const result = await scanEligible(root, "", null);
+    return new Set(result.eligible.map((c) => c.rawRel));
+  };
+}
+
+function defaultSchedule(tick: () => void, ms: number): () => void {
+  const id = setInterval(tick, ms);
+  return () => clearInterval(id);
+}
+
+function defaultOnSignal(signal: "SIGINT" | "SIGTERM", cb: () => void): void {
+  process.on(signal, cb);
+}
+
+function defaultOffSignal(signal: "SIGINT" | "SIGTERM", cb: () => void): void {
+  process.removeListener(signal, cb);
 }
