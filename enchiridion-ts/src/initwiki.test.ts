@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as git from "isomorphic-git";
 import {
   init,
   isVault,
@@ -38,7 +39,7 @@ test("init scaffolds the kind-axed layout", async () => {
   assert.ok(fs.existsSync(path.join(root, ".gitignore")));
 });
 
-test("init gitignores the search index", async () => {
+test("init writes the standard gitignore", async () => {
   const root = tmpVault();
   await init(root, ModeDedicated, "");
   const content = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
@@ -47,6 +48,10 @@ test("init gitignores the search index", async () => {
     ".claude/wiki-knowledge/sessions/",
     ".opencode/wiki-knowledge/sessions/",
     ".wiki-knowledge/",
+    // LLM-wiki/Obsidian navigation scaffolding is not knowledge (#323).
+    "log.md",
+    "index.md",
+    "_index.md",
   ]) {
     assert.ok(
       content.split("\n").includes(line),
@@ -103,9 +108,13 @@ test("init refuses to run twice", async () => {
   await assert.rejects(init(root, ModeDedicated, ""));
 });
 
-test("init refuses a directory with a wiki-root sentinel", async () => {
+test("init refuses a vault carrying a wiki-root sentinel and git", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
   fs.writeFileSync(path.join(root, ".wiki-root"), "");
+  // A marker alone is not a vault (#323); only a marker plus a git work tree
+  // is one, so this needs a repo before init refuses it.
+  const repo = new VaultGit(root);
+  await repo.init();
   await assert.rejects(init(root, ModeDedicated, ""));
 });
 
@@ -124,9 +133,92 @@ test("init validates its arguments", async () => {
   }
 });
 
-test("isVault reports markers", () => {
+test("isVault requires a marker AND a git work tree (#323)", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
-  assert.equal(isVault(root), false);
+  assert.equal(await isVault(root), false);
   fs.mkdirSync(path.join(root, "wiki"));
-  assert.equal(isVault(root), true);
+  // A marker without git — the conversion path a Joule user lands on — is
+  // not yet a vault; init seeds a repo around it instead of refusing.
+  assert.equal(await isVault(root), false);
+  const repo = new VaultGit(root);
+  await repo.init();
+  assert.equal(await isVault(root), true);
+});
+
+test("init converts an existing wiki/ tree without git (#323)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "existing.md"),
+    "---\ntitle: Existing\n---\n\nA pre-existing page.\n",
+  );
+
+  const got = await init(root, ModeDedicated, "");
+  assert.equal(got, path.resolve(root));
+
+  // The existing page survives untouched...
+  assert.ok(fs.existsSync(path.join(root, "wiki", "concepts", "existing.md")));
+  // ...the canonical kind-folders are completed...
+  for (const folder of Object.values(KindFolders)) {
+    assert.ok(
+      fs.existsSync(path.join(root, "wiki", folder)),
+      `${folder} missing`,
+    );
+  }
+  // ...and the initial commit sweeps the existing pages in.
+  const repo = new VaultGit(root);
+  assert.ok(await repo.isWorkTree(), "conversion left no git work tree");
+  const files = await git.listFiles({ fs, dir: root, ref: "HEAD" });
+  assert.ok(files.includes("wiki/concepts/existing.md"), files.join("\n"));
+  assert.ok(files.includes(".gitignore"), files.join("\n"));
+});
+
+test("init conversion does not synthesize a raw/ inbox (#323)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  await init(root, ModeDedicated, "");
+  assert.ok(
+    !fs.existsSync(path.join(root, "raw")),
+    "conversion synthesized a raw/ inbox",
+  );
+});
+
+test("init conversion sweeps an existing raw/ inbox in (#323)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  // A conversion's existing inbox carries content, not a scaffold .gitkeep.
+  fs.mkdirSync(path.join(root, "raw", "conversations"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "raw", "conversations", "transcript.md"),
+    "raw\n",
+  );
+  await init(root, ModeDedicated, "");
+  const files = await git.listFiles({ fs, dir: root, ref: "HEAD" });
+  assert.ok(
+    files.includes("raw/conversations/transcript.md"),
+    files.join("\n"),
+  );
+});
+
+test("init conversion leaves navigation scaffolding uncommitted (#323)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-initwiki-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\n---\n\nBody.\n",
+  );
+  for (const name of ["log.md", "index.md", "_index.md"]) {
+    fs.writeFileSync(path.join(root, "wiki", name), "navigation\n");
+  }
+
+  await init(root, ModeDedicated, "");
+
+  const files = await git.listFiles({ fs, dir: root, ref: "HEAD" });
+  assert.ok(files.includes("wiki/concepts/a.md"), files.join("\n"));
+  for (const name of ["log.md", "index.md", "_index.md"]) {
+    assert.ok(
+      !files.includes(`wiki/${name}`),
+      `gitignored navigation file wiki/${name} was committed:\n${files.join("\n")}`,
+    );
+  }
 });

@@ -389,9 +389,37 @@ test("init: requires --mode", () => {
 test("init: refuses a directory that already looks like a vault", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-"));
   fs.mkdirSync(path.join(root, "wiki"));
+  // A marker alone is not a vault (#323) — a repo is what makes it one.
+  const { status: initStatus } = spawnSync("git", ["-C", root, "init"], {
+    encoding: "utf8",
+  });
+  assert.equal(initStatus, 0);
   const { status, stderr } = run(["init", root, "--mode", "dedicated"]);
   assert.notEqual(status, 0);
   assert.match(stderr, /already looks like a vault/);
+});
+
+test("init: seeds a repo around an existing wiki/ tree without git (#323)", () => {
+  const root = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-init-")),
+    "vault",
+  );
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "existing.md"),
+    "---\ntitle: Existing\n---\n\nBody.\n",
+  );
+  const { status, stdout, stderr } = run(["init", root, "--mode", "dedicated"]);
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout.trim(), path.resolve(root));
+  // The initial commit sweeps the pre-existing page in.
+  const { status: lsStatus, stdout: ls } = spawnSync(
+    "git",
+    ["-C", root, "ls-files"],
+    { encoding: "utf8" },
+  );
+  assert.equal(lsStatus, 0);
+  assert.ok(ls.includes("wiki/concepts/existing.md"), ls);
 });
 
 test("init: query-from-anywhere requires --plugin-root", () => {

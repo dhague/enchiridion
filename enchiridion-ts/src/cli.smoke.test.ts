@@ -198,6 +198,39 @@ test(
   },
 );
 
+test(
+  `[${runtimeName}] init: seeds a repo around an existing wiki/ tree without git`,
+  { skip: skipReason },
+  () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "enchiridion-smoke-init-"),
+    );
+    fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "wiki", "concepts", "existing.md"),
+      "---\ntitle: Existing\n---\n\nA pre-existing page.\n",
+    );
+    const { status, stdout, stderr } = runBundled([
+      "init",
+      root,
+      "--mode",
+      "dedicated",
+    ]);
+    assert.equal(status, 0, stderr);
+    assert.equal(stdout.trim(), path.resolve(root));
+    // The initial commit sweeps the pre-existing page in, and the converted
+    // vault gains no synthesized raw/ inbox.
+    const { status: lsStatus, stdout: ls } = spawnSync(
+      "git",
+      ["-C", root, "ls-files"],
+      { encoding: "utf8" },
+    );
+    assert.equal(lsStatus, 0);
+    assert.ok(ls.includes("wiki/concepts/existing.md"), ls);
+    assert.ok(!fs.existsSync(path.join(root, "raw")), "raw/ synthesized");
+  },
+);
+
 // ---------------------------------------------------------------------------
 // ingest
 // ---------------------------------------------------------------------------
