@@ -798,6 +798,64 @@ test("place: unknown kind errors non-zero", () => {
   assert.match(stderr, /unknown kind/);
 });
 
+test("read-page: prints a page's full markdown by vault-relative ref", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-rp-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\nsummary: s\n---\n\nbody text\n",
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stdout, stderr } = runEnv(
+    ["read-page", "wiki/concepts/a.md"],
+    {
+      cwd: root,
+      env: { WIKI_ROOT: root },
+    },
+  );
+  assert.equal(status, 0, stderr);
+  assert.equal(stdout, "---\ntitle: A\nsummary: s\n---\n\nbody text\n");
+});
+
+test("read-page --json: emits {page_ref, frontmatter, body}", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-rp-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "wiki", "concepts", "a.md"),
+    "---\ntitle: A\ntags:\n  - db\n---\n\nbody text\n",
+  );
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stdout, stderr } = runEnv(
+    ["read-page", "wiki/concepts/a.md", "--json"],
+    { cwd: root, env: { WIKI_ROOT: root } },
+  );
+  assert.equal(status, 0, stderr);
+  const payload = JSON.parse(stdout);
+  assert.equal(payload.page_ref, "wiki/concepts/a.md");
+  assert.deepEqual(payload.frontmatter, { title: "A", tags: ["db"] });
+  assert.equal(payload.body, "\nbody text\n");
+});
+
+test("read-page: a missing ref errors non-zero", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-rp-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+  const { status, stderr } = runEnv(["read-page", "wiki/concepts/missing.md"], {
+    cwd: root,
+    env: { WIKI_ROOT: root },
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /page not found/);
+});
+
+test("read-page: wrong argument count errors non-zero", () => {
+  const { status } = run(["read-page"]);
+  assert.notEqual(status, 0);
+});
+
 test("superseded-by: resolves a seed to its current head", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ssby-"));
   fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });

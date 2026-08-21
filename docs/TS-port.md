@@ -13,7 +13,7 @@ The original script layer was a single static Go binary ([ADR-0011](adr/0011-go-
 
 - `enchiridion-go/` is **deleted** (#267). There is one script-layer implementation: the TypeScript bundle at `enchiridion-ts/dist/cli.cjs` + the `node-sqlite3-wasm` `.wasm` sidecar.
 - `wiki-plugin/bin/enchiridion` is a thin POSIX-sh shim that execs `node` against the bundle, forwarding every argument; `ENCHIRIDION_BIN` overrides it for local dev (#254).
-- All **14 subcommands** are implemented and exercised on both Node and Bun: `search`, `init`, `ingest`, `discover`, `ingest-scan`, `watch`, `save-session`, `tool-call-stats`, `commit`, `superseded-by`, `vault`, `page`, `place`, `hook`.
+- All **15 subcommands** are implemented and exercised on both Node and Bun: `search`, `init`, `ingest`, `discover`, `ingest-scan`, `watch`, `save-session`, `tool-call-stats`, `commit`, `superseded-by`, `read-page`, `vault`, `page`, `place`, `hook`.
 - No native addons anywhere: `node-sqlite3-wasm` (WASM, not `.node`), `chokidar` in pure-JS mode (no `fsevents`), `isomorphic-git` (JS). A native addon would re-trip the ASR rule the port exists to clear.
 
 ## Sequencing
