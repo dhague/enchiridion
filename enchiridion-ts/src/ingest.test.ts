@@ -348,6 +348,21 @@ test("shape validation rejects a non-date source_date", () => {
   );
 });
 
+test("shape validation rejects an invalid calendar date source_date", () => {
+  const got = validationErrors(
+    `{"title":"T","pages":[
+    {"op":"create","title":"A","kind":"concept","body":"b",
+     "frontmatter":{"source_date":"2026-02-30"}}]}`,
+    "",
+  );
+  assert.ok(
+    got.includes(
+      "pages[0].frontmatter.source_date must be a valid date (YYYY-MM-DD), got 2026-02-30",
+    ),
+    got,
+  );
+});
+
 test("shape validation accepts a timestamp source_date", () => {
   const got = validationErrors(
     `{"title":"T","pages":[
