@@ -12,3 +12,4 @@ tmp/
 temp/
 .lsp.json
 opencode.json
+.opencode/
