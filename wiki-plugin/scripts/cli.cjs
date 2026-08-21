@@ -38240,9 +38240,10 @@ init_vaultgit();
 var ModeQueryFromAnywhere = "query-from-anywhere";
 var ModeDedicated = "dedicated";
 var Modes = [ModeQueryFromAnywhere, ModeDedicated];
-var gitignore = "*.rsls\n.claude/wiki-knowledge/sessions/\n.opencode/wiki-knowledge/sessions/\n.wiki-knowledge/\n";
-function isVault(root) {
-  return hasMarker(root);
+var gitignore = "*.rsls\n.claude/wiki-knowledge/sessions/\n.opencode/wiki-knowledge/sessions/\n.wiki-knowledge/\nlog.md\nindex.md\n_index.md\n";
+async function isVault(root) {
+  if (!hasMarker(root)) return false;
+  return await new VaultGit(root).isWorkTree();
 }
 function settingsJSON(pluginRoot) {
   const settings = {
@@ -38269,24 +38270,32 @@ async function init2(vaultRoot, mode, pluginRoot) {
         `unknown mode "${mode}"; must be one of ${Modes.join(", ")}`
       );
   }
-  if (isVault(vaultRoot)) {
+  if (await isVault(vaultRoot)) {
     throw new Error(
-      `${vaultRoot} already looks like a vault (wiki/ or .wiki-root exists)`
+      `${vaultRoot} already looks like a vault (a wiki/ or .wiki-root marker in a git work tree)`
     );
   }
   import_node_fs11.default.mkdirSync(vaultRoot, { recursive: true, mode: 493 });
+  const converting = import_node_fs11.default.existsSync(import_node_path14.default.join(vaultRoot, "wiki"));
   for (const folder of Object.values(KindFolders)) {
     const kindDir = import_node_path14.default.join(vaultRoot, "wiki", folder);
+    if (import_node_fs11.default.existsSync(kindDir)) continue;
     import_node_fs11.default.mkdirSync(kindDir, { recursive: true, mode: 493 });
     touch(import_node_path14.default.join(kindDir, ".gitkeep"));
   }
   const rawDir = import_node_path14.default.join(vaultRoot, "raw");
-  import_node_fs11.default.mkdirSync(rawDir, { recursive: true, mode: 493 });
-  touch(import_node_path14.default.join(rawDir, ".gitkeep"));
+  if (!converting && !import_node_fs11.default.existsSync(rawDir)) {
+    import_node_fs11.default.mkdirSync(rawDir, { recursive: true, mode: 493 });
+    touch(import_node_path14.default.join(rawDir, ".gitkeep"));
+  }
   import_node_fs11.default.writeFileSync(import_node_path14.default.join(vaultRoot, ".gitignore"), gitignore, {
     mode: 420
   });
-  const addPaths = ["wiki", ".gitignore", "raw/.gitkeep"];
+  const addPaths = [];
+  for (const rel of ["wiki", "raw", ".gitignore"]) {
+    const abs = import_node_path14.default.join(vaultRoot, ...rel.split("/"));
+    if (import_node_fs11.default.existsSync(abs)) addPaths.push(rel);
+  }
   if (mode === ModeQueryFromAnywhere) {
     const claudeDir = import_node_path14.default.join(vaultRoot, ".claude");
     import_node_fs11.default.mkdirSync(claudeDir, { recursive: true, mode: 493 });
