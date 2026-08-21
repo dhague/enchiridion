@@ -3,8 +3,9 @@
  * from enchiridion-go/internal/vault (root.go + vault.go).
  *
  * [resolveRoot] answers "where is the vault" per
- * docs/adr/0004-deployment-modes-and-vault-root-resolution.md; [pageRefs]
- * enumerates every `wiki/**` page; [Vault] owns every read and write inside
+ * docs/adr/0004-deployment-modes-and-vault-root-resolution.md; page
+ * enumeration is [pagepredicate.enumeratePageRefs] (this module never owns a
+ * copy of the rule); [Vault] owns every read and write inside
  * the vault, plus the cross-page operations ([Vault.movePage],
  * [Vault.rewriteInboundLinks]) that need every other page's text to fix the
  * links pointing at a moved one. Its counterpart [Page] is pure-functional
@@ -89,21 +90,6 @@ function resolve(p: string): string {
   } catch {
     return abs;
   }
-}
-
-/** The generated `wiki/_index.md` exclusion lives in pagepredicate, the one
- * shared definition of what counts as a page (#310); this module's page
- * enumeration delegates to it. */
-
-/**
- * Return every page under the vault's `wiki/` tree at root, as vault-relative
- * page refs (ADR-0009), sorted. `raw/` is never walked, and the page rule is
- * pagepredicate's — markdown at `wiki/<kind-folder>/<file>.md`, never the
- * generated `wiki/_index.md`, never a nested page — the same rule the git
- * walk and the index's status count use, so all three views agree (#310).
- */
-export function pageRefs(root: string): string[] {
-  return enumeratePageRefs(root);
 }
 
 function isENOENT(err: unknown): boolean {
@@ -225,7 +211,7 @@ export class Vault {
   /** Return every `wiki/**` page as a {pageRef: text} map. Never walks
    * `raw/`. */
   loadWikiPages(): Record<string, string> {
-    const refs = pageRefs(this.root);
+    const refs = enumeratePageRefs(this.root);
     const pages: Record<string, string> = {};
     for (const ref of refs)
       pages[ref] = fs.readFileSync(this.path(ref), "utf8");

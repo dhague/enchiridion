@@ -14,7 +14,7 @@ import path from "node:path";
 import { Index, tokenizeQuery, SCHEMA_VERSION } from "./searchindex.js";
 import type { Git, Snapshot, PageChange } from "./searchindex.js";
 import { VaultGit } from "./vaultgit.js";
-import { pageRefs } from "./vault.js";
+import { enumeratePageRefs } from "./pagepredicate.js";
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -794,7 +794,7 @@ describe("page predicate agreement", () => {
       await git.commit("seed edge vault");
 
       // The three views, independently computed on the same vault:
-      const onDisk = pageRefs(root);
+      const onDisk = enumeratePageRefs(root);
       const index = await Index.openWithGit(root, git);
       try {
         const stats = await index.reindex(true);

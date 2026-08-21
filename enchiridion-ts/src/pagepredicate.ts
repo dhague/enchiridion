@@ -2,8 +2,9 @@
  * The one definition of what counts as a page (#310).
  *
  * "What is a page" used to be computed three different ways — the disk walk
- * (`vault.pageRefs`), the committed-history walk (`vaultgit`), and the
- * search index's on-disk status count — and the answers diverged on edge
+ * (formerly `vault.pageRefs`, now this module's `enumeratePageRefs`), the
+ * committed-history walk (`vaultgit`), and the search index's on-disk status
+ * count — and the answers diverged on edge
  * vaults: a committed `wiki/_index.md` counted for the git walk but not the
  * disk walk, and a nested `wiki/<folder>/nested/deep.md` counted for the disk
  * walk, was rejected by the schema reader (`pagerecord`), and was missed by

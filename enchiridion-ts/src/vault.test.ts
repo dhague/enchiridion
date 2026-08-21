@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Markers, Vault, hasMarker, pageRefs, resolveRoot } from "./vault.js";
+import { Markers, Vault, hasMarker, resolveRoot } from "./vault.js";
 import type { LookupEnv } from "./vault.js";
 import { Page } from "./wikipage.js";
 
@@ -81,52 +81,6 @@ test("hasMarker recognises both markers", () => {
   assert.equal(hasMarker(root2), true);
   const root3 = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
   assert.equal(hasMarker(root3), false);
-});
-
-test("pageRefs walks only wiki markdown", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
-  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
-  fs.mkdirSync(path.join(root, "raw"), { recursive: true });
-  fs.writeFileSync(path.join(root, "wiki", "concepts", "a.md"), "");
-  fs.writeFileSync(path.join(root, "wiki", "concepts", ".gitkeep"), "");
-  fs.writeFileSync(path.join(root, "wiki", "concepts", "notes.txt"), "");
-  fs.writeFileSync(path.join(root, "raw", "should-not-appear.md"), "");
-
-  assert.deepEqual(pageRefs(root), ["wiki/concepts/a.md"]);
-});
-
-test("pageRefs excludes the generated wiki/_index.md, never a page", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
-  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
-  fs.writeFileSync(path.join(root, "wiki", "_index.md"), "generated table");
-  fs.writeFileSync(path.join(root, "wiki", "concepts", "a.md"), "");
-
-  assert.deepEqual(pageRefs(root), ["wiki/concepts/a.md"]);
-});
-
-test("pageRefs excludes a nested page — a structural error, not a page (#310)", () => {
-  // The schema reader (pagerecord) already rejects `wiki/<folder>/nested/deep.md`;
-  // the disk walk now uses the same page predicate, so it does not count it
-  // either — one enumeration rule for all three views (disk, git, status).
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
-  fs.mkdirSync(path.join(root, "wiki", "concepts", "nested"), {
-    recursive: true,
-  });
-  fs.writeFileSync(path.join(root, "wiki", "concepts", "a.md"), "");
-  fs.writeFileSync(
-    path.join(root, "wiki", "concepts", "nested", "deep.md"),
-    "",
-  );
-  fs.writeFileSync(path.join(root, "wiki", "loose.md"), "");
-
-  assert.deepEqual(pageRefs(root), ["wiki/concepts/a.md"]);
-});
-
-test("pageRefs on a vault with no wiki dir is empty, not an error", () => {
-  assert.deepEqual(
-    pageRefs(fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"))),
-    [],
-  );
 });
 
 test("load and write round-trip", () => {
