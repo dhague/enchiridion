@@ -2,22 +2,25 @@
  * sourcedate — the one owner of the source-date rule.
  *
  * A page's `source_date` is valid time and has exactly one canonical spelling,
- * YYYY-MM-DD (#192). That rule — which spellings count, and how a clock
- * truncates to its date — once lived in four private implementations that
- * drifted: `page set` accepted an invalid calendar date that ingest refused,
- * and the search index validated nothing at all (#309). This module is the
- * rule, implemented once.
+ * [CANONICAL_DATE_FORMAT] (#192). That rule — which spellings count, and how a
+ * clock truncates to its date — once lived in four private implementations
+ * that drifted: `page set` accepted an invalid calendar date that ingest
+ * refused, and the search index validated nothing at all (#309). This module
+ * is the rule, implemented once.
  *
  * [parseSourceDate] is the single shared fact: parse any accepted spelling,
  * validate the calendar date (leap years, month/day ranges), and return the
- * canonical YYYY-MM-DD, or null when the value isn't a valid date. The two
- * postures on top of it — [canonicalSourceDate] refuses (throws on a
- * non-date), [truncateSourceDate] tolerates (passes the value through) — are
- * the thin choices the consumers make: the read path (pagerecord) tolerates
- * and stores verbatim (it renders its own fallback from [parseSourceDate],
- * not via [truncateSourceDate]), while the write paths (`page set`, ingest's
- * validation) refuse.
+ * canonical [CANONICAL_DATE_FORMAT], or null when the value isn't a valid
+ * date. The two postures on top of it — [canonicalSourceDate] refuses (throws
+ * on a non-date), [truncateSourceDate] tolerates (passes the value through) —
+ * are the thin choices the consumers make: the read path (pagerecord)
+ * tolerates and stores verbatim (it renders its own fallback from
+ * [parseSourceDate], not via [truncateSourceDate]), while the write paths
+ * (`page set`, ingest's validation) refuse.
  */
+
+/** The one canonical spelling every accepted `source_date` is truncated to. */
+export const CANONICAL_DATE_FORMAT = "YYYY-MM-DD";
 
 /**
  * The accepted spellings a hand-written `source_date` might carry, in
@@ -46,6 +49,11 @@ export function parseSourceDate(value: unknown): string | null {
     ];
     return validDate(y, mo, d) ? formatDateOnly(y, mo, d) : null;
   }
+  // The timestamp form: `YYYY-MM-DD` followed by a T or space, a clock, and
+  // an optional zone. The clock is `HH:MM` with optional seconds and
+  // fractional seconds; the zone is `Z`/`z` or `±HH:MM`/`±HHMM` (both the
+  // RFC3339 `±hh:mm` and the machine-terse `±hhmm` the codebase has emitted).
+  // Only the date part is kept — any clock truncates to its calendar day.
   const stamp = s.match(
     /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:?\d{2})?$/,
   );
@@ -67,7 +75,7 @@ export function canonicalSourceDate(value: unknown): string | null | undefined {
   const date = parseSourceDate(value);
   if (date === null) {
     throw new Error(
-      `source_date must be a valid date (YYYY-MM-DD), got ${String(value)}`,
+      `source_date must be a valid date (${CANONICAL_DATE_FORMAT}), got ${String(value)}`,
     );
   }
   return date;
@@ -84,7 +92,17 @@ export function truncateSourceDate(value: unknown): unknown {
   return date !== null ? date : value;
 }
 
-/** Report whether y/m/d is a real calendar date. */
+/**
+ * Report whether y/m/d is a real calendar date.
+ *
+ * Hand-rolled deliberately, not delegated to a date library or to stdlib
+ * `Date`: the script layer carries zero runtime dependencies (ADR-0006), and
+ * `new Date("2026-02-30")` silently rolls the invalid day over to March 2
+ * instead of rejecting it — the whole point here is to tell a real date from
+ * an impossible one so the write paths can refuse it. Days-per-month with a
+ * Gregorian leap rule is the smallest correct answer, and it is stable across
+ * hosts, which a `Date`-round-trip is not.
+ */
 function validDate(y: number, mo: number, d: number): boolean {
   if (mo < 1 || mo > 12 || d < 1) return false;
   const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;

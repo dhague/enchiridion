@@ -59,7 +59,11 @@ import { path as placePath, Kinds } from "./place.js";
 import { Vault } from "./vault.js";
 import { check as checkChainOfEvidence } from "./chainofevidence.js";
 import { commit, type Git, type Supersession } from "./commit.js";
-import { parseSourceDate, truncateSourceDate } from "./sourcedate.js";
+import {
+  CANONICAL_DATE_FORMAT,
+  parseSourceDate,
+  truncateSourceDate,
+} from "./sourcedate.js";
 
 /** Caps a full path (vault root plus vault-relative path), for Windows'
  * 255-char limit (#70). */
@@ -328,7 +332,7 @@ export class Resolved {
       if (sourceDate.ok && sourceDate.value !== null) {
         if (parseSourceDate(sourceDate.value) === null) {
           problems.push(
-            `${prefix}.frontmatter.source_date must be a valid date (YYYY-MM-DD), got ${String(sourceDate.value)}`,
+            `${prefix}.frontmatter.source_date must be a valid date (${CANONICAL_DATE_FORMAT}), got ${String(sourceDate.value)}`,
           );
         }
       }
