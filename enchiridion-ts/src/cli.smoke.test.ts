@@ -607,6 +607,43 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// read-page
+// ---------------------------------------------------------------------------
+
+test(
+  `[${runtimeName}] read-page: prints a page's full markdown, or --json`,
+  { skip: skipReason },
+  () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "enchiridion-smoke-rp-"),
+    );
+    fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "wiki", "concepts", "a.md"),
+      "---\ntitle: A\nsummary: s\n---\n\nbody text\n",
+    );
+    fs.writeFileSync(path.join(root, ".wiki-root"), "");
+
+    const plain = runBundled(["read-page", "wiki/concepts/a.md"], {
+      cwd: root,
+      env: { WIKI_ROOT: root },
+    });
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(plain.stdout, "---\ntitle: A\nsummary: s\n---\n\nbody text\n");
+
+    const asJSON = runBundled(["read-page", "wiki/concepts/a.md", "--json"], {
+      cwd: root,
+      env: { WIKI_ROOT: root },
+    });
+    assert.equal(asJSON.status, 0, asJSON.stderr);
+    const payload = JSON.parse(asJSON.stdout);
+    assert.equal(payload.page_ref, "wiki/concepts/a.md");
+    assert.deepEqual(payload.frontmatter, { title: "A", summary: "s" });
+    assert.equal(payload.body, "\nbody text\n");
+  },
+);
+
+// ---------------------------------------------------------------------------
 // vault (root + move)
 // ---------------------------------------------------------------------------
 

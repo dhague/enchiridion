@@ -703,6 +703,33 @@ export function buildProgram(): Command {
       writePageFile(file, updated);
     });
 
+  // read-page <ref> — print a page's full content by vault-relative ref.
+  // The read-only companion to search; a host with no Read tool (the Joule
+  // Work Desktop model — see #320/#225) uses this in place of one. Resolves
+  // the vault root (ADR-0004); default output is the page's raw markdown
+  // (frontmatter + body), --json the structured split.
+  program
+    .command("read-page <ref>")
+    .description("Print a page's full content by vault-relative ref")
+    .option("--json", "emit {page_ref, frontmatter, body} as JSON")
+    .action((ref: string, opts: { json?: boolean }) => {
+      const { root } = resolveRoot();
+      const vault = new Vault(root);
+      if (!vault.exists(ref)) {
+        throw new Error(`page not found: ${ref}`);
+      }
+      const page = vault.load(ref);
+      if (opts.json) {
+        printIndentedJSON({
+          page_ref: ref,
+          frontmatter: page.frontmatter(),
+          body: page.body(),
+        });
+        return;
+      }
+      process.stdout.write(page.text);
+    });
+
   // superseded-by <page_ref>... — resolve a candidate set's supersession
   // chains to current heads (parity with
   // enchiridion-go/internal/cli/supersededby.go).
