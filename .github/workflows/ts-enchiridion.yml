@@ -87,10 +87,46 @@ jobs:
       - name: Test the shim
         run: bats wiki-plugin/tests/bin_enchiridion.bats
 
+  version-check:
+    name: Detect plugin version change vs main
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.compare.outputs.version_changed }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The freshness guard is a release-time safety net (D2 #287): it exists
+      # to catch a release PR whose committed bundle drifted from a fresh
+      # build. A release PR is exactly one that bumps plugin.json's version
+      # (scripts/release.sh does both). On any other PR — a feature change
+      # that touches enchiridion-ts/src/ without bumping the version — the
+      # committed bundle is intentionally stale (refreshed only at release),
+      # so comparing it to a fresh build would be a false alarm. Compare the
+      # head's plugin version against the base branch's and report whether it
+      # changed; the freshness job runs only when it did.
+      - name: Compare plugin version to the base branch
+        id: compare
+        run: |
+          head_version=$(jq -r .version wiki-plugin/.claude-plugin/plugin.json)
+          base_ref="${GITHUB_BASE_REF:-main}"
+          base_version=$(git show "origin/$base_ref:wiki-plugin/.claude-plugin/plugin.json" 2>/dev/null | jq -r .version || true)
+          if [ "$head_version" != "$base_version" ]; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+            echo "plugin version $head_version differs from base $base_version"
+          else
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+            echo "plugin version $head_version matches base $base_version"
+          fi
+
   freshness:
     name: Verify committed bundle is up to date
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: version-check
+    if: needs.version-check.outputs.version_changed == 'true'
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
