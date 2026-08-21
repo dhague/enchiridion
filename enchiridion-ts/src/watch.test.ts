@@ -21,7 +21,9 @@ import {
   relForEvent,
   removeFromQueue,
   removeLock,
+  runWatch,
   writeLock,
+  type Watcher,
 } from "./watch.js";
 
 function tmpRoot(): string {
@@ -218,4 +220,175 @@ test("defaults: exported constants match Go", () => {
   assert.equal(DefaultDebounceSeconds, 30);
   assert.equal(DefaultPollIntervalSeconds, 5);
   assert.equal(StaleLockSeconds, 600);
+});
+
+// --- the watch loop (runWatch seam tests) ------------------------------------
+
+/** A fake file watcher: the test fires "ready"/"all" events and calls
+ * close(), with no chokidar on the loop's seam. */
+class FakeWatcher implements Watcher {
+  closed = false;
+  private readyHandlers: (() => void)[] = [];
+  private allHandlers: ((eventName: string, p: string) => void)[] = [];
+  private errorHandlers: ((err: unknown) => void)[] = [];
+  on(
+    event: "all" | "error" | "ready",
+    cb: (eventName: string, p: string) => void,
+  ): void {
+    if (event === "all") this.allHandlers.push(cb);
+    else if (event === "error")
+      this.errorHandlers.push(cb as (err: unknown) => void);
+    else this.readyHandlers.push(cb as () => void);
+  }
+  close(): Promise<void> {
+    this.closed = true;
+    return Promise.resolve();
+  }
+  emit(event: string, ...args: unknown[]): void {
+    if (event === "all") {
+      for (const cb of this.allHandlers)
+        cb(args[0] as string, args[1] as string);
+    } else if (event === "error") {
+      for (const cb of this.errorHandlers) cb(args[0]);
+    } else {
+      for (const cb of this.readyHandlers) cb();
+    }
+  }
+}
+
+/** Await a macrotask so the tick's async sweep chain has run to completion. */
+async function flush(): Promise<void> {
+  await new Promise<void>((r) => setImmediate(r));
+}
+
+/** A fake signal hub: runWatch's onSignal/offSignal pair, so a test can fire
+ * SIGINT/SIGTERM without touching the process. */
+function recordSignals(): {
+  onSignal: (sig: "SIGINT" | "SIGTERM", cb: () => void) => void;
+  offSignal: (sig: "SIGINT" | "SIGTERM", cb: () => void) => void;
+  signals: Record<string, (() => void)[]>;
+} {
+  const signals: Record<string, (() => void)[]> = {};
+  return {
+    onSignal: (sig, cb) => {
+      (signals[sig] ??= []).push(cb);
+    },
+    offSignal: (sig, cb) => {
+      signals[sig] = (signals[sig] ?? []).filter((c) => c !== cb);
+    },
+    signals,
+  };
+}
+
+/** Writes a real file under root/raw/, returning its absolute path — the loop
+ * maps it through relForEvent exactly as production would. */
+function rawFile(root: string, name: string): string {
+  const abs = path.join(root, "raw", name);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, "x");
+  return abs;
+}
+
+test("run-watch: settle, sweep, enqueue end to end; a signal stops and cleans up", async () => {
+  const root = tmpRoot();
+  const paths = forRoot(root);
+  const abs = rawFile(root, "a.md");
+
+  const watcher = new FakeWatcher();
+  const { onSignal, offSignal, signals } = recordSignals();
+  const lines: string[] = [];
+  const ticks: (() => void)[] = [];
+  let pollMs = 0;
+  let now = 0;
+  let sweepRuns = 0;
+
+  const done = runWatch(paths, {
+    debounceSeconds: 30,
+    pollIntervalSeconds: 5,
+    makeWatcher: () => watcher,
+    clock: () => now,
+    sweep: async () => {
+      sweepRuns++;
+      return new Set(["raw/a.md"]);
+    },
+    onSignal,
+    offSignal,
+    schedule: (cb, ms) => {
+      ticks.push(cb);
+      pollMs = ms;
+      return () => {};
+    },
+    pid: 42,
+    log: (l) => lines.push(l),
+  });
+
+  assert.equal(pollMs, 5 * 1000);
+  watcher.emit("ready");
+  watcher.emit("all", "add", abs);
+  now = 100;
+  ticks[0]();
+  await flush();
+
+  assert.deepEqual(readQueue(paths.queue), ["raw/a.md"]);
+  assert.equal(sweepRuns, 1);
+  assert.deepEqual(lines, [
+    `watching ${path.join(root, "raw")} (debounce=30s, pid=42)`,
+    "queued raw/a.md",
+  ]);
+
+  writeLock(paths.lock, 999, new Date());
+  signals.SIGTERM?.[0]();
+  await done;
+  assert.match(lines[lines.length - 1], /watcher stopped/);
+  assert.ok(!fs.existsSync(paths.lock), "lock removed on stop");
+  assert.equal(watcher.closed, true);
+  assert.deepEqual(signals.SIGINT, []);
+  assert.deepEqual(signals.SIGTERM, []);
+});
+
+test("run-watch: an eligibility miss settles without enqueuing", async () => {
+  const root = tmpRoot();
+  const paths = forRoot(root);
+  const abs = rawFile(root, "b.md");
+
+  const watcher = new FakeWatcher();
+  const { onSignal, offSignal, signals } = recordSignals();
+  const ticks: (() => void)[] = [];
+  let now = 0;
+  const sweepSets: Set<string>[] = [
+    new Set(["raw/other.md"]),
+    new Set(["raw/b.md"]),
+  ];
+  let sweepRuns = 0;
+
+  const done = runWatch(paths, {
+    debounceSeconds: 30,
+    makeWatcher: () => watcher,
+    clock: () => now,
+    sweep: async () => sweepSets[sweepRuns++],
+    onSignal,
+    offSignal,
+    schedule: (cb) => {
+      ticks.push(cb);
+      return () => {};
+    },
+    log: () => {},
+  });
+
+  watcher.emit("all", "add", abs);
+  now = 100;
+  ticks[0]();
+  await flush();
+  assert.deepEqual(readQueue(paths.queue), []);
+  assert.equal(sweepRuns, 1);
+
+  // A settled-and-missed file stops being tracked: the next tick has nothing
+  // to sweep, even though the sweep would now offer the file.
+  ticks[0]();
+  await flush();
+  assert.equal(sweepRuns, 1);
+  assert.deepEqual(readQueue(paths.queue), []);
+
+  signals.SIGTERM?.[0]();
+  await done;
 });
