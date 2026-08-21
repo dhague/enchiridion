@@ -19,7 +19,6 @@ import type { Database as DatabaseType } from "node-sqlite3-wasm";
 const { Database } = nodeSqlite3Wasm as unknown as {
   Database: typeof import("node-sqlite3-wasm").Database;
 };
-import { parse as parseYaml } from "yaml";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -28,6 +27,15 @@ import path from "node:path";
 // (and the test fake) keep compiling unchanged.
 export type { Git, Snapshot, PageChange, VaultGit } from "./vaultgit.js";
 import type { Git, Snapshot, PageChange } from "./vaultgit.js";
+
+// Page metadata comes from pagerecord — the one reader of the frontmatter
+// schema — never from a private copy of its parsing stack. ADR-0015's
+// dependency story holds: pagerecord (and wikipage beneath it) are pure model
+// code with no I/O, so the index still depends only on the git layer, never on
+// the vault I/O module.
+import { newPageRecord, supersedes as supersedesOf } from "./pagerecord.js";
+import type { PageRecord } from "./pagerecord.js";
+import { splitFrontmatter } from "./wikipage.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,111 +128,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
     tokenize = 'porter unicode61'
 );
 `;
-
-// ---------------------------------------------------------------------------
-// Frontmatter / page record helpers
-// ---------------------------------------------------------------------------
-
-/** Canonical folder→kind mapping (mirrors place.FolderKinds in Go). */
-const FOLDER_KINDS: Record<string, string> = {
-  concepts: "concept",
-  entities: "entity",
-  sources: "source",
-  synthesis: "synthesis",
-};
-
-/**
- * Derive kind from a vault-relative page ref.
- * `wiki/concepts/foo.md` → `"concept"`.
- * Custom folders fall back to ADR-0008 singularization (strip trailing `s`).
- */
-function kindFromRef(pageRef: string): string {
-  const parts = pageRef.split("/");
-  if (parts.length < 3 || parts[0] !== "wiki") return "";
-  const folder = parts[1];
-  return FOLDER_KINDS[folder] ?? folder.replace(/s$/, "");
-}
-
-/**
- * Split `---\nYAML\n---` frontmatter from the rest of a markdown file.
- * Returns [frontmatterYaml, body].
- */
-function splitFrontmatter(src: string): [string, string] {
-  if (!src.startsWith("---\n") && !src.startsWith("---\r\n")) return ["", src];
-  const rest = src.slice(4);
-  const end = rest.search(/\n---(\r?\n|$)/);
-  if (end === -1) return ["", src];
-  const fm = rest.slice(0, end);
-  const body = rest.slice(
-    end + 4 /* \n--- */ + (rest[end + 4] === "\r" ? 2 : 1),
-  );
-  return [fm, body];
-}
-
-/** Resolve a markdown link destination relative to pageDir to vault-relative. */
-function resolveLink(dest: string, pageDir: string): string {
-  if (dest.startsWith("wiki/")) return dest;
-  const resolved = path.posix.normalize(path.posix.join(pageDir, dest));
-  return resolved;
-}
-
-/** Extract the href from `[label](href)`. Returns null if not a markdown link. */
-function parseLinkDest(link: string): string | null {
-  const m = link.match(/^\[.*?\]\(([^)]+)\)$/);
-  return m ? m[1] : null;
-}
-
-interface PageRecord {
-  title: string;
-  summary: string;
-  kind: string;
-  sourceDate: string;
-  volatility: string;
-  tags: string[];
-  supersedes: string[];
-}
-
-function normaliseDate(raw: unknown): string {
-  if (!raw) return "";
-  const s = String(raw);
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : s;
-}
-
-function parsePageRecord(pageRef: string, content: string): PageRecord {
-  const [fmText] = splitFrontmatter(content);
-  const fm: Record<string, unknown> = fmText
-    ? ((parseYaml(fmText) as Record<string, unknown>) ?? {})
-    : {};
-
-  const pageDir = path.posix.dirname(pageRef);
-  const kind = kindFromRef(pageRef);
-
-  const supersedes: string[] = [];
-  const rawSupersedes = fm["supersedes"];
-  if (Array.isArray(rawSupersedes)) {
-    for (const item of rawSupersedes) {
-      const dest = parseLinkDest(String(item));
-      if (dest) supersedes.push(resolveLink(dest, pageDir));
-    }
-  }
-
-  const tags: string[] = [];
-  const rawTags = fm["tags"];
-  if (Array.isArray(rawTags)) {
-    for (const t of rawTags) tags.push(String(t));
-  }
-
-  return {
-    title: fm["title"] ? String(fm["title"]) : "",
-    summary: fm["summary"] ? String(fm["summary"]) : "",
-    kind,
-    sourceDate: normaliseDate(fm["source_date"]),
-    volatility: fm["volatility"] ? String(fm["volatility"]) : "",
-    tags,
-    supersedes,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Index
@@ -361,8 +264,7 @@ export class Index {
     this.createSchema();
     let inserted = 0;
     for (const page of snap.pages) {
-      this.upsertPage(page);
-      inserted++;
+      if (this.upsertPage(page)) inserted++;
     }
     this.recomputeSupersededBy();
     const pages = this.countPages();
@@ -380,7 +282,12 @@ export class Index {
         continue;
       }
       const existed = this.pageIndexed(page.pageRef);
-      this.upsertPage(page);
+      if (!this.upsertPage(page)) {
+        // Malformed page — skipped. When it was previously indexed, the skip
+        // dropped it, so account for that as a removal.
+        if (existed) removed++;
+        continue;
+      }
       if (existed) updated++;
       else inserted++;
     }
@@ -424,9 +331,26 @@ export class Index {
   // Per-page upsert / remove
   // -------------------------------------------------------------------------
 
-  private upsertPage(page: PageChange): void {
-    const rec = parsePageRecord(page.pageRef, page.content);
-    const [, body] = splitFrontmatter(page.content);
+  /**
+   * Index one page, or skip it. Returns false when the page is skipped.
+   *
+   * **Malformed pages are skipped, never indexed featureless and never a
+   * crash.** A page whose pageRef isn't directly under a wiki kind-folder (or
+   * whose frontmatter edges aren't parseable) is a structural error the ingest
+   * layer would refuse; `pagerecord.newPageRecord` throws on it. The index
+   * treats that as "not indexable" — drop any stale row and move on — so a
+   * malformed page buried in git history can't take down a reindex.
+   */
+  private upsertPage(page: PageChange): boolean {
+    let rec: PageRecord;
+    try {
+      rec = newPageRecord(page.pageRef, page.content);
+    } catch {
+      this.removePage(page.pageRef);
+      return false;
+    }
+    const body = splitFrontmatter(page.content).body;
+    const supersedes = supersedesOf(rec) ?? [];
 
     // Remove existing rows before re-inserting (upsert via delete+insert).
     for (const stmt of [
@@ -449,7 +373,7 @@ export class Index {
         rec.sourceDate,
         page.date || null,
         rec.volatility,
-        JSON.stringify(rec.supersedes),
+        JSON.stringify(supersedes),
       ],
     );
     for (const tag of rec.tags) {
@@ -462,6 +386,7 @@ export class Index {
       "INSERT INTO page_fts(page_ref, title, summary, body) VALUES (?, ?, ?, ?)",
       [page.pageRef, rec.title, rec.summary, body],
     );
+    return true;
   }
 
   private removePage(pageRef: string): void {

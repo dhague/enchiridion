@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadRecords, newPageRecord } from "./pagerecord.js";
+import { loadRecords, newPageRecord, supersedes } from "./pagerecord.js";
 
 const conceptPage = `---
 title: Connection pooling
@@ -132,4 +132,12 @@ test("loadRecords inverts supersedes", () => {
     "wiki/concepts/new.md",
   ]);
   assert.deepEqual(records["wiki/concepts/new.md"].supersededBy, []);
+});
+
+test("supersedes resolves a percent-encoded target to its decoded page ref", () => {
+  const rec = newPageRecord(
+    "wiki/concepts/new.md",
+    '---\nsupersedes:\n  - "[Old](old%20name%20%28draft%29%20%231.md)"\n---\n',
+  );
+  assert.deepEqual(supersedes(rec), ["wiki/concepts/old name (draft) #1.md"]);
 });

@@ -608,6 +608,138 @@ describe("search", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Supersedes percent-decoding (#307)
+// ---------------------------------------------------------------------------
+
+describe("supersedes percent-decoding", () => {
+  it("resolves a supersedes target whose filename needs encoding", async () => {
+    const targetRef = "wiki/concepts/old name (draft) #1.md";
+    const fake = fakeAtHead(
+      "head1",
+      pageChange(
+        "wiki/concepts/new.md",
+        "New",
+        "The new take.",
+        "shared word",
+        [],
+        'supersedes:\n  - "[Old](old%20name%20%28draft%29%20%231.md)"\n',
+        "",
+      ),
+      pageChange(targetRef, "Old", "The old take.", "shared word", [], "", ""),
+    );
+    const index = await openIndex(fake);
+    try {
+      const hits = await index.search({ text: "shared" });
+      assert.deepEqual(refsOf(hits), ["wiki/concepts/new.md"]);
+
+      const all = await index.search({
+        text: "shared",
+        includeSuperseded: true,
+      });
+      const old = all.find((h) => h.pageRef === targetRef);
+      assert.ok(old, "superseded page present with includeSuperseded");
+      assert.equal(old.supersededBy, "wiki/concepts/new.md");
+    } finally {
+      index.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Malformed pages (#307)
+// ---------------------------------------------------------------------------
+
+describe("malformed pages", () => {
+  it("skips pages at the wrong folder depth rather than crashing a reindex", async () => {
+    const fake = fakeAtHead(
+      "head1",
+      pageChange("wiki/concepts/a.md", "A", "s", "shared word", [], "", ""),
+      pageChange("wiki/loose.md", "Loose", "s", "shared word", [], "", ""),
+      pageChange(
+        "wiki/concepts/nested/deep.md",
+        "Deep",
+        "s",
+        "shared word",
+        [],
+        "",
+        "",
+      ),
+    );
+    const index = await openIndex(fake);
+    try {
+      const stats = await index.reindex(true);
+      assert.equal(stats.pages, 1, "only the well-formed page is indexed");
+      const hits = await index.search({ text: "shared" });
+      assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md"]);
+    } finally {
+      index.close();
+    }
+  });
+
+  it("skips a page whose frontmatter edge is not a markdown link", async () => {
+    const fake = fakeAtHead(
+      "head1",
+      pageChange("wiki/concepts/a.md", "A", "s", "shared word", [], "", ""),
+      pageChange(
+        "wiki/concepts/badedge.md",
+        "Bad edge",
+        "s",
+        "shared word",
+        [],
+        "related:\n  - wiki/concepts/b.md\n",
+        "",
+      ),
+    );
+    const index = await openIndex(fake);
+    try {
+      const stats = await index.reindex(true);
+      assert.equal(stats.pages, 1, "the bad-edge page is skipped");
+      const hits = await index.search({ text: "shared" });
+      assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md"]);
+    } finally {
+      index.close();
+    }
+  });
+
+  it("counts a page that becomes malformed as removed on a delta sync", async () => {
+    const fake = fakeAtHead(
+      "head1",
+      pageChange("wiki/concepts/a.md", "A", "s", "shared word", [], "", ""),
+    );
+    const index = await openIndex(fake);
+    try {
+      await index.reindex(false);
+
+      // a.md gains a malformed edge at head2 (same ref, valid depth — the
+      // wrong-depth case is impossible here, since depth is fixed by pageRef).
+      fake.snapshots.set("head1", {
+        head: "head2",
+        fullRebuild: false,
+        pages: [
+          pageChange(
+            "wiki/concepts/a.md",
+            "A",
+            "s",
+            "shared word",
+            [],
+            "related:\n  - wiki/concepts/b.md\n",
+            "",
+          ),
+        ],
+      });
+      const stats = await index.reindex(false);
+      assert.equal(stats.removed, 1, "skip drops the previously-indexed page");
+      assert.equal(stats.pages, 0);
+
+      const hits = await index.search({ text: "shared" });
+      assert.equal(hits.length, 0, "malformed page is not searchable");
+    } finally {
+      index.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Reindex
 // ---------------------------------------------------------------------------
 
