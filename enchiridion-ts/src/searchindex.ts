@@ -36,6 +36,7 @@ import type { Git, Snapshot, PageChange } from "./vaultgit.js";
 import { newPageRecord, supersedes as supersedesOf } from "./pagerecord.js";
 import type { PageRecord } from "./pagerecord.js";
 import { splitFrontmatter } from "./wikipage.js";
+import { enumeratePageRefs } from "./pagepredicate.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -442,7 +443,10 @@ export class Index {
 
     let uncommittedPages = 0;
     if (this.root !== ":memory:") {
-      const onDisk = countWikiMarkdownFiles(this.root);
+      // The on-disk count uses the same page enumeration as the git walk, so
+      // the diagnostic reports exactly the pages search could return if they
+      // were committed (pagepredicate, #310).
+      const onDisk = enumeratePageRefs(this.root).length;
       uncommittedPages = Math.max(onDisk - pages, 0);
     }
 
@@ -630,29 +634,6 @@ export function tokenizeQuery(text: string): string {
     .split(/\s+/)
     .map((t) => `"${t.replace(/"/g, '\\"')}"`)
     .join(" ");
-}
-
-// ---------------------------------------------------------------------------
-// Filesystem helpers
-// ---------------------------------------------------------------------------
-
-function countWikiMarkdownFiles(root: string): number {
-  const wikiDir = path.join(root, "wiki");
-  try {
-    let count = 0;
-    for (const kindEntry of fs.readdirSync(wikiDir, { withFileTypes: true })) {
-      if (!kindEntry.isDirectory()) continue;
-      const kindDir = path.join(wikiDir, kindEntry.name);
-      for (const fileEntry of fs.readdirSync(kindDir, {
-        withFileTypes: true,
-      })) {
-        if (fileEntry.isFile() && fileEntry.name.endsWith(".md")) count++;
-      }
-    }
-    return count;
-  } catch {
-    return 0;
-  }
 }
 
 function placeholders(n: number): string {

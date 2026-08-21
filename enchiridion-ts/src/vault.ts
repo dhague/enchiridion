@@ -3,8 +3,9 @@
  * from enchiridion-go/internal/vault (root.go + vault.go).
  *
  * [resolveRoot] answers "where is the vault" per
- * docs/adr/0004-deployment-modes-and-vault-root-resolution.md; [pageRefs]
- * enumerates every `wiki/**` page; [Vault] owns every read and write inside
+ * docs/adr/0004-deployment-modes-and-vault-root-resolution.md; page
+ * enumeration is [pagepredicate.enumeratePageRefs] (this module never owns a
+ * copy of the rule); [Vault] owns every read and write inside
  * the vault, plus the cross-page operations ([Vault.movePage],
  * [Vault.rewriteInboundLinks]) that need every other page's text to fix the
  * links pointing at a moved one. Its counterpart [Page] is pure-functional
@@ -17,6 +18,7 @@ import { Page, planMove } from "./wikipage.js";
 import { loadRecords } from "./pagerecord.js";
 import type { PageRecord } from "./pagerecord.js";
 import { FolderKinds, KindFolders, folderToKind } from "./place.js";
+import { enumeratePageRefs } from "./pagepredicate.js";
 
 /** The filenames that make a directory a vault root: a `wiki/` directory or a
  * `.wiki-root` sentinel file. */
@@ -88,44 +90,6 @@ function resolve(p: string): string {
   } catch {
     return abs;
   }
-}
-
-/** The generated `wiki/_index.md` the old build_index wrote — a derived
- * artifact, not a page, so it is excluded from page enumeration (the same rule
- * the pre-#117 Python layer enforced and the TS port dropped). */
-const GeneratedIndexRef = "wiki/_index.md";
-
-/** Return every markdown file under the vault's `wiki/` tree at root, as
- * vault-relative page refs (ADR-0009), sorted. `raw/` is never walked, and the
- * generated `wiki/_index.md` is never a page. */
-export function pageRefs(root: string): string[] {
-  const wikiDir = path.join(root, "wiki");
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(wikiDir, { withFileTypes: true });
-  } catch (err) {
-    // A vault with no `wiki/` yet has no pages — not an error.
-    if (isENOENT(err)) return [];
-    throw err;
-  }
-  const refs: string[] = [];
-  const walk = (dir: string, dirEntries: fs.Dirent[]): void => {
-    for (const entry of dirEntries) {
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(abs, fs.readdirSync(abs, { withFileTypes: true }));
-      } else if (entry.name.endsWith(".md")) {
-        const rel = toSlash(path.relative(root, abs));
-        if (rel !== GeneratedIndexRef) refs.push(rel);
-      }
-    }
-  };
-  walk(wikiDir, entries);
-  return refs.sort();
-}
-
-function toSlash(p: string): string {
-  return p.split(path.sep).join("/");
 }
 
 function isENOENT(err: unknown): boolean {
@@ -247,7 +211,7 @@ export class Vault {
   /** Return every `wiki/**` page as a {pageRef: text} map. Never walks
    * `raw/`. */
   loadWikiPages(): Record<string, string> {
-    const refs = pageRefs(this.root);
+    const refs = enumeratePageRefs(this.root);
     const pages: Record<string, string> = {};
     for (const ref of refs)
       pages[ref] = fs.readFileSync(this.path(ref), "utf8");
