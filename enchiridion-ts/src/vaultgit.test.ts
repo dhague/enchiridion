@@ -1,7 +1,7 @@
 /**
  * Integration tests for the vaultgit module (#256). These use real
- * isomorphic-git repositories in temp directories — the same acceptance
- * criteria the Go original's vaultgit_test.go encodes:
+ * isomorphic-git repositories in temp directories, with these acceptance
+ * criteria:
  *
  *   - strict methods throw on failure; lenient methods return defaults
  *   - committedPages covers all three paths (HEAD == watermark, reachable

@@ -1,7 +1,6 @@
 /**
  * Scaffolds a brand-new, empty wiki vault: folders, git repo, .gitignore,
  * and (for query-from-anywhere mode) the plugin-registration settings.json.
- * Ported from enchiridion-go/internal/initwiki.
  *
  * One-time setup, distinct from `wiki-ingest`, which fills a vault that
  * already exists — [init] refuses to run against a directory that already

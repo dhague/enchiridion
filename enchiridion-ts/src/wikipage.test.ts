@@ -1,7 +1,6 @@
 /**
- * Tests for the wikipage module. Mirrors Go's internal/wikipage/wikipage_test.go
- * and page_test.go, with the two ADR-0011/0012 contracts re-property-tested via
- * fast-check instead of rapid.
+ * Tests for the wikipage module, with the two property-tested contracts
+ * (page-move and frontmatter round-trip, ADR-0012) guarded by fast-check.
  */
 
 import { describe, it } from "node:test";
@@ -379,7 +378,7 @@ describe("PlanMove", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Property tests — the ADR-0011/0012 contracts
+// Property tests — the page-move and frontmatter contracts (ADR-0012)
 // ---------------------------------------------------------------------------
 
 // vaultDirs are the directories a generated page may live in — enough shape

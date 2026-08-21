@@ -3,7 +3,7 @@ name = "wiki-knowledge"
 version = "0.1.0"
 description = "OpenCode install-time tooling for the wiki-knowledge plugin."
 requires-python = ">=3.10"
-# The runtime script layer is TypeScript now (ADR-0017, #267). What remains
+# The runtime script layer is TypeScript (ADR-0017). What remains
 # here is install-time only — generate-opencode.py / install-opencode.py,
 # which a person runs once to wire the plugin into an OpenCode vault.
 dependencies = [

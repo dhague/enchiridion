@@ -598,8 +598,7 @@ test("captureSession prefers OpenCode when both ids are set but the tracker reco
 test("captureSession falls back to Claude Code when OpenCode id is untracked", async () => {
   // Both ids set, but the OpenCode one has no tracker state in this project —
   // a variable leaked from an unrelated project or an outer session — so the
-  // Claude Code path wins (mirrors Go's
-  // TestCaptureSessionFallsBackToClaudeCodeWhenOpenCodeSessionIsUntracked).
+  // Claude Code path wins (an untracked OpenCode id never overrides it).
   const { wikiRoot, lookupEnv: ccEnv } = claudeEnvAndState();
   const ocEnv = env({ OPENCODE_SESSION_ID: "oc-untracked" });
   const both = (key: string): [string | undefined, boolean] => {

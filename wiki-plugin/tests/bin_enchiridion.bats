@@ -1,11 +1,9 @@
 #!/usr/bin/env bats
-# Covers wiki-plugin/bin/enchiridion's post-ADR-0017 shim behaviour (issue
-# #254) plus its artifact resolution order after packaging (D3 #288):
+# Covers wiki-plugin/bin/enchiridion's shim behaviour (issue #254) plus its
+# artifact resolution order after packaging (D3 #288):
 # ENCHIRIDION_BIN → in-plugin $plugin_root/scripts/cli.cjs → sibling
 # enchiridion-ts/dist/cli.cjs. ENCHIRIDION_BIN overrides everything, for
-# local dev against unbundled source or an alternate runtime. This replaces
-# the pre-#254 lazy-fetch/PATH-preference suite, which tested logic that no
-# longer exists (ADR-0013 is retired).
+# local dev against unbundled source or an alternate runtime.
 
 setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../bin/enchiridion"

@@ -1,6 +1,5 @@
 /**
- * commit — write one structured git commit per ingestion/edit. Ported from
- * enchiridion-go/internal/commit.
+ * commit — write one structured git commit per ingestion/edit.
  *
  * The commit message is a compounding asset — audit log, "what changed this
  * week" feed, manager-report source — so it is emitted here, never freehand

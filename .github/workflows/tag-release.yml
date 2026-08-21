@@ -8,7 +8,6 @@ name: tag-release
 # release tag is created and ties it to the commit that actually carries the
 # bumped version.
 #
-# NOTE: the Go release pipeline this tag used to feed is retired (#267).
 # GitHub Release creation is also inlined here (after the tag push) because
 # fine-grained PATs cannot trigger downstream on:push workflows — the separate
 # release.yml never fired. Classic PATs can trigger them, but relying on PAT

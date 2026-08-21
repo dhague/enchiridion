@@ -1,6 +1,5 @@
 /**
- * watch tests — mirror enchiridion-go/internal/watch/watch_test.go, ported to
- * the TS module.
+ * watch tests — the debounce/lock/queue machinery behind /wiki-watch.
  */
 
 import { test } from "node:test";
@@ -216,7 +215,7 @@ test("for-root: yields the watch paths under .wiki-knowledge", () => {
   assert.equal(paths.queue, "/vault/.wiki-knowledge/watch-queue.jsonl");
 });
 
-test("defaults: exported constants match Go", () => {
+test("defaults: exported constants", () => {
   assert.equal(DefaultDebounceSeconds, 30);
   assert.equal(DefaultPollIntervalSeconds, 5);
   assert.equal(StaleLockSeconds, 600);

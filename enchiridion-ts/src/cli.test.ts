@@ -78,7 +78,7 @@ function runWithStdin(
   };
 }
 
-test("no arguments: prints help, exits 0 (parity with the Go/cobra binary)", () => {
+test("no arguments: prints help, exits 0", () => {
   const { status, stdout } = run([]);
   assert.equal(status, 0);
   assert.match(stdout, /Usage:/);

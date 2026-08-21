@@ -1,9 +1,8 @@
 /**
- * vaultgit — the one module for git facts about the vault (#126), ported from
- * enchiridion-go/internal/vaultgit onto isomorphic-git (ADR-0017, #256).
+ * vaultgit — the one module for git facts about the vault (#126), realised
+ * on isomorphic-git (ADR-0017, #256).
  *
- * Each caller's absent-git policy reads as one of two surfaces, mirroring the
- * Go original:
+ * Each caller's absent-git policy reads as one of two surfaces:
  *
  *   - **Strict** — `VaultGit.init`, `VaultGit.add`, `VaultGit.commit`: throw
  *     an error when the operation can't be performed. This is `commit`'s "git
@@ -122,7 +121,7 @@ export class VaultGit implements Git {
     }
     // isomorphic-git's `git.add` stages additions/modifications but not
     // removals — a deleted-but-tracked file stays in the index. Stage the
-    // removals explicitly, matching go-git's `worktree.Add` (which does).
+    // removals explicitly, matching isomorphic-git's own `git.remove` surface.
     await this.stageRemovals(paths);
   }
 
@@ -147,8 +146,7 @@ export class VaultGit implements Git {
   async commit(message: string): Promise<string> {
     const signature = await this.signature();
     try {
-      // Match go-git's `worktree.Commit` (which refuses an empty commit via
-      // its AllowEmptyCommits=false default): make sure something is staged
+      // Refuse an empty commit: make sure something is staged
       // against HEAD before committing. statusMatrix mis-reports staged
       // deletions (an index removal reports STAGE == HEAD), so compare the
       // HEAD tree to the index at the blob level instead.
@@ -405,7 +403,7 @@ export class VaultGit implements Git {
       for (const p of paths) changed.add(p);
       // Merge commits contribute to path enumeration above (so a path touched
       // only by a conflict resolution is still enumerated) but not to date
-      // attribution (matching the Go original's CommitDates semantics).
+      // attribution (non-merge-only dates keep git_date semantics stable).
       if (commit.commit.parent.length <= 1) {
         const when = commit.commit.author.timestamp * 1000;
         for (const p of paths) {
@@ -569,7 +567,7 @@ function changedWikiPaths(commit: git.ReadCommitResult): string[] {
 /**
  * The shared page predicate (pagepredicate, #310): a page is
  * `wiki/<kind-folder>/<file>.md`, never the generated `wiki/_index.md`, never
- * a nested page. Replaces the Go original's loose `isWikiPage` (any `wiki/**`
+ * a nested page. Replaces the loose `isWikiPage` predicate (any `wiki/**`
  * `.md`), which would have counted a committed generated-index artifact and
  * a nested page — diverging from the disk walk and the schema reader. The git
  * walk and the disk walk now share one predicate, so a page the index counts

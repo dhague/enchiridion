@@ -1,7 +1,5 @@
 /**
- * SQLite FTS5 lexical index for a vault.
- *
- * Mirrors Go's internal/searchindex package. The index is a materialised view
+ * SQLite FTS5 lexical index for a vault. The index is a materialised view
  * of HEAD's wiki/ tree (ADR-0015): content is read from git blobs, never from
  * files on disk. One connection at a time (no WAL — Resilio Sync + sidecar
  * corruption, ADR-0006).
@@ -255,7 +253,7 @@ export class Index {
 
   private applyFullRebuild(snap: Snapshot): Stats {
     // Drop all tables including meta — delete-and-rebuild is the migration
-    // strategy; never in-place ALTER or patching (mirrors Go's applyFullRebuild).
+    // strategy; never in-place ALTER or patching.
     this.db.exec(`
       DROP TABLE IF EXISTS meta;
       DROP TABLE IF EXISTS page_tag;

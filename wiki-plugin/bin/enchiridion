@@ -3,12 +3,11 @@
 #
 #   "${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "<terms>" --json
 #
-# A thin shim over the TypeScript port's esbuild bundle (ADR-0017,
-# issue #254). Execs `node` against the bundle, forwarding every argument
-# untouched. This retires ADR-0013's lazy-fetch bootstrap: there is no
+# A thin shim over the esbuild bundle (ADR-0017, issue #254). Execs `node`
+# against the bundle, forwarding every argument untouched. There is no
 # download, no per-platform binary, and no PATH-preference check to make —
-# `node` itself is the already-installed, already-trusted interpreter this
-# rewrite exists to run inside of.
+# `node` itself is the already-installed, already-trusted interpreter the
+# bundle runs inside of.
 #
 # One escape hatch, for development against unbundled source or an
 # alternate runtime:

@@ -1,6 +1,5 @@
 /**
  * Resolve a candidate set's supersession chains to their current heads.
- * Ported from enchiridion-go/internal/supersededby.
  *
  * [pagerecord.loadRecords] already inverts every page's `supersedes` edge into
  * `supersededBy`; this module is the retrieval-facing entrypoint into that

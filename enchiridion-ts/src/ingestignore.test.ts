@@ -1,6 +1,5 @@
 /**
- * ingestignore tests — mirror enchiridion-go/internal/ingestignore/
- * ingestignore_test.go, ported to the TS module.
+ * ingestignore tests — parse and append to the per-folder .ingestignore.
  */
 
 import { test } from "node:test";

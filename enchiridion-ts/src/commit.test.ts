@@ -1,6 +1,6 @@
 /**
- * commit tests — mirror enchiridion-go/internal/commit/commit_test.go (plus
- * its vaultgittest.Fake), ported to the TS module.
+ * commit tests — the manifest-to-commit pipeline, including the fake-git
+ * seam that isolates commit construction from real git.
  */
 
 import { test } from "node:test";

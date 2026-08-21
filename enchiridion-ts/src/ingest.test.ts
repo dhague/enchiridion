@@ -1,6 +1,6 @@
 /**
- * ingest tests — mirror enchiridion-go/internal/ingest/ingest_test.go (plus
- * its vaultgittest.Fake), ported to the TS module.
+ * ingest tests — the IngestPlan resolve/validate/execute pipeline, including
+ * the fake-git seam that isolates the executor from real git.
  */
 
 import { test } from "node:test";

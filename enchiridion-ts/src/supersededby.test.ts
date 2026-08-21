@@ -1,6 +1,5 @@
 /**
- * supersededby tests — mirror enchiridion-go/internal/supersededby/
- * supersededby_test.go, ported to the TS module.
+ * supersededby tests — resolving supersession chains to their current heads.
  */
 
 import { test } from "node:test";

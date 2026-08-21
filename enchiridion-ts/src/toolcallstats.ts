@@ -1,6 +1,5 @@
 /**
- * Summarises the tool-call log written by the PostToolUse hook. Ported from
- * enchiridion-go/internal/toolcallstats (toolcallstats.go).
+ * Summarises the tool-call log written by the PostToolUse hook.
  *
  * Makes a run's cost visible: total tool calls, a per-tool histogram, and a
  * prompt count with calls-per-prompt.

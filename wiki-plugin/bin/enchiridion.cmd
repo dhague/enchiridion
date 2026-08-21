@@ -2,13 +2,9 @@
 setlocal EnableDelayedExpansion
 
 rem The Windows sibling of `bin/enchiridion` (see that file for the full
-rem contract). A thin shim over the TypeScript port's esbuild bundle
-rem (ADR-0017, issue #254): execs `node` against enchiridion-ts\dist\cli.js,
-rem forwarding every argument untouched. This is exactly the fix ADR-0017
-rem exists to ship on Windows -- Defender ASR rule 01443614 blocks the
-rem unsigned, low-prevalence enchiridion.exe this file used to lazy-fetch,
-rem but node.exe is prevalent, signed, and IT-trusted, so it clears the
-rem rule while the payload rides inside it as data.
+rem contract). A thin shim over the esbuild bundle (ADR-0017, issue #254):
+rem execs `node` against enchiridion-ts\dist\cli.js, forwarding every
+rem argument untouched.
 rem
 rem One escape hatch, for development against unbundled source or an
 rem alternate runtime:

@@ -1,7 +1,5 @@
 /**
  * Tests for the searchindex module. Table-driven, in-memory DB.
- *
- * Mirrors Go's internal/searchindex/searchindex_test.go structure.
  * No assertions on internal SQL strings or prepared statement counts —
  * only the public Hit-returning API is exercised.
  */

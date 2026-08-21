@@ -1,6 +1,6 @@
 /**
  * chainofevidence — the page -> stub -> raw file chain every raw ingestion
- * must leave. Ported from enchiridion-go/internal/chainofevidence.
+ * must leave.
  *
  * **The rule** (stated here once; the ingest and commit packages only point
  * at it): a raw file that produces pages at all must also produce a

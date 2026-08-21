@@ -1,6 +1,5 @@
 /**
- * The plugin's automatic hook handlers. Ported from
- * enchiridion-go/internal/hooks.
+ * The plugin's automatic hook handlers.
  *
  * Both read a Claude Code hook payload as JSON on stdin and write per-session
  * state under the *project's* `.claude/wiki-knowledge/sessions/`, resolved from

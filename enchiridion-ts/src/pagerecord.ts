@@ -1,6 +1,5 @@
 /**
- * The one package that reads the frontmatter schema. Ported from
- * enchiridion-go/internal/pagerecord.
+ * The one package that reads the frontmatter schema.
  *
  * Frontmatter text in, one typed record out. Every caller that needs a page's
  * frontmatter goes through here rather than re-parsing keys, so the schema

@@ -1,7 +1,6 @@
 /**
  * The pure half of the vault library — frontmatter splitting, the
- * markdown-link machinery, and the mutating page model. Ported from
- * enchiridion-go/internal/wikipage (wikipage.go + page.go). No I/O lives here.
+ * markdown-link machinery, and the mutating page model. No I/O lives here.
  *
  * Encoding lives at a single decode boundary: [splitDest] splits on the
  * literal `#` first and decodes each half after, so an encoded `#` in a raw
@@ -14,7 +13,7 @@
  *     source offset, so every untouched byte survives — including
  *     frontmatter links, which the same whole-document scan finds.
  *   - A no-op frontmatter [Page.set] is *not* guaranteed to round-trip
- *     byte-identical; see docs/adr/0012-go-frontmatter-round-trip-relaxed.md.
+ *     byte-identical; see docs/adr/0012-frontmatter-round-trip-relaxed.md.
  *     Key *order* is still preserved (frontmatter is edited as a
  *     [yaml.YAMLMap] mapping, so existing keys keep their position and new
  *     ones append), because a reordering edit would make every ingest diff
@@ -66,8 +65,7 @@ function nestedParenDest(depth: number): string {
  * `dest` is either `<...>` or a whitespace-free run that may contain balanced
  * parens; an optional title after the dest is matched but excluded.
  *
- * The `d` (hasIndices) flag exposes each group's source offsets, mirroring
- * Go's FindAllStringSubmatchIndex.
+ * The `d` (hasIndices) flag exposes each group's source offsets.
  */
 const LINK_RE = new RegExp(
   `(!?)\\[((?:[^\\[\\]]|\\[[^\\[\\]]*\\])*)\\]` +

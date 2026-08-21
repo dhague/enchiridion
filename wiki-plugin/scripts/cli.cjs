@@ -41616,7 +41616,7 @@ function ignoreRawFile(root, rawRel, comment) {
 function buildProgram() {
   const program2 = new Command();
   program2.name("enchiridion").description(
-    "Wiki-knowledge plugin script layer (TypeScript port \u2014 ADR-0017)"
+    "Wiki-knowledge plugin script layer (TypeScript bundle \u2014 ADR-0017)"
   ).allowExcessArguments(true).allowUnknownOption(true);
   for (const name of FLAT_SUBCOMMANDS) {
     const sub = program2.command(`${name} [args...]`).description("not yet implemented");
@@ -41808,6 +41808,23 @@ function buildProgram() {
     }
     const updated = p.merge(key, values);
     writePageFile(file, updated);
+  });
+  program2.command("read-page <ref>").description("Print a page's full content by vault-relative ref").option("--json", "emit {page_ref, frontmatter, body} as JSON").action((ref, opts) => {
+    const { root } = resolveRoot();
+    const vault2 = new Vault(root);
+    if (!vault2.exists(ref)) {
+      throw new Error(`page not found: ${ref}`);
+    }
+    const page2 = vault2.load(ref);
+    if (opts.json) {
+      printIndentedJSON({
+        page_ref: ref,
+        frontmatter: page2.frontmatter(),
+        body: page2.body()
+      });
+      return;
+    }
+    process.stdout.write(page2.text);
   });
   program2.command("superseded-by <page_ref...>").description("Resolve page refs to their current supersession heads").option("--json", "emit results as JSON Lines (one object per line)").action(async (pageRefs, opts) => {
     const { root } = resolveRoot();

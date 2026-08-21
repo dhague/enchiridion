@@ -35,7 +35,7 @@ Merge commits contribute to *path enumeration* (diffed against first parent) but
 
 **`--reindex` is re-pointed, not removed.** Bare `--reindex` forces the range walk to `HEAD`; `--reindex --full` drops and rebuilds from `HEAD`'s tree. `Stats.Updated` now counts pages re-read because a commit touched them, not because their bytes changed on disk.
 
-**Tests split along the seam.** Reachability, range enumeration, and blob reads are genuine git behaviour and get real go-git repositories in `vaultgit`. `searchindex` keeps fixture-driven tests through the `openWithGit` seam with an extended `vaultgittest.Fake`, since its job is "apply a snapshot to SQL correctly."
+**Tests split along the seam.** Reachability, range enumeration, and blob reads are genuine git behaviour and get real isomorphic-git repositories in `vaultgit`. `searchindex` keeps fixture-driven tests through the `openWithGit` seam with an extended fake `Git`, since its job is "apply a snapshot to SQL correctly."
 
 ## What would reopen this
 

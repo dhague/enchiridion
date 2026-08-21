@@ -1,7 +1,6 @@
 /**
  * Read and append to `.ingestignore` — the human-authored policy file that
- * permanently withdraws a raw/ file from the ingestion sweep. Ported from
- * enchiridion-go/internal/ingestignore.
+ * permanently withdraws a raw/ file from the ingestion sweep.
  *
  * A `.ingestignore` is read from a raw file's own folder only, with **no
  * ancestor walk** — what keeps a hand-written policy file from drifting into

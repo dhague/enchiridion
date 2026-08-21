@@ -1,6 +1,5 @@
 /**
- * hooks tests — mirror enchiridion-go/internal/hooks/hooks_test.go, ported to
- * the TS module.
+ * hooks tests — the session-start and post-tool-use handlers, failing open.
  */
 
 import { test } from "node:test";
