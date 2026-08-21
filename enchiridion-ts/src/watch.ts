@@ -1,6 +1,5 @@
 /**
- * The raw/ watcher — event-driven detection + debounce + queue. Ported from
- * enchiridion-go/internal/watch.
+ * The raw/ watcher — event-driven detection + debounce + queue.
  *
  * The `/wiki-watch` skill orchestrates; this is the half it launches in the
  * background and polls. Four pieces:
@@ -21,10 +20,9 @@
  *
  * Mutual exclusion over the lock/queue files uses an exclusive-create lock
  * file (`.mutex` / `.writelock` created with the `wx` flag, removed on
- * release) instead of Go's flock. The port is pure-JS only (ADR-0017 — a
- * native flock addon would re-trip Windows Defender ASR rule 01443614), and
- * the atomic `wx` create gives the same cross-process mutual exclusion a
- * blocking flock provides.
+ * release). The module is pure-JS only (ADR-0017 — a native flock addon
+ * would break Bun, the OpenCode runtime), and the atomic `wx` create gives
+ * the same cross-process mutual exclusion a blocking flock provides.
  */
 
 import fs from "node:fs";
@@ -305,12 +303,12 @@ export function relForEvent(root: string, abs: string): string | null {
   return toSlash(rel);
 }
 
-// --- exclusive-create lock file (flock deviation, ADR-0017) -------------------
+// --- exclusive-create lock file (ADR-0017: pure JS, no native addons) ---------
 
 /** Runs critical under an exclusive lock on lockPath, created atomically with
  * the `wx` flag and removed on release.
  *
- * Replaces Go's flock: an atomic exclusive create gives the same cross-process
+ * Replaces a blocking flock: an atomic exclusive create gives the same cross-process
  * mutual exclusion without a native addon. When another process holds the
  * lock, blocks (retrying) until it is released. */
 function withExclusiveLock(lockPath: string, critical: () => void): void {

@@ -1,0 +1,11 @@
+# Frontmatter round-trip is relaxed, not byte-identical
+
+`wikipage` edits a page's frontmatter through a YAML Document/AST model (`eemeli/yaml`), which re-serialises the frontmatter block rather than splicing bytes in place. A no-op frontmatter `set` therefore does **not** round-trip byte-identical: an edit may reformat unrelated whitespace or scalar quote style elsewhere in the block. This is a deliberate, documented contract, not an oversight — a future reader diffing frontmatter churn in an ingested vault should not treat it as a bug.
+
+Two paths were considered for the `ingest`/frontmatter-editing subcommand: relax the contract, or reproduce byte-identity via surgical text splicing — parsing only to locate the changed key(s) and editing those lines in place, leaving the rest of the document byte-untouched, mirroring the move/link-rewrite contract ("a move touches only link lines"). Splicing was rejected: hand-rolled positional YAML editing was judged more likely to introduce subtle corruption bugs than the formatting churn it avoids, and unlike the link-rewrite case (which only ever touches well-delimited markdown link syntax), YAML frontmatter has more structural variation to get wrong.
+
+## Consequences
+
+The move-touches-only-link-lines contract (including frontmatter markdown links: typed edges, `supersedes`, `raw_source`) is unaffected and must still hold, since link splicing is untouched by this decision — it stays property-tested via `fast-check`. Only the *no-op-is-byte-identical* guarantee is dropped, and only for frontmatter, not links.
+
+Key order is preserved deliberately (frontmatter is edited as a Document mapping), because reordering keys would make every ingest diff unreadable; this ADR licenses incidental formatting churn, not nondeterministic or reshuffled output. Measured, the only byte difference across every page of an ingest was scalar quote style, `source_date: '2026-03-01'` versus `source_date: "2026-03-01"` — both `eemeli/yaml` round-trips of the same value.

@@ -1,6 +1,5 @@
 /**
- * ingestscan tests — mirror enchiridion-go/internal/ingestscan/
- * ingestscan_test.go, ported to the TS module.
+ * ingestscan tests — the raw/ eligibility sweep and its .ingestignore policy.
  */
 
 import { test } from "node:test";

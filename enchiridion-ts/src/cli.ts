@@ -2,11 +2,10 @@
 /**
  * enchiridion CLI entry point.
  *
- * One subcommand per capability, mirroring enchiridion-go/internal/cli (the
- * TypeScript port target — see ADR-0017 and issue #252/#254). This ticket
+ * One subcommand per capability (ADR-0017, #252/#254). This ticket
  * wires the commander scaffold only: every subcommand below is a stub that
  * exits non-zero with "not yet implemented" until its own module ticket
- * lands (see the port sequence in #252's Implementation Decisions).
+ * lands.
  *
  * `vault`, `page`, and `hook` are deliberately spelled with the nested
  * sub-subcommands CLAUDE.md documents (`vault root|move`, `page
@@ -90,7 +89,7 @@ function normalizeFolderArg(arg: string): string {
   return arg.startsWith("raw/") ? arg.slice("raw/".length) : arg;
 }
 
-/** Render the scan result's tabular form (parity with the Go renderScanTable):
+/** Render the scan result's tabular form:
  * right-aligned raw/ paths followed by their reason, then the ignored block. */
 function renderScanTable(result: {
   eligible: { rawRel: string; reason: string }[];
@@ -195,20 +194,19 @@ function collectFlag(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-/** Render a possibly-empty string as "-", parity with Go's orDash. */
+/** Render a possibly-empty string as "-". */
 function orDash(s: string): string {
   if (s === "") return "-";
   return s;
 }
 
-/** Render a nullable string as "-" when null, else orDash. Parity with Go's
- * orDashPtr. */
+/** Render a nullable string as "-" when null, else orDash. */
 function orDashPtr(s: string | null): string {
   if (s === null) return "-";
   return orDash(s);
 }
 
-/** Render one Hit as a JSON object line, matching Go's json tags. */
+/** Render one Hit as a JSON object line. */
 function hitJSON(hit: Hit): string {
   return JSON.stringify({
     page_ref: hit.pageRef,
@@ -225,8 +223,7 @@ function hitJSON(hit: Hit): string {
   });
 }
 
-/** Render hits: JSON Lines when asJSON, else the compact one-per-hit table
- * (parity with Go's renderHits). */
+/** Render hits: JSON Lines when asJSON, else the compact one-per-hit table. */
 function renderHits(hits: Hit[], asJSON: boolean): void {
   if (asJSON) {
     for (const hit of hits) console.log(hitJSON(hit));
@@ -243,7 +240,7 @@ function renderHits(hits: Hit[], asJSON: boolean): void {
   }
 }
 
-/** Render index status (parity with Go's runStatus). */
+/** Render index status. */
 function renderStatus(
   st: {
     pages: number;
@@ -282,7 +279,7 @@ function renderStatus(
   }
 }
 
-/** Render a reindex's stats (parity with Go's runReindex). */
+/** Render a reindex's stats. */
 function renderReindex(
   stats: {
     pages: number;
@@ -384,7 +381,7 @@ export function buildProgram(): Command {
   program
     .name("enchiridion")
     .description(
-      "Wiki-knowledge plugin script layer (TypeScript port — ADR-0017)",
+      "Wiki-knowledge plugin script layer (TypeScript bundle — ADR-0017)",
     )
     .allowExcessArguments(true)
     .allowUnknownOption(true);
@@ -397,7 +394,7 @@ export function buildProgram(): Command {
   }
 
   // search [text] — query the lexical index, or manage it with --reindex /
-  // --status (parity with enchiridion-go/internal/cli/search.go). Default
+  // --status. Default
   // mode is a query: positional text plus any metadata filter; --json emits
   // one Hit per line, else the compact one-line-per-hit table.
   program
@@ -510,8 +507,7 @@ export function buildProgram(): Command {
       },
     );
 
-  // init <path> — scaffold a brand-new wiki vault (parity with
-  // enchiridion-go/internal/cli/init.go). Takes an explicit path argument, not
+  // init <path> — scaffold a brand-new wiki vault. Takes an explicit path argument, not
   // a resolved root; prints the resolved vault root on success — the only
   // thing on stdout, so a caller can capture it.
   program
@@ -556,8 +552,7 @@ export function buildProgram(): Command {
     });
 
   // save-session — find, render, and write this session's transcript,
-  // printing the vault-relative path of the raw file written (parity with
-  // enchiridion-go/internal/cli/savesession.go).
+  // printing the vault-relative path of the raw file written.
   program
     .command("save-session")
     .description("Save this session's transcript as a raw file in the vault")
@@ -577,8 +572,7 @@ export function buildProgram(): Command {
       console.log(rel);
     });
 
-  // tool-call-stats — summarise the tool-call log for one session (parity
-  // with enchiridion-go/internal/cli/toolcallstats.go).
+  // tool-call-stats — summarise the tool-call log for one session.
   program
     .command("tool-call-stats")
     .description("Summarise a session's tool-call log")
@@ -731,8 +725,7 @@ export function buildProgram(): Command {
     });
 
   // superseded-by <page_ref>... — resolve a candidate set's supersession
-  // chains to current heads (parity with
-  // enchiridion-go/internal/cli/supersededby.go).
+  // chains to current heads.
   program
     .command("superseded-by <page_ref...>")
     .description("Resolve page refs to their current supersession heads")
@@ -759,8 +752,7 @@ export function buildProgram(): Command {
       }
     });
 
-  // ingest-scan [folder] — scan raw/ for files that need ingestion (parity
-  // with enchiridion-go/internal/cli/ingestscan.go).
+  // ingest-scan [folder] — scan raw/ for files that need ingestion.
   program
     .command("ingest-scan [folder]")
     .description("Scan raw/ for files that need ingestion")
@@ -793,8 +785,7 @@ export function buildProgram(): Command {
     });
 
   // watch — a long-running filesystem watcher over raw/ with per-file
-  // debounce, an exclusive lock, and a queue file (parity with
-  // enchiridion-go/internal/cli/watch.go). `--dequeue <raw_rel>` removes one
+  // debounce, an exclusive lock, and a queue file. `--dequeue <raw_rel>` removes one
   // queue entry and exits.
   program
     .command("watch")
@@ -858,8 +849,7 @@ export function buildProgram(): Command {
       },
     );
 
-  // ingest — execute an IngestPlan against the resolved vault (parity with
-  // enchiridion-go/internal/cli/ingest.go). Validates the whole plan up front
+  // ingest — execute an IngestPlan against the resolved vault. Validates the whole plan up front
   // (shape, then the vault-dependent checks) then writes every page and
   // commits in one pass, printing the commit SHA as the first stdout line.
   program
@@ -907,8 +897,7 @@ export function buildProgram(): Command {
       },
     );
 
-  // commit — write one structured git commit per manifest (parity with
-  // enchiridion-go/internal/cli/commit.go): a hand-built manifest in, one
+  // commit — write one structured git commit per manifest: a hand-built manifest in, one
   // structured commit out. `enchiridion ingest` commits its own plan; this is
   // for a manifest an agent assembles directly.
   program
@@ -934,8 +923,7 @@ export function buildProgram(): Command {
       console.log(sha);
     });
 
-  // discover — single-call discovery for ingestion (parity with
-  // enchiridion-go/internal/cli/discover.go). Two modes: --plan <draft.json>
+  // discover — single-call discovery for ingestion. Two modes: --plan <draft.json>
   // discovers candidates for every page in the draft plus the vault's tag
   // vocabulary; --title/--summary/--body-file is single-page mode, emitting
   // one candidate per line.
@@ -1081,7 +1069,7 @@ function main(): void {
   if (process.argv.slice(2).length === 0) {
     // Commander's own default for "subcommands registered, none given, no
     // root action handler" treats bare invocation as probably-missing-
-    // subcommand: help to stderr, exit 1. Match the Go/cobra binary's
+    // subcommand: help to stderr, exit 1. Match the established
     // bare-invocation behaviour instead — usage to stdout, exit 0 — by
     // calling help() directly rather than going through parse().
     program.help();

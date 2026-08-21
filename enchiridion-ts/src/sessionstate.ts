@@ -1,6 +1,5 @@
 /**
- * Maps a session_id to its transcript_path. Ported from
- * enchiridion-go/internal/sessionstate (sessionstate.go).
+ * Maps a session_id to its transcript_path.
  *
  * The `SessionStart` hook writes; the save-conversation skill reads by
  * `$CLAUDE_CODE_SESSION_ID`, so it never guesses which concurrently running

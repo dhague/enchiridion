@@ -1,6 +1,5 @@
 /**
- * The I/O half of the vault: where the vault is and what's inside it. Ported
- * from enchiridion-go/internal/vault (root.go + vault.go).
+ * The I/O half of the vault: where the vault is and what's inside it.
  *
  * [resolveRoot] answers "where is the vault" per
  * docs/adr/0004-deployment-modes-and-vault-root-resolution.md; page

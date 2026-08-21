@@ -2,7 +2,7 @@
 
 Point-in-time snapshot of the `wiki-knowledge` plugin's script layer, agents, and skills, as of plugin version `0.8.2`. This is not maintained on every change — treat it as a map from roughly now, not a live contract. If it disagrees with the code, the code wins.
 
-The script layer is a single TypeScript implementation at `enchiridion-ts/` (`enchiridion`, one subcommand per capability), bundled by esbuild and invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that execs `node` against the bundle ([ADR-0017](adr/0017-typescript-rewrite-approved-interpreter-asr.md)). The names in these diagrams are TypeScript modules under `enchiridion-ts/src/`.
+The script layer is a single TypeScript implementation at `enchiridion-ts/` (`enchiridion`, one subcommand per capability), bundled by esbuild and invoked through `wiki-plugin/bin/enchiridion` — a POSIX-sh entrypoint that execs `node` against the bundle ([ADR-0017](adr/0017-bundled-typescript-on-installed-interpreter.md)). The names in these diagrams are TypeScript modules under `enchiridion-ts/src/`.
 
 Diagrams:
 
@@ -13,13 +13,13 @@ Diagrams:
 Two seams worth keeping straight, since the diagrams show them:
 
 - **The `Vault` has no search-index facade.** `searchindex` depends only on `vaultgit` (blobs, dates) and otherwise walks the wiki tree itself, so proxying back through `vault` would be an import cycle; there are no facade methods on `Vault`. Callers that need to search open a `searchindex.Index` directly, as `enchiridion search` does. Since [ADR-0015](adr/0015-search-index-view-of-committed-history.md), `searchindex`'s centre of gravity has been `vaultgit`: page content and dates come from `VaultGit.CommittedPages` (git blobs), and `Status()`'s on-disk-vs-indexed count is computed internally by counting `wiki/**.md` files on disk.
-- **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the CLI command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)'s *Go port* section, carried across).
+- **There is no `ForRoot` per-root cache.** `Open`/`Close` make the connection lifetime explicit, and everything below the CLI command takes a `discover.Searcher` rather than a vault root ([ADR-0010](adr/0010-search-index-per-root-cache.md)).
 
 **How this stays current.** The redraw keeps the diagrams hand-drawn rather than generated, and the opening warning stays honest about that. Mechanical generation was weighed and set aside: a tool could emit the raw import graph, but the value of this file is the responsibility *clustering* and the reasoning about the seams — the parts tooling cannot produce. The type diagrams are kept for the same reason: they are the cheap, nameable API contract of each module, and a reader who finds a stale method name is told to trust the code. The cost is the warning above: the next structural change to the module set should touch this file again.
 
 ## Module dependency graph
 
-Modules are grouped into the same responsibility clusters as the retired scripts, plus a composite root. An arrow between clusters means at least one module in the source cluster imports at least one module in the target cluster; individual module-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are `cli.ts` importing every cluster — it is the composition root, one commander file per subcommand, and the wiring that used to live in a `__main__` per script now passes through it.
+Modules are grouped into responsibility clusters. An arrow between clusters means at least one module in the source cluster imports at least one module in the target cluster; individual module-level imports are collapsed for readability (see each cluster's file list for exact contents). The dashed arrows from the composite root are `cli.ts` importing every cluster — it is the composition root, one commander file per subcommand, and the wiring of every subcommand passes through it.
 
 ```mermaid
 flowchart TB
@@ -134,12 +134,12 @@ Notes:
 - `/wiki-init` calls `enchiridion init` directly (from `initwiki.ts`, using `vault`/`vaultgit`) — no agent involved, it's pure scaffolding.
 - `/wiki-watch` runs `enchiridion watch` (Watch cluster, the `cli.ts` watch subcommand — a chokidar observer over `raw/` + the pure `watch.ts` debounce/lock/queue) with `enchiridion ingest-scan` (Ingestion pipeline cluster) as the eligibility check, then dispatches one `wiki-ingest` subagent per eligible/queued file — the same agent `/wiki-ingest` uses, not a separate copy.
 - `/save-conversation` runs `enchiridion save-session` (Session capture cluster, the `cli.ts` save-session subcommand → `transcriptcapture.CaptureSession`) to write the raw transcript file, then delegates to the `wiki-ingest` agent to file it into the vault — again reusing the same agent and pipeline, not a parallel one.
-- `enchiridion hook session-start` / `hook post-tool-use` (the `cli.ts` hook subcommand → `hooks.ts`) run as Claude Code hook events per `wiki-plugin/hooks/hooks.json`, **not** from a skill: SessionStart records the transcript path `save-session` later reads, PostToolUse appends one JSON line per tool call for `enchiridion tool-call-stats`. Both fail open (`|| exit 0`) — there is no binary bootstrap left to guard against, since `bin/enchiridion` is a thin `exec node <bundle>` shim with no fetch step.
+- `enchiridion hook session-start` / `hook post-tool-use` (the `cli.ts` hook subcommand → `hooks.ts`) run as Claude Code hook events per `wiki-plugin/hooks/hooks.json`, **not** from a skill: SessionStart records the transcript path `save-session` later reads, PostToolUse appends one JSON line per tool call for `enchiridion tool-call-stats`. Both fail open (`|| exit 0`) — `bin/enchiridion` is a thin `exec node <bundle>` shim, so a hook failure degrades one session's side effect rather than blocking session start.
 - Clusters here are the same ones named in the module dependency graph above.
 
 ## Type diagrams by cluster
 
-One diagram per cluster from the module dependency graph. The port's types are shown as class boxes with their methods, and module-level functions as `<<package>>` boxes; interfaces are `<<interface>>`. Cross-cluster references are dashed and named after the target cluster.
+One diagram per cluster from the module dependency graph. The modules' types are shown as class boxes with their methods, and module-level functions as `<<package>>` boxes; interfaces are `<<interface>>`. Cross-cluster references are dashed and named after the target cluster.
 
 ### Core library
 

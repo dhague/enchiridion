@@ -1,6 +1,5 @@
 /**
- * The ingestion sweep — scan `raw/` for files that need ingestion. Ported from
- * enchiridion-go/internal/ingestscan.
+ * The ingestion sweep — scan `raw/` for files that need ingestion.
  *
  * Two independent gates: derived done-state (computed here) and declared
  * policy (a human-authored `.ingestignore`). A raw file is *offered* when

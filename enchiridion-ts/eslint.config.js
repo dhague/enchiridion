@@ -16,8 +16,8 @@ export default tseslint.config(
   },
   {
     rules: {
-      // Stub subcommand handlers and future ports intentionally keep
-      // unused parameters (e.g. matching Go's handler signatures) — warn,
+      // Stub subcommand handlers intentionally keep
+      // unused parameters — warn,
       // don't fail the build, and allow a leading underscore to silence it
       // explicitly.
       "@typescript-eslint/no-unused-vars": [

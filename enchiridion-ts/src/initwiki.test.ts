@@ -1,6 +1,6 @@
 /**
- * initwiki tests — mirror enchiridion-go/internal/initwiki/initwiki_test.go,
- * ported to the TS module.
+ * initwiki tests — scaffold a fresh vault: folders, git repo, gitignore,
+ * optional plugin-registration settings.
  */
 
 import { test } from "node:test";

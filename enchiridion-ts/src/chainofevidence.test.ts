@@ -1,6 +1,5 @@
 /**
- * chainofevidence tests — mirror enchiridion-go/internal/chainofevidence/
- * chainofevidence_test.go, ported to the TS module.
+ * chainofevidence tests — the page -> stub -> raw file chain rule.
  */
 
 import { test } from "node:test";

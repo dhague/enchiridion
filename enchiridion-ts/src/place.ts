@@ -1,6 +1,6 @@
 /**
  * Compute a new page's vault-relative path: kind-folder plus kebab-slug of
- * title. Ported from enchiridion-go/internal/place.
+ * title.
  *
  * *Which* kind a page belongs to is judgment (wiki-conventions' placement
  * algorithm) and stays with the ingesting agent. Turning a chosen kind +

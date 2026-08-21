@@ -1,7 +1,6 @@
 /**
  * discover — single-call discovery for ingestion: overlap candidates plus the
- * tag vocabulary, driven off a draft IngestPlan. Ported from
- * enchiridion-go/internal/discover.
+ * tag vocabulary, driven off a draft IngestPlan.
  *
  * It fronts [Index] with hint classification, so wiki-ingest's
  * duplicate-detection step — the one where a miss creates a duplicate page —

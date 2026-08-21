@@ -28,11 +28,7 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 ### Standalone CLI
 
 The script layer ships as a TypeScript bundle invoked through
-`wiki-plugin/bin/enchiridion` (a thin shim that execs `node` against it), so
-there is no per-platform binary to install. A standalone distribution — the
-Homebrew tap and self-hosted Chocolatey package that shipped the retired Go
-binary (see [ADR-0014](docs/adr/0014-package-manager-distribution.md)) — is
-on hold until the TypeScript release workflow lands ([#267](https://github.com/dhague/enchiridion/issues/267)).
+`wiki-plugin/bin/enchiridion` (a thin shim that execs `node` against it).
 
 ## Design principles
 
@@ -72,7 +68,7 @@ Every page has YAML frontmatter with a typed edge graph (`refines`, `contradicts
 ## Development
 
 The script layer is a single TypeScript implementation
-([ADR-0017](docs/adr/0017-typescript-rewrite-approved-interpreter-asr.md)),
+([ADR-0017](docs/adr/0017-bundled-typescript-on-installed-interpreter.md)),
 bundled by esbuild and invoked via `wiki-plugin/bin/enchiridion` — a thin shim
 that execs `node` against the bundle. `ENCHIRIDION_BIN` points that entrypoint
 at a local build or alternate runtime instead.

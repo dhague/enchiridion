@@ -1,7 +1,5 @@
 /**
  * Turns a host session transcript into a vault-ready raw markdown file.
- * Ported from enchiridion-go/internal/transcriptcapture
- * (transcriptcapture.go + opencode.go).
  *
  * The capability behind the /save-conversation skill — reduce a host's wire
  * format to (role, text) turns via one adapter per host (Claude Code JSONL,

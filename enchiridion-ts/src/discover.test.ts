@@ -1,5 +1,5 @@
 /**
- * Tests for the discover module. Mirrors Go's internal/discover/discover_test.go.
+ * Tests for the discover module.
  *
  * The integration tests open a real [Index] over a committed fixture vault
  * (search is a view of committed history — ADR-0015), exactly as the command

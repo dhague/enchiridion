@@ -1,6 +1,6 @@
 /**
  * ingest — the IngestPlan schema and its single-call executor. Plan in,
- * commit SHA out. Ported from enchiridion-go/internal/ingest.
+ * commit SHA out.
  *
  * A [Plan] is the decided outcome of an ingestion: which pages to
  * create/update, with what frontmatter and typed edges. Semantic chunking and
