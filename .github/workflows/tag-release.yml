@@ -8,11 +8,11 @@ name: tag-release
 # release tag is created and ties it to the commit that actually carries the
 # bumped version.
 #
-# NOTE (#267): the Go release pipeline this tag used to feed is retired —
-# `enchiridion-go/` is deleted and go-enchiridion.yml is a no-op placeholder.
-# Deriving and pushing the tag is kept because it is harmless and remains the
-# single source of release tags for whatever TS-bundle release workflow the
-# deferred redesign (#267) lands; a tag currently triggers nothing.
+# NOTE: the Go release pipeline this tag used to feed is retired (#267).
+# GitHub Release creation is also inlined here (after the tag push) because
+# fine-grained PATs cannot trigger downstream on:push workflows — the separate
+# release.yml never fired. Classic PATs can trigger them, but relying on PAT
+# flavour is fragile; inlining is simpler and self-contained.
 on:
   push:
     branches: [main]
@@ -42,11 +42,10 @@ jobs:
       - name: Tag and push if new
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          # RELEASE_GITHUB_TOKEN is a PAT (Contents: write on this repo)
-          # rather than the default GITHUB_TOKEN. A GITHUB_TOKEN-authenticated
-          # push does not trigger downstream workflow runs (GitHub safety
-          # measure against infinite loops), so a downstream release job would
-          # never fire. A PAT push does trigger them.
+          # RELEASE_GITHUB_TOKEN is a PAT (Contents: write on this repo).
+          # Fine-grained PATs (like GITHUB_TOKEN) cannot trigger downstream
+          # on:push workflows — that's why GitHub Release creation is inlined
+          # here rather than delegated to a separate release.yml.
           GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
         run: |
           tag="v$VERSION"
@@ -59,3 +58,15 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/dhague/enchiridion.git"
           git tag -a "$tag" -m "Release $tag"
           git push origin "$tag"
+
+      - name: Create GitHub Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Release $tag already exists, skipping."
+            exit 0
+          fi
+          gh release create "$tag" --generate-notes

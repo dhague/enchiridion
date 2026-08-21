@@ -95,6 +95,15 @@ test("pageRefs walks only wiki markdown", () => {
   assert.deepEqual(pageRefs(root), ["wiki/concepts/a.md"]);
 });
 
+test("pageRefs excludes the generated wiki/_index.md, never a page", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"));
+  fs.mkdirSync(path.join(root, "wiki", "concepts"), { recursive: true });
+  fs.writeFileSync(path.join(root, "wiki", "_index.md"), "generated table");
+  fs.writeFileSync(path.join(root, "wiki", "concepts", "a.md"), "");
+
+  assert.deepEqual(pageRefs(root), ["wiki/concepts/a.md"]);
+});
+
 test("pageRefs on a vault with no wiki dir is empty, not an error", () => {
   assert.deepEqual(
     pageRefs(fs.mkdtempSync(path.join(os.tmpdir(), "enchiridion-ss-"))),

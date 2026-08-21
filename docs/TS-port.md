@@ -11,7 +11,7 @@ The original script layer was a single static Go binary ([ADR-0011](adr/0011-go-
 
 ## Outcome
 
-- `enchiridion-go/` is **deleted** (#267). There is one script-layer implementation: the TypeScript bundle at `enchiridion-ts/dist/cli.js` + the `node-sqlite3-wasm` `.wasm` sidecar.
+- `enchiridion-go/` is **deleted** (#267). There is one script-layer implementation: the TypeScript bundle at `enchiridion-ts/dist/cli.cjs` + the `node-sqlite3-wasm` `.wasm` sidecar.
 - `wiki-plugin/bin/enchiridion` is a thin POSIX-sh shim that execs `node` against the bundle, forwarding every argument; `ENCHIRIDION_BIN` overrides it for local dev (#254).
 - All **14 subcommands** are implemented and exercised on both Node and Bun: `search`, `init`, `ingest`, `discover`, `ingest-scan`, `watch`, `save-session`, `tool-call-stats`, `commit`, `superseded-by`, `vault`, `page`, `place`, `hook`.
 - No native addons anywhere: `node-sqlite3-wasm` (WASM, not `.node`), `chokidar` in pure-JS mode (no `fsevents`), `isomorphic-git` (JS). A native addon would re-trip the ASR rule the port exists to clear.
@@ -132,8 +132,8 @@ wikipage` one-way dependency carried across the port):
 - **Module tests** cover each module; the two fast-check property tests guard
   the page-move and frontmatter contracts.
 - **CLI smoke tests** (`src/cli.smoke.test.ts`) run one test per subcommand
-  against the **esbuild-bundled `dist/cli.js`** on both Node and Bun — the
-  bundled `.js` + `.wasm` are the artifacts under test, no ts-node, no source
+  against the **esbuild-bundled `dist/cli.cjs`** on both Node and Bun — the
+  bundled `.cjs` + `.wasm` are the artifacts under test, no ts-node, no source
   maps.
 - **CI** (`ts-enchiridion.yml`) runs typecheck, lint, format, build, and the
   test suite on both Node.js LTS and Bun; both must pass for a PR to merge.
@@ -150,9 +150,9 @@ npm ci
 npm run typecheck
 npm run lint
 npm run format:check
-npm run build        # esbuild bundle -> dist/cli.js + the .wasm sidecar
+npm run build        # esbuild bundle -> dist/cli.cjs + the .wasm sidecar
 npm test             # Node's built-in test runner via tsx
 npm run test:bun     # needs bun on PATH; same tests under Bun
 ```
 
-`wiki-plugin/bin/enchiridion` invokes the bundle: `node dist/cli.js <subcommand>` (or via `ENCHIRIDION_BIN` for local dev).
+`wiki-plugin/bin/enchiridion` invokes the bundle: `node dist/cli.cjs <subcommand>` (or via `ENCHIRIDION_BIN` for local dev).
