@@ -13,6 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { Index, tokenizeQuery, SCHEMA_VERSION } from "./searchindex.js";
 import type { Git, Snapshot, PageChange } from "./searchindex.js";
+import { VaultGit } from "./vaultgit.js";
+import { pageRefs } from "./vault.js";
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -676,6 +678,28 @@ describe("malformed pages", () => {
     }
   });
 
+  it("a wiki/_index.md page change is never indexed (#310)", async () => {
+    // Defense in depth: even if a snapshot were to hand the index the
+    // generated-index artifact, it must not be indexed or counted. The git
+    // walk now excludes it up front (vaultgit), so this path is unreachable in
+    // practice — but the index's own skip is what makes "never a page" hold
+    // even under a hand-built snapshot.
+    const fake = fakeAtHead(
+      "head1",
+      pageChange("wiki/concepts/a.md", "A", "s", "shared word", [], "", ""),
+      pageChange("wiki/_index.md", "Index", "s", "shared word", [], "", ""),
+    );
+    const index = await openIndex(fake);
+    try {
+      const stats = await index.reindex(true);
+      assert.equal(stats.pages, 1, "only a.md is indexed");
+      const hits = await index.search({ text: "shared" });
+      assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md"]);
+    } finally {
+      index.close();
+    }
+  });
+
   it("skips a page whose frontmatter edge is not a markdown link", async () => {
     const fake = fakeAtHead(
       "head1",
@@ -735,6 +759,61 @@ describe("malformed pages", () => {
       assert.equal(hits.length, 0, "malformed page is not searchable");
     } finally {
       index.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page predicate agreement (#310)
+// ---------------------------------------------------------------------------
+
+describe("page predicate agreement", () => {
+  it("disk, git, and status counts agree on an edge vault (#310)", async () => {
+    // One shared page rule across all three views, proven on the vault that
+    // used to disagree: a generated `wiki/_index.md`, a nested page, and a
+    // file at the wiki root sit on disk and are committed, and all three
+    // views must treat them identically — none of them are pages.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "searchindex-test-"));
+    try {
+      const write = (rel: string, text: string) => {
+        const p = path.join(root, ...rel.split("/"));
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, text);
+      };
+      write(
+        "wiki/concepts/a.md",
+        page("A", "s", "shared body", [], "source_date: 2026-01-01\n"),
+      );
+      write("wiki/_index.md", "generated table of contents\n");
+      write("wiki/concepts/nested/deep.md", "nested\n");
+      write("wiki/loose.md", "loose\n");
+
+      const git = new VaultGit(root);
+      await git.init();
+      await git.add(["."]);
+      await git.commit("seed edge vault");
+
+      // The three views, independently computed on the same vault:
+      const onDisk = pageRefs(root);
+      const index = await Index.openWithGit(root, git);
+      try {
+        const stats = await index.reindex(true);
+        const status = await index.status();
+        assert.deepEqual(onDisk, ["wiki/concepts/a.md"], "disk view");
+        assert.equal(stats.pages, 1, "git view — one page indexed");
+        assert.equal(status.pages, 1, "index view");
+        assert.equal(
+          status.uncommittedPages,
+          0,
+          "uncommitted_pages consistent: everything on disk is a page and is indexed",
+        );
+        const hits = await index.search({ text: "shared" });
+        assert.deepEqual(refsOf(hits), ["wiki/concepts/a.md"]);
+      } finally {
+        index.close();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

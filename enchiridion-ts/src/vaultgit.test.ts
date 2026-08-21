@@ -192,6 +192,42 @@ test('committedPages("") returns the latest committed bytes', async () => {
   assert.equal(byRef.get("wiki/concepts/a.md")!.content, "one, edited\n");
 });
 
+test('committedPages("") excludes a committed wiki/_index.md — never a page (#310)', async () => {
+  // Q1 resolution: per ADR-0015 the index is a view of HEAD's committed wiki/
+  // tree, but the generated index artifact is *never* a page, so even a
+  // committed wiki/_index.md in HEAD's tree must not be enumerated — it can
+  // never be indexed or counted. The git walk and the disk walk share the
+  // page predicate, so they agree.
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "wiki/concepts/a.md", "one\n");
+  writeFile(root, "wiki/_index.md", "generated table of contents\n");
+  await commitAll(root, "first");
+
+  const snap = await repo.committedPages("");
+  const byRef = pagesByRef(snap);
+  assert.ok(byRef.has("wiki/concepts/a.md"));
+  assert.ok(!byRef.has("wiki/_index.md"), "generated index must not be a page");
+});
+
+test('committedPages("") excludes a committed nested page — a structural error (#310)', async () => {
+  // Q2 resolution: the schema reader treats "directly under a kind-folder" as
+  // the contract, so a nested page is a structural error, not a page — the git
+  // walk must not enumerate it, matching the disk walk and the status count.
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "wiki/concepts/a.md", "one\n");
+  writeFile(root, "wiki/concepts/nested/deep.md", "nested\n");
+  writeFile(root, "wiki/loose.md", "loose\n");
+  await commitAll(root, "first");
+
+  const snap = await repo.committedPages("");
+  const byRef = pagesByRef(snap);
+  assert.deepEqual([...byRef.keys()], ["wiki/concepts/a.md"]);
+});
+
 test("committedPages is lenient on a non-repo (empty Snapshot)", async () => {
   const snap = await new VaultGit(tmpRepo()).committedPages("");
   assert.deepEqual(snap, { head: "", fullRebuild: false, pages: [] });
@@ -229,6 +265,25 @@ test("committedPages range enumerates only changed paths", async () => {
   const byRef = pagesByRef(snap);
   assert.deepEqual([...byRef.keys()], ["wiki/concepts/a.md"]);
   assert.equal(byRef.get("wiki/concepts/a.md")!.content, "one, edited\n");
+});
+
+test("committedPages range ignores a change to wiki/_index.md (#310)", async () => {
+  // A commit touching only the generated index is not a page change, so the
+  // range walk reports nothing — the index can never be indexed or counted.
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "wiki/concepts/a.md", "one\n");
+  await commitAll(root, "first");
+  const first = await repo.committedPages("");
+  const watermark = first.head;
+
+  writeFile(root, "wiki/_index.md", "generated table of contents\n");
+  await commitAll(root, "second");
+
+  const snap = await repo.committedPages(watermark);
+  assert.equal(snap.fullRebuild, false);
+  assert.deepEqual(snap.pages, [], "index artifact is not a page change");
 });
 
 test("committedPages at HEAD is a no-op", async () => {

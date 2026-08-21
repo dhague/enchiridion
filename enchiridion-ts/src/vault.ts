@@ -17,6 +17,7 @@ import { Page, planMove } from "./wikipage.js";
 import { loadRecords } from "./pagerecord.js";
 import type { PageRecord } from "./pagerecord.js";
 import { FolderKinds, KindFolders, folderToKind } from "./place.js";
+import { enumeratePageRefs } from "./pagepredicate.js";
 
 /** The filenames that make a directory a vault root: a `wiki/` directory or a
  * `.wiki-root` sentinel file. */
@@ -90,42 +91,19 @@ function resolve(p: string): string {
   }
 }
 
-/** The generated `wiki/_index.md` the old build_index wrote — a derived
- * artifact, not a page, so it is excluded from page enumeration (the same rule
- * the pre-#117 Python layer enforced and the TS port dropped). */
-const GeneratedIndexRef = "wiki/_index.md";
+/** The generated `wiki/_index.md` exclusion lives in pagepredicate, the one
+ * shared definition of what counts as a page (#310); this module's page
+ * enumeration delegates to it. */
 
-/** Return every markdown file under the vault's `wiki/` tree at root, as
- * vault-relative page refs (ADR-0009), sorted. `raw/` is never walked, and the
- * generated `wiki/_index.md` is never a page. */
+/**
+ * Return every page under the vault's `wiki/` tree at root, as vault-relative
+ * page refs (ADR-0009), sorted. `raw/` is never walked, and the page rule is
+ * pagepredicate's — markdown at `wiki/<kind-folder>/<file>.md`, never the
+ * generated `wiki/_index.md`, never a nested page — the same rule the git
+ * walk and the index's status count use, so all three views agree (#310).
+ */
 export function pageRefs(root: string): string[] {
-  const wikiDir = path.join(root, "wiki");
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(wikiDir, { withFileTypes: true });
-  } catch (err) {
-    // A vault with no `wiki/` yet has no pages — not an error.
-    if (isENOENT(err)) return [];
-    throw err;
-  }
-  const refs: string[] = [];
-  const walk = (dir: string, dirEntries: fs.Dirent[]): void => {
-    for (const entry of dirEntries) {
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(abs, fs.readdirSync(abs, { withFileTypes: true }));
-      } else if (entry.name.endsWith(".md")) {
-        const rel = toSlash(path.relative(root, abs));
-        if (rel !== GeneratedIndexRef) refs.push(rel);
-      }
-    }
-  };
-  walk(wikiDir, entries);
-  return refs.sort();
-}
-
-function toSlash(p: string): string {
-  return p.split(path.sep).join("/");
+  return enumeratePageRefs(root);
 }
 
 function isENOENT(err: unknown): boolean {

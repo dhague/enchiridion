@@ -23,6 +23,7 @@ import * as git from "isomorphic-git";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isPageRef } from "./pagepredicate.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -444,7 +445,7 @@ export class VaultGit implements Git {
     const dates = await this.commitDates(headOid);
     const pages: PageChange[] = [];
     await this.walkTree(headOid, async (filepath, entry) => {
-      if (!isWikiPage(filepath)) return;
+      if (!isPageRef(filepath)) return;
       const oid = await entry.oid();
       const content = await readBlobAsString(this.root, oid);
       pages.push({
@@ -560,20 +561,20 @@ function changedWikiPaths(commit: git.ReadCommitResult): string[] {
   const out: string[] = [];
   for (const change of changes) {
     const filepath = change[2];
-    if (filepath && isWikiPage(filepath)) out.push(filepath);
+    if (filepath && isPageRef(filepath)) out.push(filepath);
   }
   return out;
 }
 
-/** Mirrors Go's vaultgit.isWikiPage: under wiki/, ends in .md, long enough. */
-function isWikiPage(name: string): boolean {
-  return (
-    name.length > "wiki/".length &&
-    name.startsWith("wiki/") &&
-    name.length > ".md".length &&
-    name.endsWith(".md")
-  );
-}
+/**
+ * The shared page predicate (pagepredicate, #310): a page is
+ * `wiki/<kind-folder>/<file>.md`, never the generated `wiki/_index.md`, never
+ * a nested page. Replaces the Go original's loose `isWikiPage` (any `wiki/**`
+ * `.md`), which would have counted a committed generated-index artifact and
+ * a nested page — diverging from the disk walk and the schema reader. The git
+ * walk and the disk walk now share one predicate, so a page the index counts
+ * is exactly a page the git walk can hand it (#310).
+ */
 
 /** Whether a vault-relative `file` is under one of the staged `paths`. */
 function coveredByPaths(file: string, paths: string[]): boolean {
