@@ -28,10 +28,7 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 ### Standalone CLI
 
 The script layer ships as a TypeScript bundle invoked through
-`wiki-plugin/bin/enchiridion` (a thin shim that execs `node` against it), so
-there is no per-platform binary to install. A standalone distribution — a
-Homebrew tap and self-hosted Chocolatey package — is on hold until the
-TypeScript release workflow lands ([#267](https://github.com/dhague/enchiridion/issues/267)).
+`wiki-plugin/bin/enchiridion` (a thin shim that execs `node` against it).
 
 ## Design principles
 
