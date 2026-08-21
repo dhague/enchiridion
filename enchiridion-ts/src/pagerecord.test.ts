@@ -69,6 +69,14 @@ test("newPageRecord keeps a non-date verbatim", () => {
   assert.equal(rec.sourceDate, "summer 2026");
 });
 
+test("newPageRecord keeps an invalid calendar date verbatim", () => {
+  const rec = newPageRecord(
+    "wiki/concepts/a.md",
+    "---\nsource_date: 2026-02-30\n---\n",
+  );
+  assert.equal(rec.sourceDate, "2026-02-30");
+});
+
 test("newPageRecord derives custom kinds per ADR-0008", () => {
   const rec = newPageRecord(
     "wiki/decisions/use-fts5.md",

@@ -53,6 +53,7 @@ import {
   removeFromQueue,
   removeLock,
 } from "./watch.js";
+import { canonicalSourceDate } from "./sourcedate.js";
 
 /** Prints the standard stub message and marks the process failed. */
 function stub(command: Command, label: string): void {
@@ -82,22 +83,6 @@ function formatFrontmatterValue(value: unknown): string {
 function formatScalar(value: unknown): string {
   if (typeof value === "boolean") return value ? "True" : "False";
   return String(value);
-}
-
-/**
- * Canonicalise a `source_date` value to YYYY-MM-DD, truncating a clock. A
- * value that isn't a valid date at all is refused — the same rejection
- * ingest's validation applies.
- */
-function canonicalSourceDate(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
-  if (!m) {
-    throw new Error(
-      `source_date must be a valid date (YYYY-MM-DD), got ${String(value)}`,
-    );
-  }
-  return m[1];
 }
 
 const FLAT_SUBCOMMANDS = [] as const;

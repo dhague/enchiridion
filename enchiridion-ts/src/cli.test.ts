@@ -232,6 +232,53 @@ test("page set: writes the file back", () => {
   );
 });
 
+test("page set: canonicalises source_date, truncating a clock", () => {
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status, stderr } = run([
+    "page",
+    "set",
+    file,
+    "source_date",
+    "2026-07-20T14:30:00Z",
+  ]);
+  assert.equal(status, 0, stderr);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "---\nkind: concept\nsource_date: 2026-07-20\n---\nbody\n",
+  );
+});
+
+test("page set: rejects an invalid calendar date in source_date", () => {
+  // The bug this guards: `page set` accepted 2026-13-40 (its regex truncated
+  // without validating) while ingest refused it. Both now share the one
+  // sourcedate rule and reject exactly the same spellings.
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status, stderr } = run([
+    "page",
+    "set",
+    file,
+    "source_date",
+    "2026-13-40",
+  ]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /valid date/);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "---\nkind: concept\n---\nbody\n",
+  );
+});
+
+test("page set: rejects a non-date source_date", () => {
+  const file = writeTempPage("---\nkind: concept\n---\nbody\n", "");
+  const { status, stderr } = run(["page", "set", file, "source_date", "nope"]);
+  assert.notEqual(status, 0);
+  assert.match(stderr, /valid date/);
+  assert.equal(
+    fs.readFileSync(file, "utf8"),
+    "---\nkind: concept\n---\nbody\n",
+  );
+});
+
 test("page merge: unions values into a list-valued key", () => {
   const file = writeTempPage("---\ntags:\n  - a\n---\nbody\n", "");
   const { status } = run(["page", "merge", file, "tags", '["b", "a"]']);

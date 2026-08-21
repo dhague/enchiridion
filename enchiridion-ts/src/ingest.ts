@@ -59,6 +59,7 @@ import { path as placePath, Kinds } from "./place.js";
 import { Vault } from "./vault.js";
 import { check as checkChainOfEvidence } from "./chainofevidence.js";
 import { commit, type Git, type Supersession } from "./commit.js";
+import { parseSourceDate, truncateSourceDate } from "./sourcedate.js";
 
 /** Caps a full path (vault root plus vault-relative path), for Windows'
  * 255-char limit (#70). */
@@ -321,10 +322,11 @@ export class Resolved {
       // `source_date` is valid time and has one canonical spelling
       // (YYYY-MM-DD). A clock on it truncates on write, but a value that
       // isn't a valid date at all can't be — the plan is refused (#192). Null
-      // reads as absent, like raw_source.
+      // reads as absent, like raw_source. The rule itself lives in
+      // [sourcedate.parseSourceDate], the one owner (#309).
       const sourceDate = page.frontmatter.get("source_date");
       if (sourceDate.ok && sourceDate.value !== null) {
-        if (parseDate(sourceDate.value) === null) {
+        if (parseSourceDate(sourceDate.value) === null) {
           problems.push(
             `${prefix}.frontmatter.source_date must be a valid date (YYYY-MM-DD), got ${String(sourceDate.value)}`,
           );
@@ -629,64 +631,11 @@ function applyFrontmatter(
   return page;
 }
 
-/** The accepted spellings a hand-written `source_date` might carry, in
- * precedence order: date-only first, then the timestamp forms. Any clock is
- * truncated to its date. Returns the canonical YYYY-MM-DD, or null when value
- * is not a valid date at all. */
-function parseDate(value: unknown): string | null {
-  if (value instanceof Date) {
-    return formatDateOnly(
-      value.getUTCFullYear(),
-      value.getUTCMonth() + 1,
-      value.getUTCDate(),
-    );
-  }
-  if (typeof value !== "string") return null;
-  const s = value.trim();
-  const dateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnly) {
-    const [y, mo, d] = [
-      Number(dateOnly[1]),
-      Number(dateOnly[2]),
-      Number(dateOnly[3]),
-    ];
-    return validDate(y, mo, d) ? formatDateOnly(y, mo, d) : null;
-  }
-  const stamp = s.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:?\d{2})?$/,
-  );
-  if (stamp) {
-    const [y, mo, d] = [Number(stamp[1]), Number(stamp[2]), Number(stamp[3])];
-    return validDate(y, mo, d) ? formatDateOnly(y, mo, d) : null;
-  }
-  return null;
-}
-
-/** Report whether y/m/d is a real calendar date. */
-function validDate(y: number, mo: number, d: number): boolean {
-  if (mo < 1 || mo > 12 || d < 1) return false;
-  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return d <= days[mo - 1];
-}
-
-function formatDateOnly(y: number, mo: number, d: number): string {
-  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-/** Renders a plan-proposed `source_date` in its canonical YYYY-MM-DD spelling,
- * truncating a clock (#192). A value that isn't a valid date is left
- * untouched: shape validation rejects it before execution, but Resolve (which
- * runs before Validate) must not fail on it. */
-function truncateSourceDate(value: unknown): unknown {
-  const date = parseDate(value);
-  return date !== null ? date : value;
-}
-
 /** Canonicalises the plan's top-level `source_date` — the commit-trailer
- * attribution — to YYYY-MM-DD (#192). A non-date passes through. */
+ * attribution — to YYYY-MM-DD (#192). A non-date passes through. The rule
+ * itself lives in [sourcedate.parseSourceDate], the one owner (#309). */
 function manifestSourceDate(s: string): string {
-  const date = parseDate(s);
+  const date = parseSourceDate(s);
   return date !== null ? date : s;
 }
 

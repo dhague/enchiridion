@@ -19,6 +19,7 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { linkDest, resolveLinkDest, splitFrontmatter } from "./wikipage.js";
 import { FolderKinds, folderToKind } from "./place.js";
+import { parseSourceDate } from "./sourcedate.js";
 
 /** Lists the frontmatter keys that hold markdown links to other pages. Order
  * mirrors the frontmatter schema block in the conventions spec. `raw_source`
@@ -153,62 +154,13 @@ function frontmatterMap(text: string): Record<string, unknown> {
  * spelling, truncating any clock (the minimal wikitime analogue — #192). A
  * value that isn't a valid date at all is stored verbatim: the read path
  * tolerates legacy and hand-written values, while the write paths (ingest,
- * `page set`) reject them.
+ * `page set`) reject them. The parse/validate/canonicalise rule itself lives
+ * in [sourcedate.parseSourceDate], the one owner (#309).
  */
 function sourceDate(v: unknown): string {
-  const date = parseDate(v);
+  const date = parseSourceDate(v);
   if (date !== null) return date;
   return scalar(v);
-}
-
-/**
- * The accepted spellings a hand-written `source_date` might carry, in
- * precedence order: date-only first, then the timestamp forms the codebase
- * has emitted over its history (RFC3339 with or without a zone, and the
- * zone-less space/T-separated forms). Any clock is truncated to its date.
- *
- * ok is false when value is not a valid date at all (a free-text
- * "summer 2026", a malformed scalar, a non-string/non-Date).
- */
-function parseDate(value: unknown): string | null {
-  if (value instanceof Date) {
-    return formatDateOnly(
-      value.getUTCFullYear(),
-      value.getUTCMonth() + 1,
-      value.getUTCDate(),
-    );
-  }
-  if (typeof value !== "string") return null;
-  const s = value.trim();
-  const dateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnly) {
-    const [y, mo, d] = [
-      Number(dateOnly[1]),
-      Number(dateOnly[2]),
-      Number(dateOnly[3]),
-    ];
-    return validDate(y, mo, d) ? formatDateOnly(y, mo, d) : null;
-  }
-  const stamp = s.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:?\d{2})?$/,
-  );
-  if (stamp) {
-    const [y, mo, d] = [Number(stamp[1]), Number(stamp[2]), Number(stamp[3])];
-    return validDate(y, mo, d) ? formatDateOnly(y, mo, d) : null;
-  }
-  return null;
-}
-
-/** Report whether y/m/d is a real calendar date. */
-function validDate(y: number, mo: number, d: number): boolean {
-  if (mo < 1 || mo > 12 || d < 1) return false;
-  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return d <= days[mo - 1];
-}
-
-function formatDateOnly(y: number, mo: number, d: number): string {
-  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /**
