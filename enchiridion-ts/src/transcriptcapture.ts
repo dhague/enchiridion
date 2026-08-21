@@ -1,12 +1,13 @@
 /**
- * Turns a JSONL session transcript into a vault-ready raw markdown file.
+ * Turns a host session transcript into a vault-ready raw markdown file.
  * Ported from enchiridion-go/internal/transcriptcapture
  * (transcriptcapture.go + opencode.go).
  *
- * The capability behind the /save-conversation skill — parse a Claude Code
- * transcript, filter to the real user/assistant back-and-forth, render to
- * markdown, sanitise an agent-authored slug, bind a filename in the vault's
- * raw inbox. Pure or filesystem-local only; argv parsing lives in the CLI.
+ * The capability behind the /save-conversation skill — reduce a host's wire
+ * format to (role, text) turns via one adapter per host (Claude Code JSONL,
+ * OpenCode export), render the turns to markdown with a host attribution
+ * line, sanitise an agent-authored slug, bind a filename in the vault's raw
+ * inbox. Pure or filesystem-local only; argv parsing lives in the CLI.
  *
  * **The name is bound once, at first save.** A re-save finds the existing
  * file by its short session id and rewrites it in place rather than renaming,
@@ -101,6 +102,48 @@ function extractText(content: unknown): string {
 }
 
 /**
+ * One (role, text) exchange — the domain turn shape. Each host's adapter
+ * (parseClaudeTranscript, normalizeExport) reduces its wire format to this,
+ * and transcriptToPage renders it.
+ */
+export interface Turn {
+  role: string;
+  text: string;
+}
+
+/**
+ * The Claude Code host adapter: parses a JSONL transcript into (role, text)
+ * turns.
+ *
+ * Only user/assistant messages count; meta and sidechain entries are filtered
+ * out, as is anything that isn't a `text` block — tool_use / tool_result /
+ * image aren't part of the back-and-forth anyone re-reads later. Multiple
+ * text blocks in one message join with a blank line. A garbled line is
+ * skipped rather than fatal, so a transcript interrupted mid-write still
+ * parses as far as it got.
+ */
+export function parseClaudeTranscript(jsonlLines: string[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const rawLine of jsonlLines) {
+    const line = rawLine.trim();
+    if (line === "") continue;
+    let entry: TranscriptEntry;
+    try {
+      entry = JSON.parse(line) as TranscriptEntry;
+    } catch {
+      continue;
+    }
+    if (entry.type !== "user" && entry.type !== "assistant") continue;
+    if (entry.isMeta || entry.isSidechain) continue;
+    const text = extractText(entry.message?.content);
+    if (text !== "") {
+      turns.push({ role: entry.message!.role!, text });
+    }
+  }
+  return turns;
+}
+
+/**
  * Wraps the too-short-transcript failure so the CLI can print a
  * "not enough conversation to save" exit.
  */
@@ -119,8 +162,10 @@ export class ErrTooFewTurns extends Error {
 /**
  * Renders a session transcript into a vault-ready page.
  *
- * Pure: no I/O, no env, no filesystem. jsonlLines are the raw lines of the
- * Claude Code transcript. Returns [filename, markdown].
+ * Pure: no I/O, no env, no filesystem. turns are the domain turn shape — the
+ * host adapters (parseClaudeTranscript, normalizeExport) reduce each host's
+ * wire format to this before the renderer sees it. hostLabel names the host
+ * in the **Source:** attribution line. Returns [filename, markdown].
  *
  * slug is a free-text phrase naming what the session covered; it is sanitized
  * here, not trusted, and a phrase that sanitizes to nothing degrades to the
@@ -128,7 +173,8 @@ export class ErrTooFewTurns extends Error {
  * so a caller can match an existing vault's captures.
  */
 export function transcriptToPage(
-  jsonlLines: string[],
+  turns: Turn[],
+  hostLabel: string,
   sessionID: string,
   now: Date,
   slug: string,
@@ -136,29 +182,6 @@ export function transcriptToPage(
   assistantLabel: string,
   minTurns: number,
 ): [string, string] {
-  interface Turn {
-    role: string;
-    text: string;
-  }
-  const turns: Turn[] = [];
-
-  for (const rawLine of jsonlLines) {
-    const line = rawLine.trim();
-    if (line === "") continue;
-    let entry: TranscriptEntry;
-    try {
-      entry = JSON.parse(line) as TranscriptEntry;
-    } catch {
-      continue;
-    }
-    if (entry.type !== "user" && entry.type !== "assistant") continue;
-    if (entry.isMeta || entry.isSidechain) continue;
-    const text = extractText(entry.message?.content);
-    if (text !== "") {
-      turns.push({ role: entry.message!.role!, text });
-    }
-  }
-
   if (turns.length < minTurns) {
     throw new ErrTooFewTurns(turns.length, minTurns);
   }
@@ -175,7 +198,7 @@ export function transcriptToPage(
     `# Session ${sessionID}`,
     "",
     `**Saved:** ${fmtDate(now, "YYYY-MM-DD hh:mm")}  `,
-    "**Source:** Claude Code session transcript (save-conversation skill, enchiridion repo)",
+    `**Source:** ${hostLabel} session transcript (save-conversation skill, enchiridion repo)`,
     "",
     "---",
     "",
@@ -391,8 +414,8 @@ export async function captureSession(
 
 /**
  * The Claude Code host path: the SessionStart hook recorded a transcript
- * file, so this is findTranscriptPath -> transcriptToPage -> writeCapture with
- * no subprocess involved.
+ * file, so this is findTranscriptPath -> parseClaudeTranscript ->
+ * transcriptToPage -> writeCapture with no subprocess involved.
  */
 function captureClaudeCodeSession(
   wikiRoot: string,
@@ -414,11 +437,13 @@ function captureClaudeCodeSession(
   const base = path.basename(transcriptPath);
   const ext = path.extname(transcriptPath);
   const sessionID = ext !== "" ? base.slice(0, -ext.length) : base;
+  const turns = parseClaudeTranscript(text.split("\n"));
   let filename: string;
   let markdown: string;
   try {
     [filename, markdown] = transcriptToPage(
-      text.split("\n"),
+      turns,
+      "Claude Code",
       sessionID,
       timestamp,
       slug,
@@ -679,12 +704,6 @@ function isExecutableFile(file: string): boolean {
   }
 }
 
-/** One (role, text) exchange, the shape both hosts reduce to. */
-export interface Turn {
-  role: string;
-  text: string;
-}
-
 /**
  * Maps an `opencode export` document into (role, text) turns.
  *
@@ -696,8 +715,8 @@ export interface Turn {
  * Multiple text parts in one message join with a blank line.
  *
  * Malformed messages and parts are skipped rather than fatal, mirroring
- * transcriptToPage's tolerance of a garbled JSONL line; only a document that is
- * not a JSON object at all is an error.
+ * parseClaudeTranscript's tolerance of a garbled JSONL line; only a document
+ * that is not a JSON object at all is an error.
  */
 export function normalizeExport(exportDoc: Uint8Array): Turn[] {
   let parsed: unknown;
@@ -744,25 +763,6 @@ export function normalizeExport(exportDoc: Uint8Array): Turn[] {
 }
 
 /**
- * Re-encodes turns as the Claude Code JSONL shape transcriptToPage reads, so
- * the pure seam needs no change to serve OpenCode transcripts.
- */
-export function encodeTurns(turns: Turn[]): string[] {
-  const lines: string[] = [];
-  for (const turn of turns) {
-    lines.push(
-      JSON.stringify({
-        type: turn.role,
-        isMeta: false,
-        isSidechain: false,
-        message: { role: turn.role, content: turn.text },
-      }),
-    );
-  }
-  return lines;
-}
-
-/**
  * Resolves the current OpenCode session, exports and normalizes its
  * transcript, and writes the capture; returns its vault-relative path.
  *
@@ -790,7 +790,8 @@ export async function captureOpenCodeSession(
   let markdown: string;
   try {
     [filename, markdown] = transcriptToPage(
-      encodeTurns(turns),
+      turns,
+      "OpenCode",
       sessionID,
       timestamp,
       slug,

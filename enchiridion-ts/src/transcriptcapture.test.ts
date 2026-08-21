@@ -12,16 +12,17 @@ import path from "node:path";
 import {
   sanitizeSlug,
   transcriptToPage,
+  parseClaudeTranscript,
   findTranscriptPath,
   writeCapture,
   normalizeExport,
-  encodeTurns,
   captureOpenCodeSession,
   captureSession,
   findOpenCodeSessionID,
   ErrTooFewTurns,
   CaptureError,
 } from "./transcriptcapture.js";
+import type { Turn } from "./transcriptcapture.js";
 import type { LookupEnv } from "./sessionstate.js";
 
 function tmp(): string {
@@ -53,6 +54,16 @@ function transcriptFixture(): string[] {
     jsonlLine("assistant", "Hi! How can I help?"),
     jsonlLine("user", "Tell me about pooling."),
     jsonlLine("assistant", "Pooling keeps handles around."),
+  ];
+}
+
+/** A hand-built domain turn fixture — what both host adapters reduce to. */
+function turnFixture(): Turn[] {
+  return [
+    { role: "user", text: "Hello there" },
+    { role: "assistant", text: "Hi! How can I help?" },
+    { role: "user", text: "Tell me about pooling." },
+    { role: "assistant", text: "Pooling keeps handles around." },
   ];
 }
 
@@ -97,7 +108,8 @@ test("sanitizeSlug uses a default maxLength when given <= 0", () => {
 
 test("transcriptToPage renders user/assistant turns and a deterministic filename", () => {
   const [filename, markdown] = transcriptToPage(
-    transcriptFixture(),
+    turnFixture(),
+    "Claude Code",
     "sess-abc-123",
     NOW,
     "Connection Pooling",
@@ -112,7 +124,68 @@ test("transcriptToPage renders user/assistant turns and a deterministic filename
   assert.match(markdown, /## Claude\n\nHi! How can I help\?/);
 });
 
-test("transcriptToPage ignores meta, sidechain, and non user/assistant entries", () => {
+test("transcriptToPage reflects the passed host label in the Source line", () => {
+  const [, markdown] = transcriptToPage(
+    [
+      { role: "user", text: "hi" },
+      { role: "assistant", text: "hello" },
+    ],
+    "OpenCode",
+    "s-1",
+    NOW,
+    "",
+    "User",
+    "Claude",
+    2,
+  );
+  assert.match(
+    markdown,
+    /\*\*Source:\*\* OpenCode session transcript \(save-conversation skill, enchiridion repo\)/,
+  );
+});
+
+test("transcriptToPage degrades an empty slug to the bare date-shortid name", () => {
+  const [filename] = transcriptToPage(
+    turnFixture(),
+    "Claude Code",
+    "sess-abc",
+    NOW,
+    "",
+    "User",
+    "Claude",
+    2,
+  );
+  assert.equal(filename, "2026-01-02-0304-sess.md");
+});
+
+test("transcriptToPage throws ErrTooFewTurns when below minTurns", () => {
+  assert.throws(
+    () =>
+      transcriptToPage(
+        [{ role: "user", text: "only one turn" }],
+        "Claude Code",
+        "s-1",
+        NOW,
+        "",
+        "User",
+        "Claude",
+        2,
+      ),
+    (err: unknown) =>
+      err instanceof ErrTooFewTurns && err.turns === 1 && err.minTurns === 2,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// parseClaudeTranscript (the Claude Code host adapter)
+// ---------------------------------------------------------------------------
+
+test("parseClaudeTranscript maps JSONL lines into user/assistant turns", () => {
+  const turns = parseClaudeTranscript(transcriptFixture());
+  assert.deepEqual(turns, turnFixture());
+});
+
+test("parseClaudeTranscript ignores meta, sidechain, and non user/assistant entries", () => {
   const lines = [
     jsonlLine("user", "hi"),
     JSON.stringify({
@@ -131,22 +204,14 @@ test("transcriptToPage ignores meta, sidechain, and non user/assistant entries",
     }),
     jsonlLine("assistant", "hello"),
   ];
-  const [, markdown] = transcriptToPage(
-    lines,
-    "s-1",
-    NOW,
-    "",
-    "User",
-    "Claude",
-    2,
-  );
-  assert.ok(!markdown.includes("hidden"));
-  assert.ok(!markdown.includes("sys"));
-  assert.ok(markdown.includes("## User\n\nhi"));
-  assert.ok(markdown.includes("## Claude\n\nhello"));
+  const turns = parseClaudeTranscript(lines);
+  assert.deepEqual(turns, [
+    { role: "user", text: "hi" },
+    { role: "assistant", text: "hello" },
+  ]);
 });
 
-test("transcriptToPage only counts text blocks, joining multiple with a blank line", () => {
+test("parseClaudeTranscript only counts text blocks, joining multiple with a blank line", () => {
   const lines = [
     jsonlLine("user", "hello"),
     jsonlLine("assistant", [
@@ -155,47 +220,41 @@ test("transcriptToPage only counts text blocks, joining multiple with a blank li
       { type: "text", text: "two" },
     ]),
   ];
-  const [, markdown] = transcriptToPage(
-    lines,
-    "s-1",
-    NOW,
-    "",
-    "User",
-    "Claude",
-    2,
-  );
-  assert.ok(markdown.includes("## Claude\n\none\n\ntwo"));
-  assert.ok(!markdown.includes("Read"));
+  const turns = parseClaudeTranscript(lines);
+  assert.deepEqual(turns, [
+    { role: "user", text: "hello" },
+    { role: "assistant", text: "one\n\ntwo" },
+  ]);
 });
 
-test("transcriptToPage degrades an empty slug to the bare date-shortid name", () => {
-  const [filename] = transcriptToPage(
-    transcriptFixture(),
-    "sess-abc",
-    NOW,
-    "",
-    "User",
-    "Claude",
-    2,
-  );
-  assert.equal(filename, "2026-01-02-0304-sess.md");
+test("parseClaudeTranscript excludes tool_use and tool_result blocks", () => {
+  const lines = [
+    jsonlLine("user", "hello"),
+    jsonlLine("assistant", [
+      { type: "tool_use", name: "Read" },
+      { type: "tool_result", content: "file contents" },
+      { type: "text", text: "here is the file" },
+    ]),
+  ];
+  const turns = parseClaudeTranscript(lines);
+  assert.deepEqual(turns, [
+    { role: "user", text: "hello" },
+    { role: "assistant", text: "here is the file" },
+  ]);
 });
 
-test("transcriptToPage throws ErrTooFewTurns when below minTurns", () => {
-  assert.throws(
-    () =>
-      transcriptToPage(
-        [jsonlLine("user", "only one turn")],
-        "s-1",
-        NOW,
-        "",
-        "User",
-        "Claude",
-        2,
-      ),
-    (err: unknown) =>
-      err instanceof ErrTooFewTurns && err.turns === 1 && err.minTurns === 2,
-  );
+test("parseClaudeTranscript skips garbled and empty lines", () => {
+  const turns = parseClaudeTranscript([
+    jsonlLine("user", "hi"),
+    "not json at all",
+    "",
+    "   ",
+    jsonlLine("assistant", "hello"),
+  ]);
+  assert.deepEqual(turns, [
+    { role: "user", text: "hi" },
+    { role: "assistant", text: "hello" },
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -321,7 +380,7 @@ test("writeCapture reuses an existing capture by short id instead of the new fil
 });
 
 // ---------------------------------------------------------------------------
-// normalizeExport / encodeTurns
+// normalizeExport (the OpenCode host adapter)
 // ---------------------------------------------------------------------------
 
 test("normalizeExport maps an opencode export into user/assistant text turns", () => {
@@ -358,18 +417,6 @@ test("normalizeExport throws on invalid JSON and unexpected shapes", () => {
     (err: unknown) =>
       err instanceof CaptureError && /unexpected shape/.test(err.message),
   );
-});
-
-test("encodeTurns re-encodes turns into the Claude Code JSONL shape", () => {
-  const lines = encodeTurns([
-    { role: "user", text: "hi" },
-    { role: "assistant", text: "hello" },
-  ]);
-  assert.equal(lines.length, 2);
-  const parsed = JSON.parse(lines[0]) as Record<string, unknown>;
-  assert.equal(parsed["type"], "user");
-  assert.equal((parsed["message"] as Record<string, unknown>)["role"], "user");
-  assert.equal((parsed["message"] as Record<string, unknown>)["content"], "hi");
 });
 
 // ---------------------------------------------------------------------------
@@ -425,6 +472,35 @@ test("captureOpenCodeSession writes a capture using the injected export seam", a
   const written = fs.readFileSync(path.join(wikiRoot, rel), "utf8");
   assert.match(written, /^# Session oc-abc-999/);
   assert.match(written, /## Claude\n\nhello/);
+});
+
+test("captureOpenCodeSession writes attribution naming OpenCode, not Claude Code", async () => {
+  const { project, lookupEnv, sessionID } = openCodeEnvAndState();
+  const doc = JSON.stringify({
+    info: { id: sessionID },
+    messages: [
+      { info: { role: "user" }, parts: [{ type: "text", text: "hi" }] },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "hello" }] },
+    ],
+  });
+  const exportSeam = async (): Promise<Uint8Array> =>
+    new TextEncoder().encode(doc);
+
+  const wikiRoot = tmp();
+  const rel = await captureOpenCodeSession(
+    wikiRoot,
+    "",
+    project,
+    lookupEnv,
+    NOW,
+    exportSeam,
+  );
+  const written = fs.readFileSync(path.join(wikiRoot, rel), "utf8");
+  assert.match(
+    written,
+    /\*\*Source:\*\* OpenCode session transcript \(save-conversation skill, enchiridion repo\)/,
+  );
+  assert.ok(!written.includes("Claude Code"));
 });
 
 test("captureOpenCodeSession fails when the export seam errors", async () => {
