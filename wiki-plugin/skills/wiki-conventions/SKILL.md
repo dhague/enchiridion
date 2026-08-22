@@ -32,6 +32,7 @@ Vault is a **git repository**. Layout is opinionated and **plugin-fixed** — sa
 - **Multi-membership never spawns a second folder.** Page touching several subjects filed once, by primary function; every other facet rides on **tags + typed edges**. Folder tree is only a thin, decidable filing handle.
 - `raw/` is **sibling** of `wiki/`, not child — immutable-originals-vs-generated split. Search index walks `wiki/**` only; never lists `raw/`.
 - `raw/` is **inbox** scanned by deterministic script; subfolders are **user-extensible** — no mandated catch-all.
+- **Search refuses a pre-conversion root.** A directory carrying the vault marker but not a git repository (a **candidate vault**) resolves for `vault root`, but `search`/`discover` throw rather than report an empty vault — there is no committed history to read. Convert it with `wiki-init` (which runs `enchiridion init <path> --mode …`). A real repo with no commits is an empty vault, not a candidate — search is simply empty.
 
 ### Placement algorithm
 
