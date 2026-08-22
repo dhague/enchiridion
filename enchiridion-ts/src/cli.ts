@@ -16,6 +16,8 @@
 import { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import util from "node:util";
 import { Page } from "./wikipage.js";
 import { captureSession } from "./transcriptcapture.js";
 import { formatSummary, logPath, readLog, summarize } from "./toolcallstats.js";
@@ -1064,6 +1066,111 @@ export function buildProgram(): Command {
   return program;
 }
 
+/** Detect a direct CLI invocation across both execution shapes: the esbuild
+ * CJS bundle (require.main === module) and the tsx/ESM source path
+ * (import.meta.url vs argv[1]). The bundle builds with format "cjs", so
+ * import.meta is empty there — the require.main branch short-circuits first. */
+function isMainModule(): boolean {
+  if (typeof require !== "undefined" && require.main === module) return true;
+  const arg = process.argv[1];
+  if (arg === undefined) return false;
+  return import.meta.url === pathToFileURL(path.resolve(arg)).href;
+}
+
+/** The in-process (plugin) entry. Captures stdout/stderr instead of writing
+ * to the process streams, overrides commander's exit so neither help() nor an
+ * error exit can terminate the host (OpenCode) process, and returns the result
+ * as data. Guards: commander's exitOverride makes exit a thrown
+ * CommanderError, not process.exit; help() is routed to the captured streams. */
+export interface RunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export async function run(argv: string[]): Promise<RunResult> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const program = buildProgram();
+  program.exitOverride().configureOutput({
+    writeOut: (s: string) => stdout.push(s),
+    writeErr: (s: string) => stderr.push(s),
+  });
+
+  // The command actions write via console.log/console.error → process
+  // stdout/stderr, which bypass commander's configured output. Swap the real
+  // stream writes AND console.log/console.error for the duration of the run so
+  // ALL output is captured (console.log bypasses process.stdout.write on Bun),
+  // then restore in a finally so the host process (OpenCode) keeps its own
+  // streams untouched even when an error path is taken. console.log is
+  // replaced wholesale rather than relying on it delegating to the swapped
+  // write, so each line is captured exactly once on either runtime. The
+  // originals are saved and restored unbound, so the properties keep their
+  // real identity afterwards.
+  const outWrite = process.stdout.write;
+  const errWrite = process.stderr.write;
+  const consoleLog = console.log;
+  const consoleError = console.error;
+  process.stdout.write = ((chunk: unknown, ..._rest: unknown[]) => {
+    stdout.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown, ..._rest: unknown[]) => {
+    stderr.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  console.log = (...args: unknown[]) => {
+    stdout.push(util.format(...args) + "\n");
+  };
+  console.error = (...args: unknown[]) => {
+    stderr.push(util.format(...args) + "\n");
+  };
+
+  try {
+    // Replicate the bare-invocation behaviour (usage to stdout, exit 0) by
+    // calling help() — which under exitOverride writes to the captured streams
+    // and throws a CommanderError with exitCode 0 instead of process.exit(0).
+    if (argv.length === 0) {
+      try {
+        program.help();
+      } catch {
+        /* CommanderError with exitCode 0 — swallowed */
+      }
+      return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode: 0 };
+    }
+
+    try {
+      await program.parseAsync([process.execPath, "enchiridion", ...argv]);
+    } catch (err) {
+      // CommanderError (help/version/exit) — its .exitCode is the outcome.
+      if (err && typeof err === "object" && "exitCode" in err) {
+        return {
+          stdout: stdout.join(""),
+          stderr: stderr.join(""),
+          exitCode: (err as { exitCode: number }).exitCode,
+        };
+      }
+      // An action handler threw a raw Error (commander rejects parseAsync
+      // with it, rather than wrapping it in a CommanderError — e.g. place
+      // with an unknown kind). Report it the way a bare CLI invocation would
+      // — message on stderr, non-zero exit — but as data, never an exit.
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.push(message.endsWith("\n") ? message : message + "\n");
+      return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode: 1 };
+    }
+    // parseAsync's own handlers set process.exitCode on failure (e.g. page get
+    // with a missing key); read it but never leave it set on the host process.
+    const exitCode = Number(process.exitCode ?? 0);
+    process.exitCode = 0;
+    return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode };
+  } finally {
+    process.stdout.write = outWrite;
+    process.stderr.write = errWrite;
+    console.log = consoleLog;
+    console.error = consoleError;
+  }
+}
+
 function main(): void {
   const program = buildProgram();
   if (process.argv.slice(2).length === 0) {
@@ -1078,4 +1185,9 @@ function main(): void {
   program.parse(process.argv);
 }
 
-main();
+// Only run as a direct CLI invocation; importing the module must be inert so
+// a host (an OpenCode plugin) can import it and call run() without hijacking
+// the process.
+if (isMainModule()) {
+  main();
+}
