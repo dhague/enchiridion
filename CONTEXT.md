@@ -8,6 +8,10 @@ A Claude Code plugin that ingests raw documents into a git-backed markdown vault
 The git repository the plugin operates on: a `wiki/` tree of pages plus a sibling `raw/` inbox of immutable source artifacts.
 _Avoid_: KB, wiki (alone — "wiki" means just the `wiki/` subtree, "vault" means the whole repo).
 
+**Candidate vault**:
+A directory carrying a vault marker (a `wiki/` folder or `.wiki-root`) but **not** a git repository — the pre-conversion state, not a vault. `vault root` still resolves it for reads; the search index refuses it (`Index.open` throws with the `enchiridion init` repair), because there is no committed history to read. Converted by `enchiridion init <path> --mode …`. Contrast a real work tree with no commits, which is an empty vault, not a candidate.
+_Avoid_: vault (a candidate is what a directory *becomes* after `init`; calling it a vault is what this term exists to prevent).
+
 **Page**:
 One markdown file under `wiki/`, carrying a frontmatter block plus a body. The vault's unit of knowledge. A file becomes a page when it is **committed** — an uncommitted file under `wiki/` is a draft, not yet part of the vault, and is not retrievable ([ADR-0015](docs/adr/0015-search-index-view-of-committed-history.md)). Contrast the `raw/` inbox, where an uncommitted file is precisely what the ingestion sweep is looking for.
 _Avoid_: Note, document, entry — "note" was the term in early drafts; "page" is the standardized term.

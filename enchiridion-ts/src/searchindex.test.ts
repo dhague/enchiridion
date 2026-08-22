@@ -870,6 +870,48 @@ describe("reindex", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Vault is a git repository (#326)
+// ---------------------------------------------------------------------------
+
+describe("Index.open on a candidate vault", () => {
+  it("refuses a root that carries a vault marker but is not a git work tree", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "searchindex-test-"));
+    try {
+      fs.mkdirSync(path.join(root, "wiki"), { recursive: true });
+
+      await assert.rejects(
+        () => Index.open(root),
+        /not a git work tree.*enchiridion init/,
+        "a marker without a repo is a candidate vault, not a vault",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("a work tree with no commits opens and stays empty", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "searchindex-test-"));
+    try {
+      fs.mkdirSync(path.join(root, "wiki"), { recursive: true });
+      const git = new VaultGit(root);
+      await git.init();
+
+      const index = await Index.open(root);
+      try {
+        const status = await index.status();
+        assert.equal(status.pages, 0, "no commits means an empty index");
+        const hits = await index.search({ text: "anything" });
+        assert.equal(hits.length, 0);
+      } finally {
+        index.close();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Schema version / mismatch
 // ---------------------------------------------------------------------------
 

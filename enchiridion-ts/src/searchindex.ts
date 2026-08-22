@@ -143,10 +143,22 @@ export class Index {
   /**
    * Open (creating if needed) the index at root, using the real git repo
    * there via isomorphic-git.
+   *
+   * Refuses a root that resolves as a vault but isn't a git work tree: a
+   * vault is a git repository (CONTEXT.md), and the index has no work-tree
+   * source to read from there, so "empty" would be a silent lie rather than
+   * an empty vault. A work tree with no commits stays lenient — an empty
+   * index is the correct empty-vault state.
    */
   static async open(root: string): Promise<Index> {
     const { VaultGit } = await import("./vaultgit.js");
-    return Index.openWithGit(root, new VaultGit(root));
+    const git = new VaultGit(root);
+    if (!(await git.isWorkTree())) {
+      throw new Error(
+        `${root} is not a git work tree; a vault is a git repository — run \`enchiridion init <root> --mode …\` to convert it`,
+      );
+    }
+    return Index.openWithGit(root, git);
   }
 
   /**
