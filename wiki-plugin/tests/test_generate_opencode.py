@@ -206,14 +206,16 @@ def test_translate_agent_model_id_must_contain_slash():
 def test_translate_body_rewrites_ingest_preload_phrase():
     _yaml, body = generate_opencode.split_frontmatter(WIKI_INGEST_CC)
     translated = generate_opencode.translate_body(body)
-    assert "load the `wiki-ingest` skill and follow its procedure" in translated
+    assert "per `wiki-ingest` skill procedure — load the `wiki-ingest` skill and follow its procedure" in translated
     assert "preloaded above" not in translated
 
 
 def test_translate_body_rewrites_researcher_preload_phrase():
     _yaml, body = generate_opencode.split_frontmatter(WIKI_RESEARCHER_CC)
     translated = generate_opencode.translate_body(body)
-    assert "load the `wiki-retrieval` skill and follow its procedure" in translated
+    # the `using` lead-in survives, so the rewrite reads as a sentence rather
+    # than splicing the imperative onto the noun phrase
+    assert "using `wiki-retrieval` skill — load the `wiki-retrieval` skill and follow its procedure" in translated
     assert "preloaded above" not in translated
 
 

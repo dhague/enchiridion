@@ -139,9 +139,10 @@ def parse_frontmatter(yaml_text: str) -> dict:
 
 #: The CC "skill preloaded above" claim, which is false on OpenCode — skills
 #: there load on demand via the ``skill`` tool, never into the agent context.
-_PRELOAD_RE = re.compile(
-    r"(?:per|using) `([a-z0-9-]+)` skill(?: procedure)? preloaded above"
-)
+#: The ``per``/``using`` lead-in is left in place so the rewrite reads as a
+#: sentence, not a splice: "using `wiki-retrieval` skill — load the
+#: `wiki-retrieval` skill and follow its procedure".
+_PRELOAD_RE = re.compile(r"`([a-z0-9-]+)` skill( procedure)? preloaded above")
 
 
 def translate_body(body: str) -> str:
@@ -152,7 +153,9 @@ def translate_body(body: str) -> str:
     the claim becomes a load instruction. Everything else is carried through
     verbatim.
     """
-    return _PRELOAD_RE.sub(r"load the `\1` skill and follow its procedure", body)
+    return _PRELOAD_RE.sub(
+        r"`\1` skill\2 — load the `\1` skill and follow its procedure", body,
+    )
 
 
 def translate_agent(frontmatter: dict, model_map: dict) -> dict:
