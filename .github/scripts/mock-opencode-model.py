@@ -13,6 +13,17 @@ fixed token usage. CI asserts opencode surfaces (skills, agents, commands)
 load against this server without error — the model's answer itself is
 irrelevant to the test.
 
+One conditional path (added for #333): when a request offers the ``skill``
+tool and its newest user message carries the trigger string
+(``__CALL_SKILL__``), the mock replies with a ``function_call`` turn for the
+``skill`` tool instead of the text turn. CI uses that to exercise a
+generated subagent's ``skill`` permission gate end-to-end: an agent with
+``skill: allow`` executes the call; one with ``skill: deny`` is never even
+offered the tool. Both the presence-of-the-tool and newest-message
+conditions matter — the title-generation request carries the trigger in its
+history but no tools, and a subagent's later requests re-send the whole
+history, so the mock must fire the tool call only once.
+
 Run::
 
     python mock-opencode-model.py [--port 8799]
@@ -31,9 +42,146 @@ RESPONSE_ID = "resp_ci_mock_000000000000000000"
 MESSAGE_ID = "msg_ci_mock_000000000000000000"
 TEXT = "This is the CI mock model response."
 
+#: Magic trigger string: when any user message in the request body contains
+#: it, the mock replies with a ``function_call`` turn for the ``skill`` tool
+#: instead of the canned text turn. CI uses this to exercise a generated
+#: subagent's ``skill`` permission gate (an agent with ``skill: allow``
+#: executes the call; one without it is denied).
+TRIGGER = "__CALL_SKILL__"
+
+#: The ``skill`` tool call the mock emits: ``name`` is the one required
+#: argument opencode's ``skill`` tool schema declares (verified against the
+#: tool JSON opencode actually sends the model).
+SKILL_NAME = "wiki-conventions"
+SKILL_ARGS = json.dumps({"name": SKILL_NAME})
+
 
 def _event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+def _has_trigger(body: bytes) -> bool:
+    """True when a request should get the ``skill`` function_call turn.
+
+    Three conditions: the request offers the ``skill`` tool (so a subagent
+    could actually call it — the title-generation request, which carries the
+    trigger in its user message but no tools, must keep the text turn), the
+    *last* input message carries the trigger string (a request later in the
+    same session re-sends the whole history, original trigger included, so
+    only the newest message decides — otherwise the mock would re-emit the
+    tool call forever), and that message is not a tool result. The content is
+    a list of parts (``input_text``) for the OpenAI Responses API, but a
+    plain string is tolerated for robustness."""
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    if not any(
+        isinstance(tool, dict) and tool.get("name") == "skill"
+        for tool in data.get("tools", [])
+    ):
+        return False
+    messages = data.get("input", [])
+    if not messages:
+        return False
+    message = messages[-1]
+    if not isinstance(message, dict):
+        return False
+    content = message.get("content")
+    if isinstance(content, str):
+        return TRIGGER in content
+    if not isinstance(content, list):
+        return False
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "tool_result":
+            continue
+        if any(
+            isinstance(part.get(key), str) and TRIGGER in part[key]
+            for key in ("text", "input_text", "content")
+        ):
+            return True
+    return False
+
+
+def _function_call_sequence(model: str) -> str:
+    """The SSE event sequence for one ``skill`` tool-call turn.
+
+    Same ``response.*`` scaffolding as the text turn, with a single
+    ``function_call`` output item for the ``skill`` tool, its JSON arguments
+    streamed as ``response.function_call_arguments.delta`` fragments. The
+    item carries ``call_id`` (what opencode's AI SDK reads as the tool call
+    id) and ``output_item.done`` carries the assembled arguments — there is
+    no ``response.function_call_arguments.done`` event in the SDK this CI
+    targets, so none is emitted.
+    """
+    now = int(time.time())
+    n = 0
+
+    def seq() -> int:
+        nonlocal n
+        n += 1
+        return n
+
+    fc_id = "fc_ci_000000000000000001"
+    call_id = "call_ci_000000000000000001"
+
+    resp = {
+        "id": RESPONSE_ID,
+        "object": "response",
+        "created_at": now,
+        "status": "in_progress",
+        "model": model,
+        "output": [],
+        "usage": None,
+    }
+    item = {
+        "id": fc_id,
+        "type": "function_call",
+        "call_id": call_id,
+        "name": "skill",
+        "arguments": "",
+        "status": "in_progress",
+    }
+
+    chunks = []
+    chunks.append(_event("response.created", {
+        "type": "response.created", "response": resp, "sequence_number": seq(),
+    }))
+    chunks.append(_event("response.in_progress", {
+        "type": "response.in_progress", "response": resp, "sequence_number": seq(),
+    }))
+    chunks.append(_event("response.output_item.added", {
+        "type": "response.output_item.added", "item": item, "output_index": 0,
+        "sequence_number": seq(),
+    }))
+    # The arguments arrive as delta fragments, like text does.
+    step = 3
+    for i in range(0, len(SKILL_ARGS), step):
+        chunks.append(_event("response.function_call_arguments.delta", {
+            "type": "response.function_call_arguments.delta", "item_id": fc_id,
+            "output_index": 0, "delta": SKILL_ARGS[i:i + step],
+            "sequence_number": seq(),
+        }))
+    done_item = {**item, "arguments": SKILL_ARGS, "status": "completed"}
+    chunks.append(_event("response.output_item.done", {
+        "type": "response.output_item.done", "item": done_item, "output_index": 0,
+        "sequence_number": seq(),
+    }))
+    chunks.append(_event("response.completed", {
+        "type": "response.completed",
+        "response": {
+            "id": RESPONSE_ID, "object": "response", "created_at": now,
+            "status": "completed", "model": model,
+            "output": [done_item],
+            "usage": {"input_tokens": 10, "output_tokens": len(SKILL_ARGS),
+                      "total_tokens": 10 + len(SKILL_ARGS)},
+        },
+        "sequence_number": seq(),
+    }))
+    chunks.append("data: [DONE]\n\n")
+    return "".join(chunks)
 
 
 def _sequence(model: str) -> str:
@@ -122,10 +270,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _respond(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
+        body = b""
         if length:
-            self.rfile.read(length)
+            body = self.rfile.read(length)
         if self.path.startswith("/v1/responses"):
-            payload = _sequence("gpt-4o-mini")
+            if _has_trigger(body):
+                payload = _function_call_sequence("gpt-4o-mini")
+            else:
+                payload = _sequence("gpt-4o-mini")
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
