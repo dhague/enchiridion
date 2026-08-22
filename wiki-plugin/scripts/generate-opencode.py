@@ -18,9 +18,15 @@ Translation rules (per #71 Q2/Q6/Q8):
   ``allow``, so to mirror CC's deny-by-default subagent tool list the
   generated agent carries a catch-all ``"*": deny`` with the translated tools
   allowed after it (matching OpenCode's last-matching-rule-wins ordering).
-- ``skills:`` preload is dropped — OpenCode agents load skills on demand via
-  the ``skill`` tool, so the frontmatter key has no OpenCode equivalent.
-- The body is carried through verbatim.
+- ``skills:`` preload is dropped from the emitted frontmatter — the key has no
+  OpenCode equivalent — but the ``skill`` tool is allowed, so the agent can
+  load its procedure on demand via the ``skill`` tool.
+- Agents that run ``enchiridion`` through ``Bash`` on CC get the ``wiki``
+  tool allowed too — the in-process replacement for the CLI, registered by
+  the wiki-enchiridion plugin (#331).
+- The body is carried through verbatim except one rewrite: the CC preload
+  claims ("per ``wiki-ingest`` skill procedure preloaded above") become an
+  instruction to load the skill, since OpenCode skills load on demand.
 
 CLI::
 
@@ -30,6 +36,7 @@ CLI::
 from __future__ import annotations
 
 import json
+import re
 import sys
 from io import StringIO
 from pathlib import Path
@@ -130,15 +137,37 @@ def parse_frontmatter(yaml_text: str) -> dict:
     return YAML(typ="safe").load(yaml_text)
 
 
+#: The CC "skill preloaded above" claim, which is false on OpenCode — skills
+#: there load on demand via the ``skill`` tool, never into the agent context.
+_PRELOAD_RE = re.compile(
+    r"(?:per|using) `([a-z0-9-]+)` skill(?: procedure)? preloaded above"
+)
+
+
+def translate_body(body: str) -> str:
+    """Rewrite the CC preload claims in an agent body for OpenCode.
+
+    On CC a skill is injected into the subagent's context and the body says
+    so; on OpenCode the agent must load it via the ``skill`` tool instead, so
+    the claim becomes a load instruction. Everything else is carried through
+    verbatim.
+    """
+    return _PRELOAD_RE.sub(r"load the `\1` skill and follow its procedure", body)
+
+
 def translate_agent(frontmatter: dict, model_map: dict) -> dict:
     """Translate one CC agent's frontmatter into OpenCode's form.
 
     ``description`` carries over, ``model`` is mapped to ``provider/model-id``
     via ``model_map``, ``tools:`` becomes a ``permission`` block (a catch-all
     ``"*": deny`` followed by one ``allow`` per translated tool, matching
-    OpenCode's last-matching-rule-wins ordering), and ``skills:`` preload is
-    dropped. Raises :class:`GenerationError` on anything the translation
-    can't represent faithfully (unknown tool, unmapped or malformed model).
+    OpenCode's last-matching-rule-wins ordering). The ``skill`` tool is allowed
+    when the CC frontmatter carries ``skills:`` — the preload key itself is
+    dropped, since OpenCode loads skills on demand via the ``skill`` tool —
+    and the ``wiki`` tool is allowed when ``Bash`` is among the agent's tools,
+    the in-process replacement for how the agent runs ``enchiridion`` on CC.
+    Raises :class:`GenerationError` on anything the translation can't
+    represent faithfully (unknown tool, unmapped or malformed model).
     """
     name = frontmatter.get("name")
     if not name:
@@ -160,12 +189,17 @@ def translate_agent(frontmatter: dict, model_map: dict) -> dict:
     tools = frontmatter.get("tools")
     if not tools:
         raise GenerationError(f"{name}: no tools in frontmatter")
-    for tool in (t.strip() for t in str(tools).split(",") if t.strip()):
+    tool_names = [t.strip() for t in str(tools).split(",") if t.strip()]
+    for tool in tool_names:
         if tool not in CC_TOOL_TO_PERMISSION:
             raise GenerationError(
                 f"{name}: no OpenCode permission mapping for tool {tool!r}"
             )
         permission[CC_TOOL_TO_PERMISSION[tool]] = "allow"
+    if frontmatter.get("skills"):
+        permission["skill"] = "allow"
+    if "Bash" in tool_names:
+        permission["wiki"] = "allow"
 
     return {
         "description": frontmatter["description"],
@@ -288,6 +322,7 @@ def generate(
         path = root / "agents" / filename
         text = _read_canonical(path, "canonical agent file")
         yaml_text, body = split_frontmatter(text)
+        body = translate_body(body)
         frontmatter = parse_frontmatter(yaml_text)
         name = frontmatter.get("name")
         if not name:
