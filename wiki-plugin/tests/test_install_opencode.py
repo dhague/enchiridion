@@ -2,9 +2,10 @@
 
 Covers target resolution (vault vs --global), model-config resolution
 (interactive prompt vs override file), and the install orchestration (marker
-file, session-tracker copy, generate invocation, opencode.json merge). The
-real subprocess path is exercised in the CLI tests against a stub
-generate-opencode.py in a fixture plugin root.
+file, session-tracker + wiki-enchiridion plugin copies, the config-dir
+package.json declaring ``@opencode-ai/plugin``, generate invocation,
+opencode.json merge). The real subprocess path is exercised in the CLI tests
+against a stub generate-opencode.py in a fixture plugin root.
 """
 from __future__ import annotations
 
@@ -40,6 +41,23 @@ elif "--list-models" in sys.argv:
 
 _FIXTURE_TRACKER = "export const SessionTracker: Plugin = () => ({})\n"
 
+_FIXTURE_PLUGIN = "export const WikiEnchiridion: Plugin = () => ({})\n"
+
+# The wiring package.json — the single source of truth for the
+# @opencode-ai/plugin version the install writes into the config dir.
+_FIXTURE_WIRING_PKG = json.dumps(
+    {
+        "name": "wiki-knowledge-opencode-wiring",
+        "private": True,
+        "version": "0.0.0",
+        "type": "module",
+        "devDependencies": {
+            "@opencode-ai/plugin": "^1.18.15",
+            "typescript": "^5.6.0",
+        },
+    }
+)
+
 
 @pytest.fixture
 def plugin_root(tmp_path):
@@ -50,6 +68,10 @@ def plugin_root(tmp_path):
     wiring = root / "wiring" / "opencode" / "plugins"
     wiring.mkdir(parents=True)
     (wiring / "session-tracker.ts").write_text(_FIXTURE_TRACKER, encoding="utf-8")
+    (wiring / "wiki-enchiridion.ts").write_text(_FIXTURE_PLUGIN, encoding="utf-8")
+    (root / "wiring" / "opencode" / "package.json").write_text(
+        _FIXTURE_WIRING_PKG, encoding="utf-8",
+    )
     return root
 
 
@@ -185,6 +207,38 @@ def test_install_copies_session_tracker_into_plugins(tmp_path, plugin_root):
     assert (dot / "plugins" / "session-tracker.ts").read_text(encoding="utf-8") == _FIXTURE_TRACKER
 
 
+def test_install_copies_wiki_enchiridion_into_plugins(tmp_path, plugin_root):
+    dot = _run_install(tmp_path, plugin_root)
+    assert (dot / "plugins" / "wiki-enchiridion.ts").read_text(encoding="utf-8") == _FIXTURE_PLUGIN
+
+
+def test_install_writes_package_json_with_plugin_dependency(tmp_path, plugin_root):
+    dot = _run_install(tmp_path, plugin_root)
+    pkg = json.loads((dot / "package.json").read_text(encoding="utf-8"))
+    expected = json.loads(_FIXTURE_WIRING_PKG)["devDependencies"]["@opencode-ai/plugin"]
+    assert pkg["dependencies"]["@opencode-ai/plugin"] == expected
+
+
+def test_install_merges_existing_package_json_without_clobbering(tmp_path, plugin_root):
+    (tmp_path / ".opencode").mkdir(exist_ok=True)
+    (tmp_path / ".opencode" / "package.json").write_text(
+        json.dumps({"name": "vault", "dependencies": {"other-pkg": "^1.0.0"}}),
+        encoding="utf-8",
+    )
+    dot = _run_install(tmp_path, plugin_root)
+    pkg = json.loads((dot / "package.json").read_text(encoding="utf-8"))
+    assert pkg["name"] == "vault"
+    assert pkg["dependencies"]["other-pkg"] == "^1.0.0"
+    assert pkg["dependencies"]["@opencode-ai/plugin"] == json.loads(_FIXTURE_WIRING_PKG)["devDependencies"]["@opencode-ai/plugin"]
+
+
+def test_install_invalid_existing_package_json_raises(tmp_path, plugin_root):
+    (tmp_path / ".opencode").mkdir(exist_ok=True)
+    (tmp_path / ".opencode" / "package.json").write_text("{ not json", encoding="utf-8")
+    with pytest.raises(install_opencode.InstallError, match="package.json"):
+        _run_install(tmp_path, plugin_root)
+
+
 def test_install_persists_model_config_for_override_path(tmp_path, plugin_root):
     dot = _run_install(tmp_path, plugin_root)
     saved = json.loads(
@@ -242,6 +296,12 @@ def test_install_global_writes_into_home_config(tmp_path, plugin_root):
 def test_install_missing_session_tracker_source_raises(tmp_path, plugin_root):
     (plugin_root / "wiring" / "opencode" / "plugins" / "session-tracker.ts").unlink()
     with pytest.raises(install_opencode.InstallError, match="session-tracker"):
+        _run_install(tmp_path, plugin_root)
+
+
+def test_install_missing_wiki_enchiridion_source_raises(tmp_path, plugin_root):
+    (plugin_root / "wiring" / "opencode" / "plugins" / "wiki-enchiridion.ts").unlink()
+    with pytest.raises(install_opencode.InstallError, match="wiki-enchiridion"):
         _run_install(tmp_path, plugin_root)
 
 
