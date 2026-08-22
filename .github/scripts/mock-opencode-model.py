@@ -38,9 +38,15 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 #: Matches the model id the CI throwaway config maps to (openai/gpt-4o-mini).
+MODEL_ID = "gpt-4o-mini"
 RESPONSE_ID = "resp_ci_mock_000000000000000000"
 MESSAGE_ID = "msg_ci_mock_000000000000000000"
 TEXT = "This is the CI mock model response."
+
+#: The ids the ``skill`` function_call turn carries (the ``call_id`` is what
+#: opencode's AI SDK reads as the tool-call id).
+FC_ID = "fc_ci_000000000000000001"
+CALL_ID = "call_ci_000000000000000001"
 
 #: Magic trigger string: when any user message in the request body contains
 #: it, the mock replies with a ``function_call`` turn for the ``skill`` tool
@@ -124,8 +130,8 @@ def _function_call_sequence(model: str) -> str:
         n += 1
         return n
 
-    fc_id = "fc_ci_000000000000000001"
-    call_id = "call_ci_000000000000000001"
+    fc_id = FC_ID
+    call_id = CALL_ID
 
     resp = {
         "id": RESPONSE_ID,
@@ -275,9 +281,9 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
         if self.path.startswith("/v1/responses"):
             if _has_trigger(body):
-                payload = _function_call_sequence("gpt-4o-mini")
+                payload = _function_call_sequence(MODEL_ID)
             else:
-                payload = _sequence("gpt-4o-mini")
+                payload = _sequence(MODEL_ID)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")

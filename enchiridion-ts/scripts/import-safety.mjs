@@ -18,14 +18,33 @@
 // IS module.exports; on Bun `mod.run` is present directly — resolve both
 // shapes before asserting.
 import { strict as assert } from "node:assert";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+// Inertness is asserted in a CHILD process, not here: if main() ran
+// unconditionally it would process.exit during import — exit code 0 for a
+// bare run, killing the host before any assertion could run, which would look
+// like a pass. The child imports the bundle then prints a sentinel; the
+// sentinel's absence (the child died on import) is the failure signal, and a
+// non-zero child exit makes execFileSync throw. Either way this script fails.
+const bundlePath = fileURLToPath(new URL("../dist/cli.cjs", import.meta.url));
+const inert = execFileSync(
+  process.execPath,
+  [
+    "-e",
+    "import(process.argv[1]).then(() => console.log('import-alive'))",
+    bundlePath,
+  ],
+  { encoding: "utf8" },
+);
+assert.ok(
+  inert.includes("import-alive"),
+  "importing the bundle must not run main() (host died on import)",
+);
 
 const mod = await import("../dist/cli.cjs");
 const entry = mod.run ? mod : mod.default;
-assert.equal(
-  typeof entry.run,
-  "function",
-  "bundle must export run() (import must not have run main())",
-);
+assert.equal(typeof entry.run, "function", "bundle must export run()");
 
 const usage = await entry.run([]);
 assert.equal(usage.exitCode, 0, "run([]) must exit 0");
@@ -37,8 +56,8 @@ assert.ok(
 const placed = await entry.run(["place", "concept", "import-safety-check"]);
 assert.equal(placed.exitCode, 0, "run(place) must exit 0");
 assert.ok(
-  placed.stdout.trim().length > 0,
-  "run(place) must produce output (an action handler ran in-process)",
+  placed.stdout.includes("import-safety-check"),
+  "run(place) must produce the placed page path (an action handler ran in-process)",
 );
 
 assert.ok(
