@@ -7,9 +7,12 @@
  * with no node on PATH.
  *
  * Bundle resolution (#331): the install (install-opencode.py) writes
- * `.opencode/wiki-knowledge/config.json` carrying `plugin_root`; the tool
- * prefers that marker's `/scripts/cli.cjs`, falling back to a bundle shipped
- * next to the plugin itself (vault layout variant).
+ * `wiki-knowledge/config.json` carrying `plugin_root` into the config dir that
+ * also holds this plugin — `.opencode/` for a project install,
+ * `~/.config/opencode/` for `--global` — so the marker is always one level up
+ * from this file. The tool prefers that marker's `/scripts/cli.cjs`, falling
+ * back to a session-directory marker and then a bundle shipped next to the
+ * plugin itself (vault layout variant).
  *
  * The install must also write `.opencode/package.json` declaring
  * `@opencode-ai/plugin` as a runtime dependency — this plugin imports `tool`
@@ -17,16 +20,23 @@
  * config directory's package.json at startup.
  */
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { tool, type Plugin } from "@opencode-ai/plugin"
 
-// Where the marker lives in an installed vault (install-opencode.py writes it).
-const MARKER = join(".opencode", "wiki-knowledge", "config.json")
+// This file's own directory — the config dir's plugins/ that holds the
+// marker's sibling wiki-knowledge/ (portable; import.meta.dir isn't typed).
+const HERE = dirname(fileURLToPath(import.meta.url))
 
-async function resolveBundle(directory: string): Promise<string> {
-  // 1. marker → plugin_root → scripts/cli.cjs (the shipped artifact).
+// Where the marker lives in an installed config dir (install-opencode.py
+// writes it): a project install puts it at `.opencode/wiki-knowledge/`, a
+// `--global` install at `~/.config/opencode/wiki-knowledge/` — in both cases a
+// sibling of the `plugins/` directory that holds this file.
+const MARKER = join("wiki-knowledge", "config.json")
+
+function bundleFromMarker(markerPath: string): string | undefined {
   try {
-    const marker = JSON.parse(readFileSync(join(directory, MARKER), "utf8"))
+    const marker = JSON.parse(readFileSync(markerPath, "utf8"))
     if (marker.plugin_root) {
       const cand = join(marker.plugin_root, "scripts", "cli.cjs")
       readFileSync(cand) // throw if absent
@@ -35,7 +45,18 @@ async function resolveBundle(directory: string): Promise<string> {
   } catch {
     /* fall through */
   }
-  // 2. co-located bundle (vault layout variant).
+  return undefined
+}
+
+async function resolveBundle(directory: string): Promise<string> {
+  // 1. The marker the install wrote next to this plugin — works for both
+  //    install modes and doesn't depend on the session being in the vault.
+  const ownMarker = bundleFromMarker(join(HERE, "..", MARKER))
+  if (ownMarker) return ownMarker
+  // 2. A session-directory project install (session at the vault root).
+  const sessionMarker = bundleFromMarker(join(directory, ".opencode", MARKER))
+  if (sessionMarker) return sessionMarker
+  // 3. Co-located bundle (vault layout variant).
   const cand = join(directory, "scripts", "cli.cjs")
   readFileSync(cand)
   return cand
@@ -51,12 +72,9 @@ export const WikiEnchiridion: Plugin = async ({ directory }) => {
           args: tool.schema.array(tool.schema.string()).describe(
             "enchiridion subcommand and its arguments, e.g. ['search', 'bm25']",
           ),
-          cwd: tool.schema.optional(tool.schema.string()).describe(
-            "working directory (defaults to the session directory)",
-          ),
         },
         async execute(input, context) {
-          const dir = input.cwd ?? context.directory ?? directory
+          const dir = context.directory ?? directory
           const bundle = await resolveBundle(dir)
           const mod = await import(bundle) // CJS → default-interop namespace
           const { run } = mod as { run: (argv: string[]) => Promise<unknown> }
