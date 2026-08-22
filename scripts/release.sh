@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 #
 # Cut a release: bump the plugin version, rebuild the TypeScript bundle from
-# source, and commit the freshly-built artifacts into wiki-plugin/scripts/ so a
-# marketplace install ships them with no build step (D2 #287, D4 #289).
+# source, commit the freshly-built artifacts into wiki-plugin/scripts/, and
+# assemble the OpenCode npm package (wiki-plugin/opencode-npm/) so a
+# marketplace install and `npm publish` ship the same build.
 #
 # Usage:  scripts/release.sh <new-version>
 #   e.g.  scripts/release.sh 0.10.0
+#
+# Version coupling: plugin.json is the single source of truth for the version.
+# This script bumps plugin.json; assemble-opencode-package.py then reads it and
+# writes the version into wiki-plugin/opencode-npm/package.json, so one bump
+# drives both artifacts. `npm publish` is deliberately NOT automated (no CI
+# keys): this script prints the human's next step and stops.
 #
 # Must be run from the repo root, on a worktree/PR branch (never main, which
 # is protected). Commits the version bump plus the regenerated artifacts, then
@@ -46,7 +53,8 @@ current_version="$(jq -r .version "$plugin_json")"
 
 echo "Cutting release $current_version -> $new_version on branch '$current_branch'"
 
-# 1. Bump the version in plugin.json (the single source tag-release.yml reads).
+# 1. Bump the version in plugin.json (the single source tag-release.yml and
+#    the npm package both read).
 jq --arg v "$new_version" '.version = $v' "$plugin_json" > "$plugin_json.tmp"
 mv "$plugin_json.tmp" "$plugin_json"
 
@@ -57,11 +65,23 @@ mv "$plugin_json.tmp" "$plugin_json"
 cp enchiridion-ts/dist/cli.cjs wiki-plugin/scripts/cli.cjs
 cp enchiridion-ts/dist/node-sqlite3-wasm.wasm wiki-plugin/scripts/node-sqlite3-wasm.wasm
 
-# 4. Commit and push to the current branch's remote.
+# 4. Assemble the OpenCode npm package (ADR-0018, #327): regenerates
+#    agents/commands, copies the six skill dirs + session-tracker + the
+#    runtime above, and writes package.json's version from plugin.json. The
+#    generated surface is gitignored; package.json + templates/ are the
+#    committed durable source and land in the release commit.
+python3 wiki-plugin/scripts/assemble-opencode-package.py
+
+# 5. Commit and push to the current branch's remote.
 git add "$plugin_json" wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
-git commit -m "chore: release v$new_version (bundle + wasm)"
+git add wiki-plugin/opencode-npm/package.json wiki-plugin/opencode-npm/templates/
+git commit -m "chore: release v$new_version (bundle + wasm + npm package)"
 git push origin "$current_branch"
 
 echo
 echo "Pushed v$new_version on '$current_branch'. Open (or update) the PR; CI's"
 echo "freshness guard will re-verify the committed bundle before merge."
+echo
+echo "npm package assembled at wiki-plugin/opencode-npm/. To publish (human step):"
+echo "  cd wiki-plugin/opencode-npm && npm publish"
+echo "  # or, to dry-run the tarball:  npm pack"
