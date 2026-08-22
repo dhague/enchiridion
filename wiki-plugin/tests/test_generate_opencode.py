@@ -46,7 +46,7 @@ skills: [wiki-conventions, wiki-ingest]
 <!-- Plugin subagents ignore mcpServers/hooks/permissionMode frontmatter — omitted deliberately, not missing. -->
 <!-- On non-Anthropic providers, wire `model:` through `fallbackModel` / `modelOverrides` / `ANTHROPIC_DEFAULT_*_MODEL` — see https://code.claude.com/docs/en/model-config -->
 
-You are the `wiki-ingest` agent. You are given the path to one raw document and you turn it into one or more schema-valid `wiki/` pages.
+You are the `wiki-ingest` agent. You are given the path to one raw document and you turn it into one or more schema-valid `wiki/` pages per `wiki-ingest` skill procedure preloaded above.
 """
 
 
@@ -58,7 +58,7 @@ tools: Read, Grep, Glob, Bash
 skills: [wiki-conventions, wiki-retrieval]
 ---
 
-You are the `wiki-researcher` agent. You are given a question and you answer it from the vault's pages, following the `wiki-retrieval` skill procedure preloaded into your context above.
+You are the `wiki-researcher` agent. You are given a question and you answer it from the vault's pages using `wiki-retrieval` skill preloaded above.
 """
 
 
@@ -72,7 +72,9 @@ def test_split_frontmatter_splits_yaml_block_and_body():
     assert "name: wiki-ingest" in yaml_text
     assert "tools: Read, Write, Grep, Glob, Bash" in yaml_text
     assert body.startswith("\n<!-- Plugin subagents")
-    assert body.endswith("You are the `wiki-ingest` agent. You are given the path to one raw document and you turn it into one or more schema-valid `wiki/` pages.\n")
+    assert body.endswith(
+        "You are the `wiki-ingest` agent. You are given the path to one raw document and you turn it into one or more schema-valid `wiki/` pages per `wiki-ingest` skill procedure preloaded above.\n"
+    )
 
 
 def test_split_frontmatter_keeps_skills_line_in_yaml():
@@ -124,6 +126,8 @@ def test_translate_agent_maps_tools_to_permission_with_catch_all_deny():
         "grep": "allow",
         "glob": "allow",
         "bash": "allow",
+        "skill": "allow",
+        "wiki": "allow",
     }
 
 
@@ -136,6 +140,8 @@ def test_translate_agent_researcher_is_read_only():
     assert "edit" not in out["permission"]  # no Write tool -> no edit allow; the catch-all denies it
     assert out["permission"]["read"] == "allow"
     assert out["permission"]["bash"] == "allow"
+    assert out["permission"]["skill"] == "allow"  # carries skills: frontmatter
+    assert out["permission"]["wiki"] == "allow"  # runs enchiridion via Bash
 
 
 def test_translate_agent_maps_model_and_sets_subagent_mode():
@@ -148,7 +154,24 @@ def test_translate_agent_maps_model_and_sets_subagent_mode():
 
 def test_translate_agent_drops_skills_preload():
     out = generate_opencode.translate_agent(_cc_ingest_frontmatter(), MODEL_MAP)
-    assert "skills" not in out
+    assert "skills" not in out  # the frontmatter preload key has no OpenCode equivalent
+    assert out["permission"]["skill"] == "allow"  # ...but the skill tool is granted
+
+
+def test_translate_agent_without_skills_or_bash_gets_no_skill_or_wiki_allow():
+    frontmatter = _cc_ingest_frontmatter()
+    del frontmatter["skills"]
+    frontmatter["tools"] = "Read, Write, Grep, Glob"  # no Bash
+    out = generate_opencode.translate_agent(frontmatter, MODEL_MAP)
+    assert "skill" not in out["permission"]
+    assert "wiki" not in out["permission"]
+
+
+def test_translate_agent_skill_allow_for_comma_string_skills_shape():
+    frontmatter = _cc_ingest_frontmatter()
+    frontmatter["skills"] = "wiki-conventions, wiki-ingest"
+    out = generate_opencode.translate_agent(frontmatter, MODEL_MAP)
+    assert out["permission"]["skill"] == "allow"
 
 
 def test_translate_agent_keeps_description():
@@ -173,6 +196,32 @@ def test_translate_agent_model_id_must_contain_slash():
         generate_opencode.translate_agent(
             _cc_ingest_frontmatter(), {"sonnet": "gpt-5"},
         )
+
+
+# ---------------------------------------------------------------------------
+# seam 2.5 — translate_body: CC preload claims -> load-the-skill instruction
+# ---------------------------------------------------------------------------
+
+
+def test_translate_body_rewrites_ingest_preload_phrase():
+    _yaml, body = generate_opencode.split_frontmatter(WIKI_INGEST_CC)
+    translated = generate_opencode.translate_body(body)
+    assert "per `wiki-ingest` skill procedure — load the `wiki-ingest` skill and follow its procedure" in translated
+    assert "preloaded above" not in translated
+
+
+def test_translate_body_rewrites_researcher_preload_phrase():
+    _yaml, body = generate_opencode.split_frontmatter(WIKI_RESEARCHER_CC)
+    translated = generate_opencode.translate_body(body)
+    # the `using` lead-in survives, so the rewrite reads as a sentence rather
+    # than splicing the imperative onto the noun phrase
+    assert "using `wiki-retrieval` skill — load the `wiki-retrieval` skill and follow its procedure" in translated
+    assert "preloaded above" not in translated
+
+
+def test_translate_body_passes_through_without_preload_phrase():
+    body = "No skill claims here — just ordinary prose.\n"
+    assert generate_opencode.translate_body(body) == body
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +424,23 @@ def test_generate_keeps_agent_body_verbatim(tmp_path):
     output = tmp_path / ".opencode"
     generate_opencode.generate(root, generate_opencode.DEFAULT_MODELS, output)
     _yaml, body = generate_opencode.split_frontmatter(WIKI_INGEST_CC)
-    assert _agent_text(output, "wiki-ingest").endswith(body)
+    # generate rewrites only the preload claim; everything else is carried
+    # through byte for byte
+    assert _agent_text(output, "wiki-ingest").endswith(
+        generate_opencode.translate_body(body),
+    )
+
+
+def test_generate_agents_grant_skill_and_wiki_tools_and_drop_preload_claims(tmp_path):
+    root = _make_plugin_root(tmp_path)
+    output = tmp_path / ".opencode"
+    generate_opencode.generate(root, generate_opencode.DEFAULT_MODELS, output)
+    for name in ("wiki-ingest", "wiki-researcher"):
+        text = _agent_text(output, name)
+        assert "skill: allow" in text
+        assert "wiki: allow" in text
+        assert "preloaded above" not in text
+        assert "load the `" in text
 
 
 def test_generate_command_carries_skill_description(tmp_path):
