@@ -4,7 +4,6 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const readline = require("node:readline");
 
 const DEFAULT_MODELS = Object.freeze({
   sonnet: "anthropic/claude-sonnet-4-5",

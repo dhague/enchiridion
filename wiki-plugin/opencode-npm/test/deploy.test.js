@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const { deploy, DeployError, DEFAULT_MODELS } = require("./deploy.js");
+const { deploy, DeployError, DEFAULT_MODELS } = require("../bin/deploy.js");
 
 const SKILLS = [
   "wiki-conventions",
@@ -216,7 +216,7 @@ test("marker template is honoured with plugin_root injected", () => {
 });
 
 test("CLI --help exits 0 and prints usage", () => {
-  const res = spawnSync(process.execPath, [path.join(__dirname, "deploy.js"), "--help"], { encoding: "utf8" });
+  const res = spawnSync(process.execPath, [path.join(__dirname, "..", "bin", "deploy.js"), "--help"], { encoding: "utf8" });
   assert.equal(res.status, 0, res.stderr);
   assert.match(res.stdout, /wiki-knowledge/);
 });
@@ -224,7 +224,7 @@ test("CLI --help exits 0 and prints usage", () => {
 test("CLI deploys a fixture package end-to-end in a vault", () => {
   const pkg = makeFixturePackage();
   fs.mkdirSync(path.join(pkg, "bin"), { recursive: true });
-  fs.copyFileSync(path.join(__dirname, "deploy.js"), path.join(pkg, "bin", "deploy.js"));
+  fs.copyFileSync(path.join(__dirname, "..", "bin", "deploy.js"), path.join(pkg, "bin", "deploy.js"));
   const vault = makeVault();
   const res = spawnSync(process.execPath, [path.join(pkg, "bin", "deploy.js")], {
     cwd: vault,
@@ -240,7 +240,7 @@ test("CLI exits non-zero when a source is missing", () => {
   const pkg = makeFixturePackage();
   fs.rmSync(path.join(pkg, "agents"), { recursive: true, force: true });
   fs.mkdirSync(path.join(pkg, "bin"), { recursive: true });
-  fs.copyFileSync(path.join(__dirname, "deploy.js"), path.join(pkg, "bin", "deploy.js"));
+  fs.copyFileSync(path.join(__dirname, "..", "bin", "deploy.js"), path.join(pkg, "bin", "deploy.js"));
   const vault = makeVault();
   const res = spawnSync(process.execPath, [path.join(pkg, "bin", "deploy.js")], {
     cwd: vault,
