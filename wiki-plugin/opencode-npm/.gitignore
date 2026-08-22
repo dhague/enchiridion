@@ -1,0 +1,7 @@
+# Generated at release by scripts/assemble-opencode-package.py — never
+# committed (they're regenerated from the canonical sources on every cut).
+agents/
+commands/
+skills/
+plugins/
+wiki-knowledge/

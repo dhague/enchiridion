@@ -1,0 +1,25 @@
+{
+  "name": "@dhague/wiki-knowledge",
+  "version": "0.9.5",
+  "description": "Clean-room ingestion and retrieval over a git-backed markdown wiki vault, following the Karpathy LLM-wiki pattern.",
+  "author": {
+    "name": "Darren Hague",
+    "email": "darren.hague@fortybeans.com"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "bin": {
+    "wiki-knowledge": "bin/deploy.js"
+  },
+  "files": [
+    "agents",
+    "commands",
+    "skills",
+    "plugins",
+    "wiki-knowledge",
+    "templates",
+    "bin"
+  ]
+}
