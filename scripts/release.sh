@@ -70,7 +70,16 @@ cp enchiridion-ts/dist/node-sqlite3-wasm.wasm wiki-plugin/scripts/node-sqlite3-w
 #    runtime above, and writes package.json's version from plugin.json. The
 #    generated surface is gitignored; package.json + templates/ are the
 #    committed durable source and land in the release commit.
-python3 wiki-plugin/scripts/assemble-opencode-package.py
+#    The assembly subprocesses generate-opencode.py, which imports
+#    ruamel.yaml — the only interpreter guaranteed to have it is the
+#    gitignored wiki-plugin/.venv (CLAUDE.md).
+python="${repo_root}/wiki-plugin/.venv/bin/python"
+if [ ! -x "$python" ]; then
+  echo "error: $python not found — recreate wiki-plugin/.venv (CLAUDE.md) so" >&2
+  echo "generate-opencode.py's ruamel.yaml dependency resolves." >&2
+  exit 1
+fi
+"$python" wiki-plugin/scripts/assemble-opencode-package.py
 
 # 5. Commit and push to the current branch's remote.
 git add "$plugin_json" wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
