@@ -17,6 +17,16 @@ step. This script writes the whole surface the vault needs:
   edit it and re-run with ``--model-config <path>``.
 - ``<target>/plugins/session-tracker.ts`` — copied from the plugin's canonical
   source (``wiring/opencode/plugins/``, #92).
+- ``<target>/plugins/wiki-enchiridion.ts`` — copied from the plugin's canonical
+  source (``wiring/opencode/plugins/``, #331); exposes the enchiridion script
+  layer as a ``wiki`` tool that imports the bundle and calls ``run()``
+  in-process.
+- ``<target>/package.json`` — declares ``@opencode-ai/plugin`` as a runtime
+  dependency (the wiki-enchiridion plugin imports ``tool`` as a value, which
+  OpenCode's startup ``bun install`` on the config dir needs), merged into any
+  existing package.json rather than clobbering it. The version is read from
+  ``wiring/opencode/package.json``'s ``devDependencies`` — the single source
+  of truth.
 - the vault's ``opencode.json`` — ``skills.paths`` pointing at the plugin's
   ``skills/`` directory (shared, not copied), merged into any existing
   config rather than clobbering it.
@@ -135,6 +145,40 @@ def merge_opencode_config(existing: dict, skills_dir: str) -> dict:
     return config
 
 
+def _opencode_plugin_version(plugin_root: Path) -> str:
+    """The ``@opencode-ai/plugin`` runtime dependency version, read from
+    ``wiring/opencode/package.json``'s ``devDependencies`` — the single source
+    of truth (the same version the plugin sources typecheck against).
+    """
+    pkg_path = plugin_root / "wiring" / "opencode" / "package.json"
+    try:
+        pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise InstallError(
+            f"wiring/opencode/package.json is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(pkg, dict):
+        raise InstallError("wiring/opencode/package.json must be a JSON object")
+    version = pkg.get("devDependencies", {}).get("@opencode-ai/plugin")
+    if not isinstance(version, str) or not version:
+        raise InstallError(
+            "wiring/opencode/package.json has no devDependencies['@opencode-ai/plugin']"
+        )
+    return version
+
+
+def merge_package_json(existing: dict, version: str) -> dict:
+    """Merge the ``@opencode-ai/plugin`` runtime dependency into an existing
+    OpenCode config-dir package.json without touching anything else.
+    """
+    pkg = dict(existing)
+    deps = pkg.setdefault("dependencies", {})
+    if not isinstance(deps, dict):
+        raise InstallError("existing package.json 'dependencies' must be an object")
+    deps["@opencode-ai/plugin"] = version
+    return pkg
+
+
 def _run_generate(argv: list[str]) -> None:
     """Run ``generate-opencode.py`` (full argv incl. interpreter + script path);
     raise :class:`InstallError` on a non-zero exit."""
@@ -188,8 +232,9 @@ def install(
     into ``~/.config/opencode/``). Returns the target directory.
 
     Runs the generator first (so a generation failure aborts before anything
-    is written), then writes the marker, copies the session-tracker plugin,
-    and merges ``skills.paths`` into ``opencode.json``.
+    is written), then writes the marker, copies the session-tracker and
+    wiki-enchiridion plugins, writes the config-dir package.json declaring
+    ``@opencode-ai/plugin``, and merges ``skills.paths`` into ``opencode.json``.
     """
     root = Path(plugin_root)
     if not (root / "scripts" / "generate-opencode.py").is_file():
@@ -200,6 +245,11 @@ def install(
     if not tracker.is_file():
         raise InstallError(
             f"no wiring/opencode/plugins/session-tracker.ts under plugin root {root}"
+        )
+    wiki_tool = root / "wiring" / "opencode" / "plugins" / "wiki-enchiridion.ts"
+    if not wiki_tool.is_file():
+        raise InstallError(
+            f"no wiring/opencode/plugins/wiki-enchiridion.ts under plugin root {root}"
         )
 
     dotdir, config_file = install_targets(global_mode, cwd=cwd, home=home)
@@ -227,6 +277,25 @@ def install(
     )
 
     shutil.copy2(tracker, dotdir / "plugins" / "session-tracker.ts")
+    shutil.copy2(wiki_tool, dotdir / "plugins" / "wiki-enchiridion.ts")
+
+    pkg_path = dotdir / "package.json"
+    existing_pkg: dict = {}
+    if pkg_path.is_file():
+        try:
+            existing_pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise InstallError(f"existing {pkg_path} is not valid JSON: {exc}") from exc
+        if not isinstance(existing_pkg, dict):
+            raise InstallError(f"existing {pkg_path} must be a JSON object")
+    pkg_path.write_text(
+        json.dumps(
+            merge_package_json(existing_pkg, _opencode_plugin_version(root)),
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     existing: dict = {}
     if config_file.is_file():

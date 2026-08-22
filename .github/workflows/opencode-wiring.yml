@@ -47,6 +47,15 @@ jobs:
       - name: Install script-layer deps
         run: pip install ruamel.yaml
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Typecheck OpenCode wiring plugins
+        working-directory: wiki-plugin/wiring/opencode
+        run: npm ci && npm run typecheck
+
       - name: Install OpenCode (pinned)
         run: curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
 

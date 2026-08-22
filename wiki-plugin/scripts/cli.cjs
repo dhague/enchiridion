@@ -7683,13 +7683,13 @@ var require_inherits_browser = __commonJS({
 var require_inherits = __commonJS({
   "node_modules/inherits/inherits.js"(exports2, module2) {
     try {
-      util = require("util");
-      if (typeof util.inherits !== "function") throw "";
-      module2.exports = util.inherits;
+      util2 = require("util");
+      if (typeof util2.inherits !== "function") throw "";
+      module2.exports = util2.inherits;
     } catch (e) {
       module2.exports = require_inherits_browser();
     }
-    var util;
+    var util2;
   }
 });
 
@@ -28117,7 +28117,7 @@ var require_node_sqlite3_wasm = __commonJS({
       __indirect_function_table = wasmTable = wasmExports2["sa"];
     }
     var wasmImports = { n: __abort_js, l: __emscripten_runtime_keepalive_clear, o: __localtime_js, i: __setitimer_js, p: __tzset_js, q: _emscripten_date_now, a: _emscripten_get_now, j: _emscripten_resize_heap, w: _nodejsAccess, s: _nodejsCheckReservedLock, f: _nodejsClose, x: _nodejsDelete, v: _nodejsFileSize, m: _nodejsFullPathname, u: _nodejsLock, h: _nodejsRandomness, e: _nodejsRead, b: _nodejsSync, c: _nodejsTruncate, t: _nodejsUnlock, d: _nodejsWrite, g: _nodejs_max_path_length, r: _nodejs_open, k: _proc_exit };
-    async function run() {
+    async function run2() {
       preRun();
       var setStatus = Module["setStatus"];
       if (setStatus) {
@@ -28132,14 +28132,15 @@ var require_node_sqlite3_wasm = __commonJS({
     }
     var wasmExports;
     wasmExports = createWasm();
-    run();
+    run2();
   }
 });
 
 // src/cli.ts
 var cli_exports = {};
 __export(cli_exports, {
-  buildProgram: () => buildProgram
+  buildProgram: () => buildProgram,
+  run: () => run
 });
 module.exports = __toCommonJS(cli_exports);
 
@@ -31514,6 +31515,8 @@ var program = new Command();
 // src/cli.ts
 var import_node_fs17 = __toESM(require("node:fs"), 1);
 var import_node_path20 = __toESM(require("node:path"), 1);
+var import_node_url = require("node:url");
+var import_node_util4 = __toESM(require("node:util"), 1);
 
 // src/wikipage.ts
 var import_yaml = __toESM(require_dist(), 1);
@@ -38818,10 +38821,22 @@ var Index = class _Index {
   /**
    * Open (creating if needed) the index at root, using the real git repo
    * there via isomorphic-git.
+   *
+   * Refuses a root that resolves as a vault but isn't a git work tree: a
+   * vault is a git repository (CONTEXT.md), and the index has no work-tree
+   * source to read from there, so "empty" would be a silent lie rather than
+   * an empty vault. A work tree with no commits stays lenient — an empty
+   * index is the correct empty-vault state.
    */
   static async open(root) {
     const { VaultGit: VaultGit2 } = await Promise.resolve().then(() => (init_vaultgit(), vaultgit_exports));
-    return _Index.openWithGit(root, new VaultGit2(root));
+    const git2 = new VaultGit2(root);
+    if (!await git2.isWorkTree()) {
+      throw new Error(
+        `${root} is not a git work tree; a vault is a git repository \u2014 run \`enchiridion init <root> --mode \u2026\` to convert it`
+      );
+    }
+    return _Index.openWithGit(root, git2);
   }
   /**
    * Open with a substituted Git surface — the test seam. The real
@@ -41411,6 +41426,7 @@ function defaultOffSignal(signal, cb) {
 }
 
 // src/cli.ts
+var import_meta = {};
 function stub(command, label) {
   command.action(() => {
     console.error(`enchiridion ${label}: not yet implemented`);
@@ -42064,6 +42080,70 @@ function buildProgram() {
   }
   return program2;
 }
+function isMainModule() {
+  if (typeof require !== "undefined" && require.main === module) return true;
+  const arg = process.argv[1];
+  if (arg === void 0) return false;
+  return import_meta.url === (0, import_node_url.pathToFileURL)(import_node_path20.default.resolve(arg)).href;
+}
+async function run(argv) {
+  const stdout = [];
+  const stderr = [];
+  const program2 = buildProgram();
+  program2.exitOverride().configureOutput({
+    writeOut: (s) => stdout.push(s),
+    writeErr: (s) => stderr.push(s)
+  });
+  const outWrite = process.stdout.write;
+  const errWrite = process.stderr.write;
+  const consoleLog = console.log;
+  const consoleError = console.error;
+  process.stdout.write = ((chunk, ..._rest) => {
+    stdout.push(String(chunk));
+    return true;
+  });
+  process.stderr.write = ((chunk, ..._rest) => {
+    stderr.push(String(chunk));
+    return true;
+  });
+  console.log = (...args) => {
+    stdout.push(import_node_util4.default.format(...args) + "\n");
+  };
+  console.error = (...args) => {
+    stderr.push(import_node_util4.default.format(...args) + "\n");
+  };
+  try {
+    if (argv.length === 0) {
+      try {
+        program2.help();
+      } catch {
+      }
+      return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode: 0 };
+    }
+    try {
+      await program2.parseAsync([process.execPath, "enchiridion", ...argv]);
+    } catch (err) {
+      if (err && typeof err === "object" && "exitCode" in err) {
+        return {
+          stdout: stdout.join(""),
+          stderr: stderr.join(""),
+          exitCode: err.exitCode
+        };
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.push(message.endsWith("\n") ? message : message + "\n");
+      return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode: 1 };
+    }
+    const exitCode = Number(process.exitCode ?? 0);
+    process.exitCode = 0;
+    return { stdout: stdout.join(""), stderr: stderr.join(""), exitCode };
+  } finally {
+    process.stdout.write = outWrite;
+    process.stderr.write = errWrite;
+    console.log = consoleLog;
+    console.error = consoleError;
+  }
+}
 function main() {
   const program2 = buildProgram();
   if (process.argv.slice(2).length === 0) {
@@ -42072,10 +42152,13 @@ function main() {
   }
   program2.parse(process.argv);
 }
-main();
+if (isMainModule()) {
+  main();
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  buildProgram
+  buildProgram,
+  run
 });
 /*! Bundled license information:
 
