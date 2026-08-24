@@ -152,12 +152,28 @@ jobs:
         run: npm run build
         working-directory: enchiridion-ts
 
-      # The shipped artifacts in wiki-plugin/scripts/ are committed by a human
-      # via scripts/release.sh (D2 #287). This job rebuilds from source and
-      # fails the PR if the committed bundle + wasm drift from a fresh build,
-      # so a source change can never silently ship a stale artifact. Paths are
-      # repo-root relative (fresh build output is enchiridion-ts/dist/).
+      # scripts/release.sh commits bundle artifacts to wiki-plugin/scripts/ and
+      # skills/*/scripts/ as part of the release PR. This job rebuilds from
+      # source and fails the PR if any committed artifact drifts from a fresh
+      # build, so a source change can never silently ship a stale bundle.
+      # Paths are repo-root relative; fresh build output is enchiridion-ts/dist/.
       - name: Fail if committed artifacts differ from a fresh build
         run: |
-          cmp wiki-plugin/scripts/cli.cjs enchiridion-ts/dist/cli.cjs
-          cmp wiki-plugin/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm
+          check() {
+            if ! cmp -s "$1" "$2"; then
+              echo "STALE: $1 differs from a fresh build"
+              return 1
+            fi
+          }
+          fail=0
+          check wiki-plugin/scripts/cli.cjs enchiridion-ts/dist/cli.cjs || fail=1
+          check wiki-plugin/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
+          check skills/wiki-retrieval/scripts/enchiridion.cjs enchiridion-ts/dist/cli.cjs || fail=1
+          check skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
+          check skills/wiki-ingest/scripts/enchiridion.cjs enchiridion-ts/dist/cli.cjs || fail=1
+          check skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
+          if [ "$fail" = "1" ]; then
+            echo ""
+            echo "Run scripts/release.sh <new-version> to rebuild and commit all bundle artifacts."
+            exit 1
+          fi

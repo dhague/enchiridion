@@ -61,11 +61,19 @@ mv "$plugin_json.tmp" "$plugin_json"
 # 2. Rebuild the bundle + wasm from source (fresh, no stale dist/).
 (cd enchiridion-ts && npm ci && npm run build)
 
-# 3. Copy the built artifacts into the shipped path.
+# 3. Copy the built artifacts into the shipped paths.
 cp enchiridion-ts/dist/cli.cjs wiki-plugin/scripts/cli.cjs
 cp enchiridion-ts/dist/node-sqlite3-wasm.wasm wiki-plugin/scripts/node-sqlite3-wasm.wasm
 
-# 4. Assemble the OpenCode npm package (ADR-0018, #327): regenerates
+# 4. Copy the same artifacts to the Joule skills directories. The AI Skills
+#    Library fetches them directly from the repo; the freshness guard in
+#    ts-enchiridion.yml verifies they match wiki-plugin/scripts/ before merge.
+cp enchiridion-ts/dist/cli.cjs skills/wiki-retrieval/scripts/enchiridion.cjs
+cp enchiridion-ts/dist/node-sqlite3-wasm.wasm skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm
+cp enchiridion-ts/dist/cli.cjs skills/wiki-ingest/scripts/enchiridion.cjs
+cp enchiridion-ts/dist/node-sqlite3-wasm.wasm skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm
+
+# 5. Assemble the OpenCode npm package: regenerates
 #    agents/commands, copies the six skill dirs + session-tracker + the
 #    runtime above, and writes package.json's version from plugin.json. The
 #    generated surface is gitignored; package.json + templates/ are the
@@ -81,8 +89,10 @@ if [ ! -x "$python" ]; then
 fi
 "$python" wiki-plugin/scripts/assemble-opencode-package.py
 
-# 5. Commit and push to the current branch's remote.
+# 6. Commit and push to the current branch's remote.
 git add "$plugin_json" wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
+git add skills/wiki-retrieval/scripts/enchiridion.cjs skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm
+git add skills/wiki-ingest/scripts/enchiridion.cjs skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm
 git add wiki-plugin/opencode-npm/package.json wiki-plugin/opencode-npm/templates/
 git commit -m "chore: release v$new_version (bundle + wasm + npm package)"
 git push origin "$current_branch"
