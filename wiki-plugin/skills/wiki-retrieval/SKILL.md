@@ -1,10 +1,10 @@
 ---
 name: wiki-retrieval
-description: Turn a question into a grounded, cited answer over the wiki vault — query-expanded, BM25-ranked, frontmatter-first, and budget-bounded, with each citation's age and volatility stated honestly. Invoke via /wiki-retrieval <question>, or whenever the vault should be asked something.
+description: Answer questions from the wiki vault — search, follow typed edges, synthesise, cite with age and volatility. Invoke via /wiki-retrieval <question>, or whenever the vault should be queried.
 ---
 # Wiki Retrieval
 
-Reads `wiki-conventions` for anything this procedure doesn't cover — folder structure, frontmatter schema, link format, typed-edge vocabulary. That skill is the contract: ingestion writes it, this reads from it. File preloaded into `wiki-researcher` agent context at startup, and what `/wiki-retrieval <question>` loads when invoked directly.
+Reads `wiki-conventions` for anything this procedure doesn't cover — folder structure, frontmatter schema, link format, typed-edge vocabulary.
 
 Retrieval **never modifies an existing page** — no edit, no move, no delete, ever. One write: new `synthesis/` page, only on explicit user confirmation ([Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page)).
 
@@ -15,9 +15,9 @@ Retrieval **never modifies an existing page** — no edit, no move, no delete, e
   If returned answer carries `save-candidate` block, you also **put the offer to user and perform save on yes** — see [Saving an answer as a synthesis page](#saving-an-answer-as-a-synthesis-page). You hold the conversation; confirmation can only happen here.
 - **If you are `wiki-researcher` agent**: continue directly with procedure below using own tools. **Recommend** save (step 8); never perform one — subagent can't ask user, and unconfirmed save is the exact failure this design prevents.
 
-Every script below lives in plugin's install directory and resolves vault root itself — see `## Scripts` section of `wiki-conventions` for full reference (vault-root resolution, locating the plugin root, common tasks, script catalogue).
+Scripts live in the plugin's install directory and resolve vault root themselves.
 
-Search `wiki/**` only. `raw/` holds immutable originals a `source/` page already stands in for; reading it duplicates content you have summaries for, and it's not in the index.
+Search `wiki/**` only — `raw/` is not indexed; its `source/` stub has the summary.
 
 ## Procedure
 
@@ -41,8 +41,6 @@ Given a question:
    - `--since` / `--until` against `--date-field source_date` (valid time, default) or `git_date` (transaction time). Use `git_date` for "updated this week" / "since last ingestion"; use `source_date` for "knowledge from before X" / "2023 view of Y".
    - `--include-superseded` only when discussing history, not answering "what is current". Default excludes superseded.
    - `--raw` is escape hatch for callers who need FTS5 operators (`NEAR`, `OR`, prefix `*`). Don't reach for it without specific reason.
-
-   First call to `enchiridion search` triggers `(mtime_ns, size)` staleness scan over `wiki/**` (~50 ms at 2000 pages, measured) so `git pull`, Obsidian edits, and manual changes are caught.
 
 3. **Expand frontier, frontmatter-first.** Hits are candidates, not answers. Judge each by **`summary`** field — that is what `summary` exists for — discard ones that don't bear on question. **Only candidate surviving summary judgment earns full `Read` of its body.** Most frontier should die at summary; body read is expensive and never the first move. Where more than one candidate survives the same hop's summary judgment, issue their `Read` calls together in one message, not serially; each extra turn re-reads full context.
 
@@ -76,7 +74,7 @@ Given a question:
    - **Normal** — common case, every question that isn't provenance-shaped. Cite concept (or entity/synthesis) page itself, with age and `volatility` as below. Don't read `source` stub or raw artifact behind it; concept page stands in for that raw material, reading through it wastes budget the question didn't ask for.
    - **Provenance** — when question matches provenance row in [Edge-following rules](#edge-following-rules). Follow chain to raw artifact (concept page → `source` → stub → `raw_source` → raw file) and cite raw artifact itself, with specific location (line or page number). Frame concept page as lens on source, not citation: *"per [Concept](...), drawing on [raw-file.md](...) line 42…"*. If provenance question lands on page with no `source` edge (pre-#34 content), degrade gracefully — cite page normally and note no provenance chain exists.
 
-   For each cited page state age (`source_date` = valid time, `git_date` = transaction time — see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) and `volatility` (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)) plainly so asker can calibrate trust. Sanity-check `git_date` before quoting: bulk-imported vault gives every page same commit date, which says nothing about the knowledge — when commit dates are uninformative, frame on `source_date` and say so.
+   For each cited page state age (`source_date` or `git_date` — see [Derived from git](../wiki-conventions/SKILL.md#derived-from-git)) and `volatility` (see [Frontmatter schema](../wiki-conventions/SKILL.md#frontmatter-schema)) plainly so asker can calibrate trust. Sanity-check `git_date` before quoting: bulk-imported vault gives every page same commit date, which says nothing about the knowledge — when commit dates are uninformative, frame on `source_date` and say so.
 
    Phrase it in the answer, don't bury it — e.g. *"per [Rate limits](wiki/concepts/rate-limits.md), marked `volatile`, from 2025-01-12 and last committed 14 months ago…"*. `stable` page from three years ago is not stale; `volatile` page from last quarter may already be wrong. Never present `volatile` fact with same confidence as `stable` just because it's what was found.
 
@@ -128,9 +126,7 @@ When question's shape implies specific typed edge, follow *that* edge in implied
 | "what did X draw on" / "what sources X" | `source` | outbound from X | X's `source:` list |
 | "where is X used" / "what uses X" | `source` | inbound to X | pages whose `source:` lists X |
 | "related to X" (default) | `related` | both | X's `related:` list + pages whose `related:` lists X |
-| "what's the evidence for X" / "source for X" / "raw data behind X" / "provenance of X" / "where did this come from" / "cite the original" / "back it up" | `source` | outbound from X | X's `source:` list → stub page → its `raw_source:` → raw artifact, with location (line or page number) |
-
-Two directions are NOT symmetric: outbound follows links that *leave* a page; inbound finds pages that *point at* a page. Inverting is silent miss.
+| "provenance of X" / "evidence for X" / "raw data behind X" / "cite the original" | `source` | outbound from X | X's `source:` list → stub page → its `raw_source:` → raw artifact, with location (line or page number) |
 
 ## Saving an answer as a synthesis page
 
