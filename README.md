@@ -37,11 +37,7 @@ Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to i
 
 Install individual skills into Joule Work Desktop via the AI Skills Library:
 
-[Add wiki-ingest to Joule Work Desktop](joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-ingest&origin=skills.cloud.sap)
-
-[Add wiki-retrieval to Joule Work Desktop](joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-retrieval&origin=skills.cloud.sap)
-
-Alternatively, download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/enchiridion/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option.
+Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/enchiridion/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
 
 ### Standalone CLI
 
