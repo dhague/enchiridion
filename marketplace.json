@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "wiki-knowledge",
-      "source": "./",
+      "source": "./wiki-plugin",
       "description": "Clean-room ingestion and retrieval over a git-backed markdown wiki vault, following the Karpathy LLM-wiki pattern."
     }
   ]
