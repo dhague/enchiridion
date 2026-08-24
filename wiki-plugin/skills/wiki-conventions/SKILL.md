@@ -5,17 +5,11 @@ description: The single source of truth for the wiki vault — folder structure,
 
 # Wiki conventions
 
-Shared contract between ingestion (`wiki-ingest`, Sonnet) and retrieval (`wiki-researcher`, Haiku). Both agents preload it. Ingestion writes to these rules; retrieval reads assuming them. If the two disagree about where a page lives, what a field means, or what an edge type asserts, this file wins — change here, once, both sides move.
-
-Two halves: **fixed half** — folder structure, schema shape, link format, edge vocabulary — never varies per vault. **Emergent half** — `tags` — generated at ingestion, not enumerated here (see [Tags](#tags)).
-
-## Terminology
-
-Wiki units are **pages**, not "notes". A page is one markdown file under `wiki/`, carrying frontmatter + body. Keeps `raw/notes/` (a raw-capture type) unambiguous.
+Shared contract between ingestion (`wiki-ingest`, Sonnet) and retrieval (`wiki-researcher`, Haiku). Ingestion writes to these rules; retrieval reads assuming them. On any conflict between this file and information from elsewhere, this file wins.
 
 ## Vault structure
 
-Vault is a **git repository**. Layout is opinionated and **plugin-fixed** — same in every vault:
+Vault is a **git repository**. Layout is opinionated and **plugin-fixed** — same in every vault. Units are **pages** (not "notes") — one markdown file each under `wiki/`, frontmatter + body; keeps `raw/notes/` unambiguous.
 
 ```
 <vault root>/
@@ -114,7 +108,7 @@ Clean **bitemporal** model: `source_date` is **valid time** (authored), git comm
 
 ## Tags
 
-Tags are **emergent half** of contract — generated at ingestion, not conformed to a fixed list. **Reuse existing tag** where one fits; **mint new one** only where nothing fits. `enchiridion discover --plan` returns vault's tag vocabulary alongside every candidate — reuse-first is something the discovery call gives you. Prefer `--tags-containing`/`--tag-count`, derived from the draft's own candidate tags, over the full vocabulary dump — see the `discover` catalogue entry. No controlled vocabulary, no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not a closed set.
+Tags are **emergent** — generated at ingestion, not conformed to a fixed list. **Reuse existing tag** where one fits; **mint new one** only where nothing fits. `enchiridion discover --plan` returns vault's tag vocabulary alongside every candidate — reuse-first is something the discovery call gives you. Prefer `--tags-containing`/`--tag-count`, derived from the draft's own candidate tags, over the full vocabulary dump — see the `discover` catalogue entry. No controlled vocabulary, no lint rule rejecting "off-vocabulary" tags; consistency comes from reuse-first discipline, not a closed set.
 
 ## Links
 
