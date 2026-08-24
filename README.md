@@ -13,17 +13,25 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 
 ## Install
 
-1. Clone the repo — there is nothing to install and no binary to fetch; the
-   script layer runs on the already-installed Node runtime.
-   ```bash
-   git clone https://github.com/dhague/enchiridion.git
+### Claude Code
+
+1. Add the marketplace entry and install the plugin:
+   ```
+   /plugin marketplace add dhague/enchiridion
+   /plugin install wiki-knowledge
    ```
 
-2. Register the plugin in Claude Code from `wiki-plugin/.claude-plugin/marketplace.json`.
-
-3. Create a vault — either:
+2. Create a vault — either:
    - **Local**: `/wiki-init .` inside a project to keep the vault alongside your codebase.
    - **Remote**: `/wiki-init /some/remote/path` then set `WIKI_ROOT` to query it from anywhere. Useful when a wiki spans multiple projects or lives on a shared drive.
+
+### OpenCode
+
+```bash
+npx @dhague/wiki-knowledge
+```
+
+Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to install into `~/.config/opencode/` for query-from-anywhere mode.
 
 ### Standalone CLI
 
