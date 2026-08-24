@@ -13,6 +13,12 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## CLI hygiene
+
+- **Always use `--json`** with `gh <entity> view <n>` — plain output hits a pager and GraphQL deprecation warnings can swallow results. Minimum: `--json title,body`.
+- **Fetch multiple issues** chained with `;` not `&&` — keeps fetching even if one lookup fails.
+- **Don't grep files** with guessed term spellings before reading them; use `Read` first.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
