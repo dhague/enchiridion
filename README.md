@@ -37,9 +37,9 @@ Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to i
 
 Install individual skills into Joule Work Desktop:
 
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-ingest&origin=skills.cloud.sap">Add wiki-ingest to Joule Work Desktop</a>
+[Add wiki-ingest to Joule Work Desktop](joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-ingest&origin=skills.cloud.sap)
 
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-retrieval&origin=skills.cloud.sap">Add wiki-retrieval to Joule Work Desktop</a>
+[Add wiki-retrieval to Joule Work Desktop](joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-retrieval&origin=skills.cloud.sap)
 
 ### Standalone CLI
 
