@@ -25,6 +25,8 @@ node <scripts>/enchiridion.cjs <subcommand> …
 
 where `<scripts>` is this skill's `scripts/` subdirectory (the installed `enchiridion.cjs` + `node-sqlite3-wasm.wasm` supporting files). If `node` is not on PATH, say so plainly and stop; this skill cannot run without it.
 
+Run `node <scripts>/enchiridion.cjs help` for a list of commands, and `node <scripts>/enchiridion.cjs <command> --help` to list the options for each command.
+
 **Vault root.** The scripts resolve the vault root themselves: `$WIKI_ROOT`, else nearest ancestor holding a `wiki/` directory or `.wiki-root` marker, else the working directory. If the user has not yet pointed you at a vault, ask on first use — a one-line prompt, e.g. *"Which folder is your vault? (I'll file documents into its `wiki/` pages.)"* — then set `WIKI_ROOT=<dir>` inline on every subsequent invocation. Prefer running with the working directory already inside the vault when that is possible.
 
 **The artifact must already sit inside the vault.** `read-page` is vault-relative and is your only read. If the file the user wants ingested is outside the vault, ask them to drop it in (under `raw/`) first, then read it from there. Files outside the vault are out of scope for this procedure.
