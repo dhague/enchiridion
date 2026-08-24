@@ -15,13 +15,15 @@ Retrieval **never modifies an existing page** — no edit, no move, no delete, e
 
 ## Invocation
 
-You hold the conversation and execute the procedure yourself. Every script below is the bundled `enchiridion` entry point inside this skill's `scripts/` directory, invoked **directly** as:
+You hold the conversation and execute the procedure yourself. Every script below is the bundled `enchiridion.cjs` entry point inside this skill's `scripts/` directory, invoked **directly** as:
 
 ```bash
 node <scripts>/enchiridion.cjs <subcommand> …
 ```
 
 where `<scripts>` is this skill's `scripts/` subdirectory (the installed `enchiridion.cjs` + `node-sqlite3-wasm.wasm` supporting files). If `node` is not on PATH, say so plainly and stop; this skill cannot run without it.
+
+Run `node <scripts>/enchiridion.cjs help` for a list of commands, and `node <scripts>/enchiridion.cjs <command> --help` to list the options for each command.
 
 **Vault root.** The scripts resolve the vault root themselves: `$WIKI_ROOT`, else nearest ancestor holding a `wiki/` directory or `.wiki-root` marker, else the working directory. If the user has not yet pointed you at a vault, ask on first use — a one-line prompt, e.g. *"Which folder is your vault?"* — then set `WIKI_ROOT=<dir>` inline on every subsequent invocation.
 
