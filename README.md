@@ -39,15 +39,7 @@ Install individual skills into Joule Work Desktop:
 
 <a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-ingest&origin=skills.cloud.sap">Add wiki-ingest to Joule Work Desktop</a>
 
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-init&origin=skills.cloud.sap">Add wiki-init to Joule Work Desktop</a>
-
 <a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-retrieval&origin=skills.cloud.sap">Add wiki-retrieval to Joule Work Desktop</a>
-
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-watch&origin=skills.cloud.sap">Add wiki-watch to Joule Work Desktop</a>
-
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=save-conversation&origin=skills.cloud.sap">Add save-conversation to Joule Work Desktop</a>
-
-<a href="joule://install-skill?repository=https%3A%2F%2Fgithub.com%2Fdhague%2Fenchiridion&name=wiki-conventions&origin=skills.cloud.sap">Add wiki-conventions to Joule Work Desktop</a>
 
 ### Standalone CLI
 
