@@ -1,6 +1,6 @@
 ---
 name: wiki-ingest
-description: Turn a raw document into one or more schema-valid wiki pages — chunked, placed, tagged, linked, and committed per the wiki-conventions contract. Invoke via /wiki-ingest <path>, or whenever a document needs filing into the wiki vault.
+description: Turn a raw document into one or more schema-valid wiki pages — chunked, placed, tagged, linked, and committed per the wiki-conventions contract. Invoke via /wiki-ingest <path>.
 ---
 
 # Wiki Ingest
@@ -16,22 +16,13 @@ Scripts live in plugin's install directory, resolve vault root itself — see `#
 - **If not already running as `wiki-ingest` agent** (system prompt doesn't identify you — e.g. invoked via `/wiki-ingest <path>` in ordinary session) and `<path>` is single file: delegate only. Call `Task` with `subagent_type: "wiki-ingest"` and prompt containing document path, relay returned manifest verbatim.
 - **If you are `wiki-ingest` agent**, continue with procedure using own tools. (Single-file work only — sweep delegates one file at a time, per [`reference/sweep.md`](reference/sweep.md).)
 
-## `INGESTION.md` folder hint
-
-Raw folder may carry `raw/<folder>/INGESTION.md`: freeform human instructions for ingesting that folder's documents — e.g. "take `source_date` from `Date:` header, list recipients in body, prefer `correspondence` tag". Read like `SKILL.md`: prose to interpret, not schema to parse.
-
-- **Lookup is document's own folder only.** Ingesting `raw/emails/foo.eml` looks for `raw/emails/INGESTION.md`. **No ancestor walk** — `raw/INGESTION.md` and vault-root not consulted.
-- **Hints win on conflict.** Explicit override, not tiebreaker. Folder's `INGESTION.md` "file as `entities/` pages, one per person" beats default placement algorithm.
-- **Cannot extend frontmatter schema or waive chain of evidence.** `wiki-conventions` schema is fixed contract; hint steers judgment inside procedure — chunking, tag preference, `source_date` derivation, kind, typed edges — never adds frontmatter key, kind, or folder. "List recipients" puts recipients in page **body**; does not mint `recipients:` key. `source/` stub and back-edges not optional — `enchiridion ingest` rejects plan without them regardless.
-- **An `INGESTION.md` is never itself ingested.** Instructions, not content — if handed as `<path>`, skip.
-
 ## Procedure
 
-Given one document at `<path>`. Where step calls for multiple independent tool calls — e.g. reading document alongside folder's `INGESTION.md` — issue together in one message.
+Given one document at `<path>`.
 
-1. **Read** document in full, alongside `<path>`'s folder's `INGESTION.md` if exists (see [`INGESTION.md` folder hint](#ingestionmd-folder-hint)). Hints override defaults below.
+1. **Read** document in full; also read `<path>`'s folder's `INGESTION.md` if it exists — issue both reads in one message (see [`reference/ingestion-hints.md`](reference/ingestion-hints.md)). Hints override defaults below.
 2. **Semantic-chunk.** One page or several? Default one; split when document covers multiple independent ideas deserving own future citation.
-3. **Draft the plan, then discover, then classify.** Write `<plan.json>` now — same file step 4 finishes and step 5 runs; nothing written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, `body` filled in (full shape in step 4); leave `edges` and unjudged frontmatter for step 4. Run `"<plugin-root>/bin/enchiridion" discover --plan <plan.json> --tags-containing "<candidate tags, comma list>" --tag-count "<candidate tags, comma list>"` once against whole draft — no per-chunk calls, no scratch files. Derive both comma lists from this draft's own candidate tags (the tags step 2's chunks are likely to want); always pass both, never left optional. Returns candidates classified `duplicate`/`refines`/`related`/`distinct` per page, each carrying `summary`, `tags`, `volatility`, `superseded_by` — plus, in place of the full tag-vocabulary dump, the plain-text matches for `--tags-containing` and per-tag counts for `--tag-count` (0 means safe to mint) for step 4 tag-minting.
+3. **Draft the plan, then discover, then classify.** Write `<plan.json>` now — same file step 4 finishes and step 5 runs; nothing written twice. Give every candidate chunk from step 2 a `pages` entry with `title`, `frontmatter.summary`, `body` filled in (full shape in step 4); leave `edges` and unjudged frontmatter for step 4. Run `"<plugin-root>/bin/enchiridion" discover --plan <plan.json> --tags-containing "<candidate tags, comma list>" --tag-count "<candidate tags, comma list>"` once against whole draft — no per-chunk calls, no scratch files. Derive both comma lists from this draft's own candidate tags (the tags step 2's chunks are likely to want); always pass both. Returns candidates classified `duplicate`/`refines`/`related`/`distinct` per page, each carrying `summary`, `tags`, `volatility`, `superseded_by` — plus, in place of the full tag-vocabulary dump, the plain-text matches for `--tags-containing` and per-tag counts for `--tag-count` (0 means safe to mint) for step 4 tag-minting.
 
    Hint is starting point — confirm or override against candidate's own `summary`; record only which **op** each plan entry gets. Step 4 owns every write; nothing here calls `Edit` or `enchiridion page`.
    - **`distinct` (or no candidates).** New subject. Keep as `op: "create"`; consider surfaced pages as typed-edge targets in step 4.
@@ -85,7 +76,6 @@ Given one document at `<path>`. Where step calls for multiple independent tool c
            "source": ["wiki/sources/<stub-slug>.md"],  // an updated page needs it too
            "related": ["<vault-relative path.md>"]
          }
-         // omit "body" entirely when nothing in the body changes
        }
      ]
    }
