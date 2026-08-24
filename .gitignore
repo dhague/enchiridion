@@ -13,3 +13,8 @@ temp/
 .lsp.json
 opencode.json
 .opencode/
+
+# Built per-skill ZIPs for Joule Desktop ZIP install path (#361).
+# Derived from skills/*/SKILL.md + skills/*/scripts/ — attached to GitHub
+# Releases by tag-release.yml, not committed to the repo.
+joule-desktop/

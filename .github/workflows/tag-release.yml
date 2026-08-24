@@ -73,4 +73,16 @@ jobs:
             echo "Release $tag already exists, skipping."
             exit 0
           fi
-          gh release create "$tag" --generate-notes
+
+          # Build per-skill ZIPs and attach to the release (#361).
+          # Each ZIP has SKILL.md + scripts/ at the root — Joule Desktop's
+          # expected structure for the ZIP install path.
+          mkdir -p joule-desktop
+          root_dir=$(pwd)
+          for skill in wiki-retrieval wiki-ingest; do
+            (cd "skills/${skill}" && zip -r "${root_dir}/joule-desktop/${skill}.zip" SKILL.md scripts/)
+          done
+
+          gh release create "$tag" --generate-notes \
+            joule-desktop/wiki-retrieval.zip \
+            joule-desktop/wiki-ingest.zip
