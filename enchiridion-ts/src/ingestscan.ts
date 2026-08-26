@@ -142,12 +142,17 @@ function globMatch(pattern: string, name: string): boolean {
   return new RegExp(`^${re}$`).test(name);
 }
 
-/** Return `{raw_rel: [page_ref, …]}` for every page with a raw_source. Both
- * sides vault-relative.
+/** Return `{raw_rel_lower: [page_ref, …]}` for every page with a raw_source.
+ * Keys are lowercased vault-relative paths; values are page refs.
  *
  * pagerecord hands back each raw_source target already resolved to
  * vault-relative by construction (ADR-0009), so there is no re-resolution step
- * to write here. */
+ * to write here.
+ *
+ * Keys are lowercased so that `scan()` can do a case-insensitive lookup when
+ * matching against the actual filename on disk — an LLM agent may title-case a
+ * filename in the plan, producing a raw_source link whose decoded path differs
+ * only in case from the actual file on a case-insensitive filesystem (#368). */
 export function backPointersByRaw(
   pages: Record<string, PageWithText>,
 ): Record<string, string[]> {
@@ -156,7 +161,7 @@ export function backPointersByRaw(
     for (const edge of page.record.edges) {
       if (edge.key !== "raw_source") continue;
       for (const target of edge.targets) {
-        (out[target] ??= []).push(pageRef);
+        (out[target.toLowerCase()] ??= []).push(pageRef);
       }
     }
   }
@@ -210,7 +215,7 @@ export async function scan(
       continue;
     }
 
-    const pointing = backPointers[rel] ?? [];
+    const pointing = backPointers[rel.toLowerCase()] ?? [];
     if (pointing.length === 0) {
       result.eligible.push({
         rawRel: rel,
