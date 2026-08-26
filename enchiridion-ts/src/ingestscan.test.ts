@@ -288,6 +288,25 @@ test("scan: dirty working tree overrides date equality", async () => {
   assert.equal(result.eligible[0].reason, ReasonChangedSinceIngestion);
 });
 
+test("scan: staged (but uncommitted) modification is detected (#366)", async () => {
+  const root = tmpRoot();
+  const repo = new VaultGit(root);
+  await repo.init();
+  write(root, "raw/notes.md", "raw notes");
+  write(
+    root,
+    "wiki/sources/notes.md",
+    '---\ntitle: Notes\nraw_source: "[notes.md](../../raw/notes.md)"\n---\n# Notes\n',
+  );
+  await commitAll(root, "ingest notes");
+  write(root, "raw/notes.md", "raw notes v2 (staged only)");
+  await git.add({ fs, dir: root, filepath: "raw/notes.md" });
+
+  const result = await scan(root, "", null);
+  assert.equal(result.eligible.length, 1);
+  assert.equal(result.eligible[0].reason, ReasonChangedSinceIngestion);
+});
+
 test("scan: raw file in subfolder matched by back-pointer in wiki/sources", async () => {
   // Regression test for #299: raw/notes/foo.md linked via "../../raw/notes/foo.md"
   // must not be reported as never-ingested — the path resolution was never broken,

@@ -605,3 +605,15 @@ test("porcelainMentions is lenient on a non-repo", async () => {
     false,
   );
 });
+
+test("porcelainMentions reports a staged (git add) modification (#366)", async () => {
+  const root = tmpRepo();
+  const repo = new VaultGit(root);
+  await repo.init();
+  writeFile(root, "raw/notes.md", "original\n");
+  await commitAll(root, "first");
+  writeFile(root, "raw/notes.md", "modified\n");
+  await git.add({ fs, dir: root, filepath: "raw/notes.md" });
+  // Working tree and index both have new content; HEAD has original.
+  assert.equal(await repo.porcelainMentions("raw/notes.md"), true);
+});
