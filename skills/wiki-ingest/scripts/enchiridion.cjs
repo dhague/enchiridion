@@ -38053,7 +38053,7 @@ function backPointersByRaw(pages) {
     for (const edge of page.record.edges) {
       if (edge.key !== "raw_source") continue;
       for (const target of edge.targets) {
-        (out[target] ??= []).push(pageRef2);
+        (out[target.toLowerCase()] ??= []).push(pageRef2);
       }
     }
   }
@@ -38083,7 +38083,7 @@ async function scan(root, folder, git2) {
       result.ignored.push(rel);
       continue;
     }
-    const pointing = backPointers[rel] ?? [];
+    const pointing = backPointers[rel.toLowerCase()] ?? [];
     if (pointing.length === 0) {
       result.eligible.push({
         rawRel: rel,
