@@ -370,6 +370,32 @@ test("scan: wiki page with CRLF line endings is recognised as a back-pointer", a
   assert.deepEqual(cand.backPointers, ["wiki/sources/foo-notes.md"]);
 });
 
+test("scan: raw_source casing mismatch does not re-offer as never-ingested (#368)", async () => {
+  // LLM agent may title-case the filename in the plan's raw field, producing a
+  // raw_source link whose decoded path differs only in case from the actual file.
+  // On a case-insensitive filesystem (Windows/macOS) these are the same file;
+  // the scanner must not classify the file as never-ingested.
+  const root = tmpRoot();
+  seedVault(root);
+  // File on disk: uppercase "RE"
+  write(root, "raw/emails/RE Are we test.eml", "raw email content");
+  // raw_source decoded target: "raw/emails/Re Are we test.eml" (title-cased by LLM)
+  write(
+    root,
+    "wiki/sources/re-are-we-test.md",
+    "---\ntitle: RE Are we test\n" +
+      'raw_source: "[RE Are we test.eml](../../raw/emails/Re%20Are%20we%20test.eml)"\n' +
+      "---\n# RE Are we test\n",
+  );
+
+  const result = await scan(root, "", null);
+  assert.equal(result.eligible.length, 1);
+  const cand = result.eligible[0];
+  assert.equal(cand.rawRel, "raw/emails/RE Are we test.eml");
+  assert.equal(cand.reason, ReasonChangedSinceIngestion);
+  assert.deepEqual(cand.backPointers, ["wiki/sources/re-are-we-test.md"]);
+});
+
 // --- Scan: shape -------------------------------------------------------------
 
 test("scan: malformed .ingestignore is an error", async () => {
