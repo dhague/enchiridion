@@ -86,3 +86,32 @@ jobs:
           gh release create "$tag" --generate-notes \
             joule-desktop/wiki-retrieval.zip \
             joule-desktop/wiki-ingest.zip
+
+      - name: Set up Python for npm package assembly
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Python deps
+        run: pip install ruamel.yaml
+
+      - name: Assemble OpenCode npm package
+        run: python wiki-plugin/scripts/assemble-opencode-package.py
+
+      - name: Set up Node for npm publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm (idempotent)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PUBLISHED=$(npm show "@dhague/wiki-knowledge@${VERSION}" version 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$VERSION" ]; then
+            echo "v$VERSION already published to npm, skipping."
+          else
+            cd wiki-plugin/opencode-npm && npm publish
+          fi

@@ -11,8 +11,8 @@
 # Version coupling: plugin.json is the single source of truth for the version.
 # This script bumps plugin.json; assemble-opencode-package.py then reads it and
 # writes the version into wiki-plugin/opencode-npm/package.json, so one bump
-# drives both artifacts. `npm publish` is deliberately NOT automated (no CI
-# keys): this script prints the human's next step and stops.
+# drives both artifacts. `npm publish` runs automatically in tag-release.yml
+# after merge (requires NPM_TOKEN secret in the repo).
 #
 # Must be run from the repo root, on a worktree/PR branch (never main, which
 # is protected). Commits the version bump plus the regenerated artifacts, then
@@ -100,7 +100,5 @@ git push origin "$current_branch"
 echo
 echo "Pushed v$new_version on '$current_branch'. Open (or update) the PR; CI's"
 echo "freshness guard will re-verify the committed bundle before merge."
-echo
-echo "npm package assembled at wiki-plugin/opencode-npm/. To publish (human step):"
-echo "  cd wiki-plugin/opencode-npm && npm publish"
-echo "  # or, to dry-run the tarball:  npm pack"
+echo "After merge, tag-release.yml will tag, create the GitHub Release, and"
+echo "publish @dhague/wiki-knowledge@$new_version to npm automatically."
