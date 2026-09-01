@@ -149,12 +149,26 @@ Edge is **directional** — reads *this page* → *key* → *target*. Include on
 
 Subcommands touching the vault resolve its root themselves (`$WIKI_ROOT`, else nearest ancestor holding `wiki/` directory or `.wiki-root` marker, else cwd). Set `WIKI_ROOT` before invoking any. `page` and `place` exceptions: operate only on what you hand them, no root resolved.
 
-**One `enchiridion` executable, nothing to install** ([ADR-0017](../../../docs/adr/0017-bundled-typescript-on-installed-interpreter.md)) — the script layer is a TypeScript bundle (`enchiridion-ts/dist/cli.cjs`), and `<plugin-root>/bin/enchiridion` is a thin shim that execs `node` against it. Invoke via `<plugin-root>/bin/enchiridion <subcommand>`, where `<plugin-root>` is located per host: on Claude Code, `${CLAUDE_PLUGIN_ROOT}` (substituted before you read this); on OpenCode, the `plugin_root` value in `.opencode/wiki-knowledge/config.json` (written by install). `node` is the one already-installed runtime it depends on — there is no binary to download and no lazy fetch. Works identically in dedicated mode or query-from-anywhere mode.
+**One `enchiridion` executable, nothing to install** ([ADR-0017](../../../docs/adr/0017-bundled-typescript-on-installed-interpreter.md)) — the script layer is a TypeScript bundle (`enchiridion-ts/dist/cli.cjs`), and `<plugin-root>/bin/enchiridion` is a thin shim that execs `node` against it.
 
-**Batch independent invocations.** When a step needs more than one independent `enchiridion` call — e.g. several `search` queries for different terms or candidates — chain them into a single `Bash` call (`;`-separated) rather than issuing each as a separate tool call; each extra tool call costs a full turn. Example:
+**Invocation differs by host:**
+
+- **Claude Code:** `${CLAUDE_PLUGIN_ROOT}` is substituted before you read this. Call via `Bash`: `"${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" <subcommand> <args...>`.
+- **OpenCode:** skip `bin/enchiridion` and path resolution entirely — use the `wiki` tool directly: `wiki(args=["<subcommand>", "<arg1>", ...])` with the same subcommand and flags listed below. The tool runs the bundle in-process; no `node` on PATH required, no config.json lookup needed.
+
+`node` is the one already-installed runtime the shim depends on (Claude Code path only) — there is no binary to download and no lazy fetch. Works identically in dedicated mode or query-from-anywhere mode.
+
+**Batch independent invocations.** When a step needs more than one independent `enchiridion` call — e.g. several `search` queries for different terms or candidates — batch them into a single tool call rather than issuing each separately; each extra tool call costs a full turn. On Claude Code, chain with `;` in one `Bash` call; on OpenCode, the `wiki` tool handles one subcommand per call so issue them in parallel in one message. Examples:
 
 ```bash
-"<plugin-root>/bin/enchiridion" search "prepared statements" --json; "<plugin-root>/bin/enchiridion" search "connection pooling" --json
+# Claude Code (Bash, chained)
+"${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "prepared statements" --json; "${CLAUDE_PLUGIN_ROOT}/bin/enchiridion" search "connection pooling" --json
+```
+
+```
+# OpenCode (wiki tool, parallel calls in one message)
+wiki(args=["search", "prepared statements", "--json"])
+wiki(args=["search", "connection pooling", "--json"])
 ```
 
 ### Script catalogue

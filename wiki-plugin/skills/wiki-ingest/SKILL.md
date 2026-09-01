@@ -18,6 +18,8 @@ Scripts live in plugin's install directory, resolve vault root itself — see `#
 
 ## Procedure
 
+**On OpenCode:** replace every `Bash` + `"<plugin-root>/bin/enchiridion" <subcommand> <args...>` call in this procedure with `wiki(args=["<subcommand>", ...])` — same subcommand, same flags, no path to resolve. See `## Scripts` in `wiki-conventions` for detail.
+
 Given one document at `<path>`.
 
 1. **Read** document in full; also read `<path>`'s folder's `INGESTION.md` if it exists — issue both reads in one message (see [`reference/ingestion-hints.md`](reference/ingestion-hints.md)). Hints override defaults below.
