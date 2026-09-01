@@ -6,7 +6,7 @@
     "name": "Darren Hague",
     "email": "darren.hague@fortybeans.com"
   },
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
   },
