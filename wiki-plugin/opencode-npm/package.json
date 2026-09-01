@@ -7,6 +7,9 @@
     "email": "darren.hague@fortybeans.com"
   },
   "license": "UNLICENSED",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
