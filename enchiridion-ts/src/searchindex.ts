@@ -167,7 +167,18 @@ export class Index {
    */
   static async openWithGit(root: string, git: Git): Promise<Index> {
     const indexDir = path.join(root, ".wiki-knowledge");
-    fs.mkdirSync(indexDir, { recursive: true });
+    try {
+      fs.mkdirSync(indexDir, { recursive: true });
+    } catch (err) {
+      // mkdirSync with recursive:true still throws EEXIST when the path exists
+      // as a file rather than a directory. Give a diagnostic the caller can act on.
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(
+          `${indexDir} exists as a file, not a directory — delete it so the search index can be created there`,
+        );
+      }
+      throw err;
+    }
     const dbPath = path.join(indexDir, "index.db");
     const db = new Database(dbPath);
     const index = new Index(root, dbPath, db, git);

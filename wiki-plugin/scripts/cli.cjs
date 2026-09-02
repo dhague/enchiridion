@@ -38844,7 +38844,16 @@ var Index = class _Index {
    */
   static async openWithGit(root, git2) {
     const indexDir = import_node_path17.default.join(root, ".wiki-knowledge");
-    import_node_fs13.default.mkdirSync(indexDir, { recursive: true });
+    try {
+      import_node_fs13.default.mkdirSync(indexDir, { recursive: true });
+    } catch (err) {
+      if (err.code === "EEXIST") {
+        throw new Error(
+          `${indexDir} exists as a file, not a directory \u2014 delete it so the search index can be created there`
+        );
+      }
+      throw err;
+    }
     const dbPath = import_node_path17.default.join(indexDir, "index.db");
     const db = new Database(dbPath);
     const index = new _Index(root, dbPath, db, git2);
