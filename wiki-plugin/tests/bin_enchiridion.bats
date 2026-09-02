@@ -9,7 +9,7 @@ setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../bin/enchiridion"
 
     # Recreate the monorepo layout the shim assumes: wiki-plugin/ and
-    # enchiridion-ts/ as siblings, with stub cli.js files standing in for
+    # enchiridion-ts/ as siblings, with stub cli.cjs files standing in for
     # the real esbuild bundle.
     REPO_ROOT="$BATS_TEST_TMPDIR/repo"
     PLUGIN_ROOT="$REPO_ROOT/wiki-plugin"
