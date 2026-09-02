@@ -232,9 +232,14 @@ def copy_wiki_enchiridion(plugin_root: Path | str, package_dir: Path | str) -> P
 
 
 def copy_runtime(plugin_root: Path | str, package_dir: Path | str) -> list[Path]:
-    """Copy the ADR-0017 bundled runtime (cli.cjs + wasm) into the package."""
+    """Copy the ADR-0017 bundled runtime (cli.cjs + wasm) into the package.
+
+    Placed under wiki-knowledge/scripts/ so that deploy.js can set
+    plugin_root = <target>/wiki-knowledge and wiki-enchiridion.ts's
+    bundleFromMarker finds plugin_root/scripts/cli.cjs correctly.
+    """
     root = Path(plugin_root)
-    out = Path(package_dir) / "wiki-knowledge"
+    out = Path(package_dir) / "wiki-knowledge" / "scripts"
     out.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for filename in ("cli.cjs", "node-sqlite3-wasm.wasm"):

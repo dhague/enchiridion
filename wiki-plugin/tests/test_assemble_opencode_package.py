@@ -168,7 +168,7 @@ def test_assemble_produces_expected_layout(tmp_path, plugin_root):
         assert f"skills/{skill}/SKILL.md" in _relpaths(pkg)
     assert "plugins/session-tracker.ts" in _relpaths(pkg)
     assert "plugins/wiki-enchiridion.ts" in _relpaths(pkg)
-    assert {"wiki-knowledge/cli.cjs", "wiki-knowledge/node-sqlite3-wasm.wasm"} <= _relpaths(pkg)
+    assert {"wiki-knowledge/scripts/cli.cjs", "wiki-knowledge/scripts/node-sqlite3-wasm.wasm"} <= _relpaths(pkg)
     assert "templates/config.json" in _relpaths(pkg)
     assert "templates/model-config.json" in _relpaths(pkg)
     assert "templates/opencode-deps.json" in _relpaths(pkg)
@@ -177,8 +177,8 @@ def test_assemble_produces_expected_layout(tmp_path, plugin_root):
 def test_assemble_copies_runtime_bytes_verbatim(tmp_path, plugin_root):
     pkg = _make_package_dir(tmp_path)
     _run_assemble(plugin_root, pkg)
-    assert (pkg / "wiki-knowledge" / "cli.cjs").read_bytes() == b"// fixture cli.cjs\n"
-    assert (pkg / "wiki-knowledge" / "node-sqlite3-wasm.wasm").read_bytes() == b"\x00asm fixture\n"
+    assert (pkg / "wiki-knowledge" / "scripts" / "cli.cjs").read_bytes() == b"// fixture cli.cjs\n"
+    assert (pkg / "wiki-knowledge" / "scripts" / "node-sqlite3-wasm.wasm").read_bytes() == b"\x00asm fixture\n"
 
 
 def test_assemble_copies_session_tracker_verbatim(tmp_path, plugin_root):
@@ -372,7 +372,7 @@ def test_main_assembles_and_prints_written_paths(tmp_path, plugin_root, capsys):
     printed = capsys.readouterr().out.splitlines()
     assert any(p.endswith("package.json") for p in printed)
     assert any(p.endswith("plugins/session-tracker.ts") for p in printed)
-    assert any(p.endswith("wiki-knowledge/cli.cjs") for p in printed)
+    assert any(p.endswith("wiki-knowledge/scripts/cli.cjs") for p in printed)
 
 
 def test_main_error_exits_nonzero(tmp_path, plugin_root, capsys):
