@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { mkdirSafe } from "./fsutil.js";
 import os from "node:os";
 import {
   sessionsDir,
@@ -322,7 +323,7 @@ export function writeCapture(
   shortID: string,
 ): string {
   const conversationsDir = path.join(wikiRoot, "raw", "conversations");
-  fs.mkdirSync(conversationsDir, { recursive: true });
+  mkdirSafe(conversationsDir);
 
   let matches: string[] = [];
   try {

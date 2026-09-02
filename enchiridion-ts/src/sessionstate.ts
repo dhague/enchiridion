@@ -12,6 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 
 /** A lookupEnv matching `process.env`'s semantics: (value, wasPresent). */
 export type LookupEnv = (key: string) => [string | undefined, boolean];
@@ -79,7 +80,7 @@ export function writeTranscriptPath(
   stateDir: string,
 ): void {
   const file = statePath(sessionID, stateDir);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  mkdirSafe(path.dirname(file));
   fs.writeFileSync(file, JSON.stringify({ transcript_path: transcriptPath }), {
     mode: 0o644,
   });

@@ -15,6 +15,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 import { sessionsDir, writeTranscriptPath } from "./sessionstate.js";
 import { processLookupEnv } from "./sessionstate.js";
 import { logPath } from "./toolcallstats.js";
@@ -94,6 +95,6 @@ export function postToolUse(payload: unknown): void {
     p.session_id,
     sessionsDir(p.cwd ?? "", "", processLookupEnv),
   );
-  fs.mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o755 });
+  mkdirSafe(path.dirname(logFile), 0o755);
   fs.appendFileSync(logFile, line + "\n", { mode: 0o644 });
 }

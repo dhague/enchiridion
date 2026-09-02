@@ -27,6 +27,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 import { watch as watchRaw } from "chokidar";
 import { scan as scanEligible } from "./ingestscan.js";
 
@@ -89,7 +90,7 @@ export function writeLock(
   pid: number,
   startedAt?: Date,
 ): void {
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o755 });
+  mkdirSafe(path.dirname(lockPath), 0o755);
   if (!pid) pid = process.pid;
   const started = startedAt ? startedAt : new Date();
   const payload = {
@@ -224,7 +225,7 @@ function withQueueLock(
   queuePath: string,
   fn: (lines: string[]) => string[],
 ): void {
-  fs.mkdirSync(path.dirname(queuePath), { recursive: true, mode: 0o755 });
+  mkdirSafe(path.dirname(queuePath), 0o755);
   const writelockPath = queuePath + ".writelock";
   withExclusiveLock(writelockPath, () => {
     const newLines = fn(readQueue(queuePath));
@@ -312,7 +313,7 @@ export function relForEvent(root: string, abs: string): string | null {
  * mutual exclusion without a native addon. When another process holds the
  * lock, blocks (retrying) until it is released. */
 function withExclusiveLock(lockPath: string, critical: () => void): void {
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o755 });
+  mkdirSafe(path.dirname(lockPath), 0o755);
   let fd: number;
   for (;;) {
     try {
@@ -420,7 +421,7 @@ export function runWatch(
   const pollIntervalSeconds =
     options.pollIntervalSeconds ?? DefaultPollIntervalSeconds;
   const rawRoot = path.join(paths.root, "raw");
-  fs.mkdirSync(rawRoot, { recursive: true, mode: 0o755 });
+  mkdirSafe(rawRoot, 0o755);
 
   const watcher = (options.makeWatcher ?? defaultWatcher)(rawRoot);
   const debouncer = new Debouncer(
