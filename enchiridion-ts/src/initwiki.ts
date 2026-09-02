@@ -22,6 +22,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 import { KindFolders } from "./place.js";
 import { hasMarker } from "./vault.js";
 import { VaultGit } from "./vaultgit.js";
@@ -119,7 +120,7 @@ export async function init(
     );
   }
 
-  fs.mkdirSync(vaultRoot, { recursive: true, mode: 0o755 });
+  mkdirSafe(vaultRoot, 0o755);
 
   // A pre-existing wiki/ tree means conversion (#323): init proceeds over
   // the existing tree instead of scaffolding empty, and the initial commit
@@ -130,14 +131,14 @@ export async function init(
   for (const folder of Object.values(KindFolders)) {
     const kindDir = path.join(vaultRoot, "wiki", folder);
     if (fs.existsSync(kindDir)) continue;
-    fs.mkdirSync(kindDir, { recursive: true, mode: 0o755 });
+    mkdirSafe(kindDir, 0o755);
     touch(path.join(kindDir, ".gitkeep"));
   }
   // raw/ is part of a fresh scaffold; a converted vault that has no inbox yet
   // keeps none — addPaths below stages only what exists.
   const rawDir = path.join(vaultRoot, "raw");
   if (!converting && !fs.existsSync(rawDir)) {
-    fs.mkdirSync(rawDir, { recursive: true, mode: 0o755 });
+    mkdirSafe(rawDir, 0o755);
     touch(path.join(rawDir, ".gitkeep"));
   }
 
@@ -156,7 +157,7 @@ export async function init(
   }
   if (mode === ModeQueryFromAnywhere) {
     const claudeDir = path.join(vaultRoot, ".claude");
-    fs.mkdirSync(claudeDir, { recursive: true, mode: 0o755 });
+    mkdirSafe(claudeDir, 0o755);
     fs.writeFileSync(
       path.join(claudeDir, "settings.json"),
       settingsJSON(pluginRoot),

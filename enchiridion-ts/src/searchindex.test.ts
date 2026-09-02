@@ -874,6 +874,24 @@ describe("reindex", () => {
 // ---------------------------------------------------------------------------
 
 describe("Index.open on a candidate vault", () => {
+  it("refuses when .wiki-knowledge exists as a file instead of a directory", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "searchindex-test-"));
+    try {
+      const fake = fakeAtHead("head1");
+      // Create .wiki-knowledge as a file (not a directory) — replicates the
+      // condition that causes EEXIST with recursive:true on Node.js and Bun.
+      fs.writeFileSync(path.join(root, ".wiki-knowledge"), "not a directory");
+
+      await assert.rejects(
+        () => Index.openWithGit(root, fake),
+        /\.wiki-knowledge.*exists as a file.*delete it/,
+        "should give actionable error, not raw EEXIST",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a root that carries a vault marker but is not a git work tree", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "searchindex-test-"));
     try {

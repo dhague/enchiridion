@@ -19,6 +19,7 @@ const { Database } = nodeSqlite3Wasm as unknown as {
 };
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 
 // The Git surface and its types are owned by the vaultgit module (§256):
 // this index consumes them, and re-exports the type names so existing callers
@@ -167,7 +168,7 @@ export class Index {
    */
   static async openWithGit(root: string, git: Git): Promise<Index> {
     const indexDir = path.join(root, ".wiki-knowledge");
-    fs.mkdirSync(indexDir, { recursive: true });
+    mkdirSafe(indexDir);
     const dbPath = path.join(indexDir, "index.db");
     const db = new Database(dbPath);
     const index = new Index(root, dbPath, db, git);

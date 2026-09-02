@@ -13,6 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { mkdirSafe } from "./fsutil.js";
 import { Page, planMove } from "./wikipage.js";
 import { loadRecords } from "./pagerecord.js";
 import type { PageRecord } from "./pagerecord.js";
@@ -179,7 +180,7 @@ export class Vault {
    * needed. */
   write(pageRef: string, page: Page): void {
     const abs = this.path(pageRef);
-    fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o755 });
+    mkdirSafe(path.dirname(abs), 0o755);
     fs.writeFileSync(abs, page.text, { mode: 0o644 });
   }
 
