@@ -32,8 +32,8 @@ const REQUIRED_SOURCES = Object.freeze([
   "commands",
   "skills",
   ...PLUGINS.map((f) => `plugins/${f}`),
-  "wiki-knowledge/cli.cjs",
-  "wiki-knowledge/node-sqlite3-wasm.wasm",
+  "wiki-knowledge/scripts/cli.cjs",
+  "wiki-knowledge/scripts/node-sqlite3-wasm.wasm",
   "templates/opencode-deps.json",
 ]);
 
@@ -215,7 +215,9 @@ function deploy(opts = {}) {
 
   const target = global ? path.join(home, ".config", "opencode") : path.join(cwd, ".opencode");
   const vault = global ? null : cwd;
-  const pluginRoot = path.resolve(target);
+  // plugin_root must point to <target>/wiki-knowledge so that wiki-enchiridion.ts's
+  // bundleFromMarker finds plugin_root/scripts/cli.cjs (the installed bundle location).
+  const pluginRoot = path.resolve(path.join(target, "wiki-knowledge"));
 
   const skillsDest = global ? path.join(target, "skills") : path.join(cwd, ".agents", "skills");
   copyDir(path.join(pkg, "skills"), skillsDest);

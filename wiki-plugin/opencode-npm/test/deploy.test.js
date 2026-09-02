@@ -48,9 +48,9 @@ function makeFixturePackage({ templates = true, realisticAgents = false } = {}) 
   fs.mkdirSync(path.join(root, "plugins"), { recursive: true });
   fs.writeFileSync(path.join(root, "plugins", "session-tracker.ts"), "export default {};\n");
   fs.writeFileSync(path.join(root, "plugins", "wiki-enchiridion.ts"), "export const WikiEnchiridion = () => ({});\n");
-  fs.mkdirSync(path.join(root, "wiki-knowledge"), { recursive: true });
-  fs.writeFileSync(path.join(root, "wiki-knowledge", "cli.cjs"), "module.exports = {};\n");
-  fs.writeFileSync(path.join(root, "wiki-knowledge", "node-sqlite3-wasm.wasm"), "WASM");
+  fs.mkdirSync(path.join(root, "wiki-knowledge", "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(root, "wiki-knowledge", "scripts", "cli.cjs"), "module.exports = {};\n");
+  fs.writeFileSync(path.join(root, "wiki-knowledge", "scripts", "node-sqlite3-wasm.wasm"), "WASM");
   // opencode-deps.json is always committed — always present regardless of templates flag
   fs.mkdirSync(path.join(root, "templates"), { recursive: true });
   fs.writeFileSync(path.join(root, "templates", "opencode-deps.json"), JSON.stringify({ "@opencode-ai/plugin": "^1.18.15" }));
@@ -99,10 +99,10 @@ test("full deploy lands the whole surface in the vault", () => {
   }
   assert.ok(fs.existsSync(path.join(t, "plugins", "session-tracker.ts")));
   assert.ok(fs.existsSync(path.join(t, "plugins", "wiki-enchiridion.ts")));
-  assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "cli.cjs")));
-  assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "node-sqlite3-wasm.wasm")));
+  assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "scripts", "cli.cjs")));
+  assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "scripts", "node-sqlite3-wasm.wasm")));
   const marker = readJson(path.join(t, "wiki-knowledge", "config.json"));
-  assert.equal(marker.plugin_root, path.resolve(t));
+  assert.equal(marker.plugin_root, path.resolve(path.join(t, "wiki-knowledge")));
   const models = readJson(path.join(t, "wiki-knowledge", "model-config.json"));
   assert.deepEqual(models, DEFAULT_MODELS);
   const pkgJson = readJson(path.join(t, "package.json"));
@@ -246,11 +246,11 @@ test("missing source dir errors loudly", () => {
   );
 });
 
-test("marker is written with plugin_root = target even without a template", () => {
+test("marker is written with plugin_root = target/wiki-knowledge even without a template", () => {
   const vault = makeVault();
   const res = deploy({ packageRoot: makeFixturePackage({ templates: false }), cwd: vault, home: os.tmpdir(), stdin: {} });
   const marker = readJson(path.join(res.target, "wiki-knowledge", "config.json"));
-  assert.deepEqual(marker, { plugin_root: path.resolve(res.target) });
+  assert.deepEqual(marker, { plugin_root: path.resolve(path.join(res.target, "wiki-knowledge")) });
 });
 
 test("marker template is honoured with plugin_root injected", () => {
@@ -259,7 +259,7 @@ test("marker template is honoured with plugin_root injected", () => {
   const vault = makeVault();
   const res = deploy({ packageRoot: pkg, cwd: vault, home: os.tmpdir(), stdin: {} });
   const marker = readJson(path.join(res.target, "wiki-knowledge", "config.json"));
-  assert.equal(marker.plugin_root, path.resolve(res.target));
+  assert.equal(marker.plugin_root, path.resolve(path.join(res.target, "wiki-knowledge")));
   assert.equal(marker.extra, "kept");
 });
 
@@ -280,7 +280,7 @@ test("CLI deploys a fixture package end-to-end in a vault", () => {
     input: "",
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.ok(fs.existsSync(path.join(vault, ".opencode", "wiki-knowledge", "cli.cjs")));
+  assert.ok(fs.existsSync(path.join(vault, ".opencode", "wiki-knowledge", "scripts", "cli.cjs")));
   assert.match(res.stdout, /Installed wiki-knowledge into/);
 });
 
