@@ -58,6 +58,9 @@ echo "Cutting release $current_version -> $new_version on branch '$current_branc
 jq --arg v "$new_version" '.version = $v' "$plugin_json" > "$plugin_json.tmp"
 mv "$plugin_json.tmp" "$plugin_json"
 
+# 1b. Patch the "Plugin version" line in CLAUDE.md so it stays in sync.
+sed -i "s/\*\*Plugin version: \`[0-9]*\.[0-9]*\.[0-9]*\`\*\*/**Plugin version: \`$new_version\`**/" CLAUDE.md
+
 # 2. Rebuild the bundle + wasm from source (fresh, no stale dist/).
 (cd enchiridion-ts && npm ci && npm run build)
 
@@ -90,7 +93,7 @@ fi
 "$python" wiki-plugin/scripts/assemble-opencode-package.py
 
 # 6. Commit and push to the current branch's remote.
-git add "$plugin_json" wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
+git add "$plugin_json" CLAUDE.md wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
 git add skills/wiki-ask/scripts/enchiridion.cjs skills/wiki-ask/scripts/node-sqlite3-wasm.wasm
 git add skills/wiki-ingest/scripts/enchiridion.cjs skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm
 git add wiki-plugin/opencode-npm/package.json wiki-plugin/opencode-npm/templates/
