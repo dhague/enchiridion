@@ -11,13 +11,12 @@ below for what isn't wired up yet.
 ## Prerequisites
 
 - OpenCode installed (`curl -fsSL https://opencode.ai/install | bash`)
-- Node.js 22.12.0+
 
-No repo clone needed — the deployer and all runtime assets ship inside the npm package.
+No repo clone needed — the installer and all runtime assets ship inside the npm package.
 
 ## What gets installed
 
-Running the deployer writes:
+Running the installer writes:
 
 - `.agents/skills/wiki-conventions/`, `.agents/skills/wiki-ingest/`, etc. —
   six skill bodies copied into the vault's agent-local skills directory.
@@ -69,7 +68,7 @@ export WIKI_ROOT=/path/to/your-vault   # set per-shell/session, not exported glo
 
 ### Model config
 
-The deployer needs a `provider/model-id` for each canonical model name
+The installer needs a `provider/model-id` for each canonical model name
 (currently `sonnet` and `haiku`). When run interactively it prompts for each,
 showing the documented default:
 
@@ -110,7 +109,7 @@ mode), the same slash commands work as in Claude Code: `/wiki-init`,
 
 ## Updating after a plugin upgrade
 
-Re-run the deployer from the vault root (or with `--global`). It always
+Re-run the installer from the vault root (or with `--global`). It always
 overwrites `.opencode/agents/`, `.opencode/commands/`, the skills, and the
 runtime bundle. Pass `--model-config` to reuse your existing mapping:
 
