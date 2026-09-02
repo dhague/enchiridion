@@ -163,6 +163,29 @@ function appendGitignore(vault) {
   return file;
 }
 
+function patchAgentModels(agentsDir, models) {
+  if (!fs.existsSync(agentsDir)) return;
+  for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const file = path.join(agentsDir, entry.name);
+    let content = fs.readFileSync(file, "utf8");
+    for (const [tier, modelId] of Object.entries(models)) {
+      const defaultId = DEFAULT_MODELS[tier];
+      if (defaultId && modelId !== defaultId) {
+        content = content.replace(
+          new RegExp(`^(model:\\s*)${escapeRegex(defaultId)}\\s*$`, "m"),
+          `$1${modelId}`,
+        );
+      }
+    }
+    fs.writeFileSync(file, content, "utf8");
+  }
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function deploy(opts = {}) {
   const pkg = path.resolve(opts.packageRoot || path.join(__dirname, ".."));
   const cwd = path.resolve(opts.cwd || process.cwd());
@@ -188,6 +211,7 @@ function deploy(opts = {}) {
 
   const models = resolveModels({ pkg, modelConfig: opts.modelConfig, stdin, prompt: opts.prompt });
   writeJson(path.join(target, "wiki-knowledge", "model-config.json"), models);
+  patchAgentModels(path.join(target, "agents"), models);
   writeMarker(target, pkg, pluginRoot);
 
   const gitignore = global ? null : appendGitignore(vault);

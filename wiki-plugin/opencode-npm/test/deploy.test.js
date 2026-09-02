@@ -26,11 +26,15 @@ const GITIGNORE_ENTRIES = [
   ".opencode/wiki-knowledge/",
 ];
 
-function makeFixturePackage({ templates = true } = {}) {
+function makeFixturePackage({ templates = true, realisticAgents = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "wk-pkg-"));
   for (const name of ["wiki-ingest", "wiki-researcher"]) {
     fs.mkdirSync(path.join(root, "agents"), { recursive: true });
-    fs.writeFileSync(path.join(root, "agents", `${name}.md`), `# ${name}\n`);
+    const defaultModel = name === "wiki-ingest" ? DEFAULT_MODELS.sonnet : DEFAULT_MODELS.haiku;
+    const content = realisticAgents
+      ? `---\ndescription: ${name}\nmode: subagent\nmodel: ${defaultModel}\n---\n# ${name}\n`
+      : `# ${name}\n`;
+    fs.writeFileSync(path.join(root, "agents", `${name}.md`), content);
   }
   for (const s of SKILLS) {
     fs.mkdirSync(path.join(root, "commands"), { recursive: true });
@@ -249,4 +253,25 @@ test("CLI exits non-zero when a source is missing", () => {
   });
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /missing required sources/);
+});
+
+test("model override is written into deployed agent model: fields", () => {
+  const vault = makeVault();
+  const mc = path.join(vault, "models.json");
+  fs.writeFileSync(mc, JSON.stringify({ sonnet: "openai/gpt-5.6-terra", haiku: "openai/gpt-5.6-luna" }));
+  const res = deploy({ packageRoot: makeFixturePackage({ realisticAgents: true }), cwd: vault, home: os.tmpdir(), modelConfig: mc, stdin: {} });
+  const t = res.target;
+  const ingest = fs.readFileSync(path.join(t, "agents", "wiki-ingest.md"), "utf8");
+  const researcher = fs.readFileSync(path.join(t, "agents", "wiki-researcher.md"), "utf8");
+  assert.match(ingest, /^model: openai\/gpt-5\.6-terra$/m);
+  assert.doesNotMatch(ingest, /anthropic/);
+  assert.match(researcher, /^model: openai\/gpt-5\.6-luna$/m);
+  assert.doesNotMatch(researcher, /anthropic/);
+});
+
+test("model override does not corrupt agents when default model unchanged", () => {
+  const vault = makeVault();
+  const res = deploy({ packageRoot: makeFixturePackage({ realisticAgents: true }), cwd: vault, home: os.tmpdir(), stdin: {} });
+  const ingest = fs.readFileSync(path.join(res.target, "agents", "wiki-ingest.md"), "utf8");
+  assert.match(ingest, /^model: anthropic\/claude-sonnet-4-5$/m);
 });
