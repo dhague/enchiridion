@@ -147,7 +147,11 @@ def write_config_templates(package_dir: Path | str, model_map: dict) -> list[Pat
 def read_opencode_plugin_version(plugin_root: Path | str) -> str:
     """The ``@opencode-ai/plugin`` version from ``wiring/opencode/package.json``
     devDependencies — the single source of truth. deploy.js needs this to write
-    the runtime dependency into the target's package.json."""
+    the runtime dependency into the target's package.json.
+
+    The lookup is intentionally ``devDependencies``: ``wiring/opencode/`` is a
+    dev-only wiring package (``"private": true``) so the dep lives there.
+    """
     path = Path(plugin_root) / "wiring" / "opencode" / "package.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -157,7 +161,8 @@ def read_opencode_plugin_version(plugin_root: Path | str) -> str:
         ) from exc
     if not isinstance(data, dict):
         raise AssemblyError("wiring/opencode/package.json must be a JSON object")
-    version = data.get("devDependencies", {}).get("@opencode-ai/plugin")
+    dev_deps = data.get("devDependencies")
+    version = (dev_deps or {}).get("@opencode-ai/plugin") if isinstance(dev_deps, (dict, type(None))) else None
     if not version:
         raise AssemblyError(
             "wiring/opencode/package.json has no devDependencies['@opencode-ai/plugin']"
@@ -199,15 +204,21 @@ def copy_skills(plugin_root: Path | str, package_dir: Path | str) -> list[Path]:
     return written
 
 
-def copy_session_tracker(plugin_root: Path | str, package_dir: Path | str) -> Path:
-    """Copy the OpenCode session-tracker plugin into the package's plugins/."""
-    root = Path(plugin_root)
-    src = root / "wiring" / "opencode" / "plugins" / "session-tracker.ts"
-    _read_text(src, "session-tracker.ts")
-    dst = Path(package_dir) / "plugins" / "session-tracker.ts"
+def _copy_opencode_plugin(plugin_root: Path | str, package_dir: Path | str, filename: str) -> Path:
+    """Copy one plugin file from ``wiring/opencode/plugins/`` into the package's
+    ``plugins/`` directory. Raises :class:`AssemblyError` when the source is absent."""
+    src = Path(plugin_root) / "wiring" / "opencode" / "plugins" / filename
+    if not src.is_file():
+        raise AssemblyError(f"{filename} not found: {src}")
+    dst = Path(package_dir) / "plugins" / filename
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
     return dst
+
+
+def copy_session_tracker(plugin_root: Path | str, package_dir: Path | str) -> Path:
+    """Copy the OpenCode session-tracker plugin into the package's plugins/."""
+    return _copy_opencode_plugin(plugin_root, package_dir, "session-tracker.ts")
 
 
 def copy_wiki_enchiridion(plugin_root: Path | str, package_dir: Path | str) -> Path:
@@ -217,13 +228,7 @@ def copy_wiki_enchiridion(plugin_root: Path | str, package_dir: Path | str) -> P
     OpenCode sessions can call enchiridion subcommands without ``node`` on PATH.
     deploy.js ships and deploys it alongside session-tracker.ts.
     """
-    root = Path(plugin_root)
-    src = root / "wiring" / "opencode" / "plugins" / "wiki-enchiridion.ts"
-    _read_text(src, "wiki-enchiridion.ts")
-    dst = Path(package_dir) / "plugins" / "wiki-enchiridion.ts"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
-    return dst
+    return _copy_opencode_plugin(plugin_root, package_dir, "wiki-enchiridion.ts")
 
 
 def copy_runtime(plugin_root: Path | str, package_dir: Path | str) -> list[Path]:

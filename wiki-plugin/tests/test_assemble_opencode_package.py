@@ -334,6 +334,16 @@ def test_assemble_missing_opencode_wiring_package_json_raises(tmp_path, plugin_r
         _run_assemble(plugin_root, _make_package_dir(tmp_path))
 
 
+def test_read_opencode_plugin_version_null_devdeps_raises(tmp_path, plugin_root):
+    """devDependencies: null must raise AssemblyError, not AttributeError."""
+    pkg_path = plugin_root / "wiring" / "opencode" / "package.json"
+    data = json.loads(pkg_path.read_text(encoding="utf-8"))
+    data["devDependencies"] = None
+    pkg_path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(assemble_opencode_package.AssemblyError, match="@opencode-ai/plugin"):
+        assemble_opencode_package.read_opencode_plugin_version(plugin_root)
+
+
 def test_assemble_generator_failure_propagates(tmp_path, plugin_root):
     (plugin_root / "scripts" / "generate-opencode.py").write_text(
         "import sys\nsys.exit(3)\n", encoding="utf-8",

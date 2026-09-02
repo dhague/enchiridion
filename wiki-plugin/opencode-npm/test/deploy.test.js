@@ -83,6 +83,8 @@ test("global mode targets home/.config/opencode and has no vault", () => {
   assert.equal(res.target, path.join(home, ".config", "opencode"));
   assert.equal(res.vault, null);
   assert.equal(res.global, true);
+  const pkg = readJson(path.join(res.target, "package.json"));
+  assert.ok(pkg.dependencies?.["@opencode-ai/plugin"], "global mode must also write @opencode-ai/plugin");
 });
 
 test("full deploy lands the whole surface in the vault", () => {
