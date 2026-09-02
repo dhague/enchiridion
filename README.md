@@ -1,4 +1,4 @@
-# enchiridion
+# wiki-knowledge
 
 Personal knowledge management powered by LLM agents. Turns raw documents into a structured, searchable, git-backed markdown wiki vault — then answers questions over it with typed-edge graph traversal and cited synthesis.
 
@@ -6,8 +6,8 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 
 ## What's inside
 
-- **wiki-knowledge** — a Claude Code plugin that provides ingestion and retrieval over a markdown wiki vault
-- **Agent pipeline** — Claude Sonnet for semantic ingestion (chunking, overlap classification, edge typing); Claude Haiku for retrieval (query expansion, BM25 search, frontier traversal, synthesis)
+- **wiki-knowledge** — a Claude Code / OpenCode plugin that provides ingestion and retrieval over a markdown wiki vault
+- **Agent pipeline** — Claude Sonnet for semantic ingestion (chunking, overlap classification, edge typing); Claude Haiku for retrieval (query expansion, BM25 search, frontier traversal, synthesis) - models are configurable for OpenCode
 - **Deterministic script layer** — a single TypeScript bundle for vault I/O, placement, FTS5 search indexing, and commit construction (no model calls, no runtime to install — it runs on the already-installed Node)
 - **Full-text search** — SQLite FTS5 via stdlib, zero extra search dependencies
 
@@ -17,7 +17,7 @@ Follows the [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf
 
 1. Add the marketplace entry and install the plugin:
    ```
-   /plugin marketplace add dhague/enchiridion
+   /plugin marketplace add dhague/wiki-knowledge
    /plugin install wiki-knowledge
    ```
 
@@ -37,7 +37,7 @@ Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to i
 
 Install individual skills into Joule Work Desktop via the AI Skills Library:
 
-Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/enchiridion/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
+Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/wiki-knowledge/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
 
 ### Standalone CLI
 

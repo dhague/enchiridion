@@ -1,6 +1,6 @@
 # Text search for the `Vault` class
 
-Research for [#36](https://github.com/dhague/enchiridion/issues/36). The ask: stop grepping the vault with regexes that have to work around frontmatter, and give `Vault` a real search API that composes structured metadata predicates with full-text matching — *"pages updated in the last week, tagged `foo`, containing `bar`"*.
+Research for [#36](https://github.com/dhague/wiki-knowledge/issues/36). The ask: stop grepping the vault with regexes that have to work around frontmatter, and give `Vault` a real search API that composes structured metadata predicates with full-text matching — *"pages updated in the last week, tagged `foo`, containing `bar`"*.
 
 Sources are primary: SQLite's own FTS5 documentation, PyPI release metadata, project READMEs, and Debian's packaging rules. Claims are labelled **[verified]** where read from a primary source, **[measured]** where produced by a throwaway prototype run on this machine against the real dogfooding vault, and **[inferred]** where reasoned from those.
 
@@ -297,7 +297,7 @@ class Vault:
 Points the sketch is making on purpose:
 
 - **`text` is optional.** `search(tags_all=["foo"], since="2026-07-20")` is a pure-metadata query and must not require a text term.
-- **`include_superseded=False` is the default**, turning `wiki-retrieval`'s third hand-run rule ("never cite a superseded page") from prose the agent must remember into a filter it must opt out of. This is the single highest-value thing the index buys, and it is directly relevant to [#17](https://github.com/dhague/enchiridion/issues/17).
+- **`include_superseded=False` is the default**, turning `wiki-retrieval`'s third hand-run rule ("never cite a superseded page") from prose the agent must remember into a filter it must opt out of. This is the single highest-value thing the index buys, and it is directly relevant to [#17](https://github.com/dhague/wiki-knowledge/issues/17).
 - **`date_field` is explicit**, because this vault has a bitemporal model and "updated in the last week" is ambiguous between `source_date` (valid time) and git (transaction time). Forcing the caller to name it is the correct interface, and it also mechanizes the second hand-run rule — `git_date` batch-filled from one `git log --name-only --format=%H|%ad` pass means the agent stops shelling `git log -1` per page.
 - **`raw=False` is the default** because of the §2 syntax footgun. Hyphenated tags must not crash a search.
 - **`search()` internally calls the staleness scan.** No `refresh()` in the caller's face.

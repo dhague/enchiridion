@@ -127,4 +127,4 @@ npx @dhague/wiki-knowledge \
   workflow for the exact commands it runs if something doesn't match your
   local behavior.
 - Broader OpenCode parity (statusline, further host-neutral polish) is still
-  tracked on the wayfinder map, [#1](https://github.com/dhague/enchiridion/issues/1).
+  tracked on the wayfinder map, [#1](https://github.com/dhague/wiki-knowledge/issues/1).
