@@ -26,6 +26,7 @@ export function mkdirSafe(dir: string, mode?: number): void {
     if (!stat.isDirectory()) {
       throw new Error(
         `${dir} exists as a file, not a directory — delete it so it can be created as a directory`,
+        { cause: err },
       );
     }
     // directory already exists — treat as success (Windows+OneDrive ReparsePoint)

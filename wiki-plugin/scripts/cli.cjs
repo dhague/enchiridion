@@ -36902,7 +36902,8 @@ function mkdirSafe(dir, mode) {
     }
     if (!stat4.isDirectory()) {
       throw new Error(
-        `${dir} exists as a file, not a directory \u2014 delete it so it can be created as a directory`
+        `${dir} exists as a file, not a directory \u2014 delete it so it can be created as a directory`,
+        { cause: err }
       );
     }
   }
