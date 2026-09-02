@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const { deploy, DeployError, DEFAULT_MODELS } = require("../bin/deploy.js");
+const { deploy, DeployError, DEFAULT_MODELS, mergePackageJson } = require("../bin/deploy.js");
 
 const SKILLS = [
   "wiki-conventions",
@@ -23,6 +23,7 @@ const GITIGNORE_ENTRIES = [
   ".opencode/agents/",
   ".opencode/commands/",
   ".opencode/plugins/session-tracker.ts",
+  ".opencode/plugins/wiki-enchiridion.ts",
   ".opencode/wiki-knowledge/",
 ];
 
@@ -46,11 +47,14 @@ function makeFixturePackage({ templates = true, realisticAgents = false } = {}) 
   }
   fs.mkdirSync(path.join(root, "plugins"), { recursive: true });
   fs.writeFileSync(path.join(root, "plugins", "session-tracker.ts"), "export default {};\n");
+  fs.writeFileSync(path.join(root, "plugins", "wiki-enchiridion.ts"), "export const WikiEnchiridion = () => ({});\n");
   fs.mkdirSync(path.join(root, "wiki-knowledge"), { recursive: true });
   fs.writeFileSync(path.join(root, "wiki-knowledge", "cli.cjs"), "module.exports = {};\n");
   fs.writeFileSync(path.join(root, "wiki-knowledge", "node-sqlite3-wasm.wasm"), "WASM");
+  // opencode-deps.json is always committed — always present regardless of templates flag
+  fs.mkdirSync(path.join(root, "templates"), { recursive: true });
+  fs.writeFileSync(path.join(root, "templates", "opencode-deps.json"), JSON.stringify({ "@opencode-ai/plugin": "^1.18.15" }));
   if (templates) {
-    fs.mkdirSync(path.join(root, "templates"), { recursive: true });
     fs.writeFileSync(path.join(root, "templates", "config.json"), JSON.stringify({ plugin_root: null }));
     fs.writeFileSync(path.join(root, "templates", "model-config.json"), JSON.stringify(DEFAULT_MODELS));
   }
@@ -79,6 +83,8 @@ test("global mode targets home/.config/opencode and has no vault", () => {
   assert.equal(res.target, path.join(home, ".config", "opencode"));
   assert.equal(res.vault, null);
   assert.equal(res.global, true);
+  const pkg = readJson(path.join(res.target, "package.json"));
+  assert.ok(pkg.dependencies?.["@opencode-ai/plugin"], "global mode must also write @opencode-ai/plugin");
 });
 
 test("full deploy lands the whole surface in the vault", () => {
@@ -92,12 +98,50 @@ test("full deploy lands the whole surface in the vault", () => {
     assert.ok(fs.existsSync(path.join(vault, ".agents", "skills", s, "SKILL.md")), `missing skill ${s}`);
   }
   assert.ok(fs.existsSync(path.join(t, "plugins", "session-tracker.ts")));
+  assert.ok(fs.existsSync(path.join(t, "plugins", "wiki-enchiridion.ts")));
   assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "cli.cjs")));
   assert.ok(fs.existsSync(path.join(t, "wiki-knowledge", "node-sqlite3-wasm.wasm")));
   const marker = readJson(path.join(t, "wiki-knowledge", "config.json"));
   assert.equal(marker.plugin_root, path.resolve(t));
   const models = readJson(path.join(t, "wiki-knowledge", "model-config.json"));
   assert.deepEqual(models, DEFAULT_MODELS);
+  const pkgJson = readJson(path.join(t, "package.json"));
+  assert.ok(pkgJson.dependencies?.["@opencode-ai/plugin"], "package.json must declare @opencode-ai/plugin");
+});
+
+test("target package.json is created with @opencode-ai/plugin when absent", () => {
+  const vault = makeVault();
+  const res = deploy({ packageRoot: makeFixturePackage(), cwd: vault, home: os.tmpdir(), stdin: {} });
+  const pkgFile = path.join(res.target, "package.json");
+  assert.ok(fs.existsSync(pkgFile));
+  const pkg = readJson(pkgFile);
+  assert.equal(typeof pkg.dependencies["@opencode-ai/plugin"], "string");
+  assert.match(pkg.dependencies["@opencode-ai/plugin"], /^\^/);
+});
+
+test("target package.json merges into existing without clobbering other keys", () => {
+  const vault = makeVault();
+  const target = path.join(vault, ".opencode");
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(
+    path.join(target, "package.json"),
+    JSON.stringify({ type: "module", dependencies: { "some-existing-dep": "^1.0.0" } }, null, 2) + "\n",
+  );
+  const res = deploy({ packageRoot: makeFixturePackage(), cwd: vault, home: os.tmpdir(), stdin: {} });
+  const pkg = readJson(path.join(res.target, "package.json"));
+  assert.equal(pkg.type, "module", "existing fields must be preserved");
+  assert.equal(pkg.dependencies["some-existing-dep"], "^1.0.0", "pre-existing dep preserved");
+  assert.ok(pkg.dependencies["@opencode-ai/plugin"], "new dep injected");
+});
+
+test("mergePackageJson adds dep without touching other fields", () => {
+  const existing = { type: "module", dependencies: { foo: "^1.0.0" }, scripts: { build: "tsc" } };
+  const result = mergePackageJson(existing, { "@opencode-ai/plugin": "^1.18.15" });
+  assert.equal(result.type, "module");
+  assert.equal(result.scripts.build, "tsc");
+  assert.equal(result.dependencies.foo, "^1.0.0");
+  assert.equal(result.dependencies["@opencode-ai/plugin"], "^1.18.15");
+  assert.deepEqual(existing, { type: "module", dependencies: { foo: "^1.0.0" }, scripts: { build: "tsc" } }, "original not mutated");
 });
 
 test("skills land in .agents/skills (dedicated) vs target/skills (global)", () => {

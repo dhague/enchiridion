@@ -12,11 +12,16 @@ const DEFAULT_MODELS = Object.freeze({
 
 const CANONICAL_MODELS = Object.freeze(["sonnet", "haiku"]);
 
+// All OpenCode plugin files shipped and deployed. Each name appears in three
+// places that must stay in sync: PLUGINS (the authoritative list), GITIGNORE_ENTRIES,
+// and REQUIRED_SOURCES — both derived here so additions only need one edit.
+const PLUGINS = Object.freeze(["session-tracker.ts", "wiki-enchiridion.ts"]);
+
 const GITIGNORE_ENTRIES = Object.freeze([
   ".agents/skills/",
   ".opencode/agents/",
   ".opencode/commands/",
-  ".opencode/plugins/session-tracker.ts",
+  ...PLUGINS.map((f) => `.opencode/plugins/${f}`),
   ".opencode/wiki-knowledge/",
 ]);
 
@@ -26,9 +31,10 @@ const REQUIRED_SOURCES = Object.freeze([
   "agents",
   "commands",
   "skills",
-  "plugins/session-tracker.ts",
+  ...PLUGINS.map((f) => `plugins/${f}`),
   "wiki-knowledge/cli.cjs",
   "wiki-knowledge/node-sqlite3-wasm.wasm",
+  "templates/opencode-deps.json",
 ]);
 
 const USAGE = `Usage: wiki-knowledge [options]
@@ -148,6 +154,18 @@ function writeMarker(target, pkg, pluginRoot) {
   writeJson(path.join(target, "wiki-knowledge", "config.json"), marker);
 }
 
+function mergePackageJson(existing, deps) {
+  return { ...existing, dependencies: { ...(existing.dependencies || {}), ...deps } };
+}
+
+function writeTargetPackageJson(target, pkg) {
+  const depsFile = path.join(pkg, "templates", "opencode-deps.json");
+  const deps = readJsonFile(depsFile, "opencode-deps template");
+  const pkgFile = path.join(target, "package.json");
+  const existing = fs.existsSync(pkgFile) ? readJsonFile(pkgFile, "target package.json") : {};
+  writeJson(pkgFile, mergePackageJson(existing, deps));
+}
+
 function appendGitignore(vault) {
   const file = path.join(vault, ".gitignore");
   const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
@@ -203,16 +221,16 @@ function deploy(opts = {}) {
   copyDir(path.join(pkg, "skills"), skillsDest);
   copyDir(path.join(pkg, "agents"), path.join(target, "agents"));
   copyDir(path.join(pkg, "commands"), path.join(target, "commands"));
-  copyFile(
-    path.join(pkg, "plugins", "session-tracker.ts"),
-    path.join(target, "plugins", "session-tracker.ts"),
-  );
+  for (const plugin of PLUGINS) {
+    copyFile(path.join(pkg, "plugins", plugin), path.join(target, "plugins", plugin));
+  }
   copyDir(path.join(pkg, "wiki-knowledge"), path.join(target, "wiki-knowledge"));
 
   const models = resolveModels({ pkg, modelConfig: opts.modelConfig, stdin, prompt: opts.prompt });
   writeJson(path.join(target, "wiki-knowledge", "model-config.json"), models);
   patchAgentModels(path.join(target, "agents"), models);
   writeMarker(target, pkg, pluginRoot);
+  writeTargetPackageJson(target, pkg);
 
   const gitignore = global ? null : appendGitignore(vault);
 
@@ -273,6 +291,8 @@ module.exports = {
   DEFAULT_MODELS,
   CANONICAL_MODELS,
   GITIGNORE_ENTRIES,
+  PLUGINS,
+  mergePackageJson,
 };
 
 if (require.main === module) {
