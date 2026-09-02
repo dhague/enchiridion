@@ -115,7 +115,7 @@ Tags are **emergent** — generated at ingestion, not conformed to a fixed list.
 Links between pages are **relative markdown links — not wikilinks.**
 
 - **Standard link:** `[prepared statements](../concepts/prepared-statements.md)`. Path relative to linking file's location; `entities/` to `concepts/` climbs one level (`../concepts/…`).
-- **Anchors:** append heading fragment — `[the budget rule](../wiki-retrieval/SKILL.md#termination-budget)` / `[…](../concepts/caching.md#ttl)`. Fragment is GitHub-style slug of target heading.
+- **Anchors:** append heading fragment — `[the budget rule](../wiki-ask/SKILL.md#termination-budget)` / `[…](../concepts/caching.md#ttl)`. Fragment is GitHub-style slug of target heading.
 - **Image embeds:** leading-bang form — `![cache diagram](../raw/diagrams/2026-03-01-cache.png)`. Embeds may point into `raw/`; ordinary links between pages stay within `wiki/`.
 
 All links **position-spliced** on move/rename by `enchiridion vault move` (both inbound links across vault and outbound links inside moved page). Links into `raw/` are **percent-encoded**: encode space, `#`, `%`, `(`, `)`, `<`, `>`; everything else (unicode, `&`, `'`, `,`, `+`) stays literal. Obsidian cannot follow destination containing literal space, so encoding is essential for interoperability.

@@ -51,7 +51,7 @@ SKILLS = (
     "wiki-conventions",
     "wiki-ingest",
     "wiki-init",
-    "wiki-retrieval",
+    "wiki-ask",
     "wiki-watch",
     "save-conversation",
 )
@@ -78,7 +78,7 @@ CC_TOOL_TO_PERMISSION = {
 #: instead have no entry).
 COMMAND_AGENT = {
     "wiki-ingest": "wiki-ingest",
-    "wiki-retrieval": "wiki-researcher",
+    "wiki-ask": "wiki-researcher",
 }
 
 #: Thin command templates — one short prompt per slash command, delegating to
@@ -96,7 +96,7 @@ COMMAND_TEMPLATE = {
         "Load the `wiki-init` skill and follow its procedure to scaffold a "
         "new wiki vault at $ARGUMENTS."
     ),
-    "wiki-retrieval": (
+    "wiki-ask": (
         "Answer the following question from the wiki vault: $ARGUMENTS"
     ),
     "wiki-watch": (
@@ -140,8 +140,8 @@ def parse_frontmatter(yaml_text: str) -> dict:
 #: The CC "skill preloaded above" claim, which is false on OpenCode — skills
 #: there load on demand via the ``skill`` tool, never into the agent context.
 #: The ``per``/``using`` lead-in is left in place so the rewrite reads as a
-#: sentence, not a splice: "using `wiki-retrieval` skill — load the
-#: `wiki-retrieval` skill and follow its procedure".
+#: sentence, not a splice: "using `wiki-ask` skill — load the
+#: `wiki-ask` skill and follow its procedure".
 _PRELOAD_RE = re.compile(r"`([a-z0-9-]+)` skill( procedure)? preloaded above")
 
 
