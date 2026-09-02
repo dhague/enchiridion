@@ -1,6 +1,6 @@
 # OpenCode install ships as an npm deployer package (`@dhague/wiki-knowledge`)
 
-[#217](https://github.com/dhague/wiki-knowledge/issues/217) wants the plugin installable without cloning the repo. Claude Code gets `/plugin marketplace add dhague/enchiridion` (ADR-0016); OpenCode has no marketplace — its only remote-install primitive is the npm registry. [#218](https://github.com/dhague/wiki-knowledge/issues/218) therefore resolves: publish **`@dhague/wiki-knowledge`**, an npm package whose `bin` is a pure deployer — `npx @dhague/wiki-knowledge` copies a build-time-assembled runtime subset into the vault, making the vault self-contained. No cloning, no Python, no generation at install time.
+[#217](https://github.com/dhague/wiki-knowledge/issues/217) wants the plugin installable without cloning the repo. Claude Code gets `/plugin marketplace add dhague/wiki-knowledge` (ADR-0016); OpenCode has no marketplace — its only remote-install primitive is the npm registry. [#218](https://github.com/dhague/wiki-knowledge/issues/218) therefore resolves: publish **`@dhague/wiki-knowledge`**, an npm package whose `bin` is a pure deployer — `npx @dhague/wiki-knowledge` copies a build-time-assembled runtime subset into the vault, making the vault self-contained. No cloning, no Python, no generation at install time.
 
 ## Why npm, and why a deployer
 
