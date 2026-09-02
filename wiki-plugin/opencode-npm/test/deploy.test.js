@@ -13,7 +13,7 @@ const SKILLS = [
   "wiki-conventions",
   "wiki-ingest",
   "wiki-init",
-  "wiki-retrieval",
+  "wiki-ask",
   "wiki-watch",
   "save-conversation",
 ];

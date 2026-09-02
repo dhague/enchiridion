@@ -55,10 +55,10 @@ name: wiki-researcher
 description: Answers a question from the wiki vault — query-expanded, BM25-ranked, frontmatter-first, budget-bounded, and cited with each page's age and volatility. Invoke whenever the vault should be asked something rather than read page by page.
 model: haiku
 tools: Read, Grep, Glob, Bash
-skills: [wiki-conventions, wiki-retrieval]
+skills: [wiki-conventions, wiki-ask]
 ---
 
-You are the `wiki-researcher` agent. You are given a question and you answer it from the vault's pages using `wiki-retrieval` skill preloaded above.
+You are the `wiki-researcher` agent. You are given a question and you answer it from the vault's pages using `wiki-ask` skill preloaded above.
 """
 
 
@@ -79,7 +79,7 @@ def test_split_frontmatter_splits_yaml_block_and_body():
 
 def test_split_frontmatter_keeps_skills_line_in_yaml():
     yaml_text, _body = generate_opencode.split_frontmatter(WIKI_RESEARCHER_CC)
-    assert "skills: [wiki-conventions, wiki-retrieval]" in yaml_text
+    assert "skills: [wiki-conventions, wiki-ask]" in yaml_text
 
 
 def test_split_frontmatter_missing_frontmatter_raises():
@@ -215,7 +215,7 @@ def test_translate_body_rewrites_researcher_preload_phrase():
     translated = generate_opencode.translate_body(body)
     # the `using` lead-in survives, so the rewrite reads as a sentence rather
     # than splicing the imperative onto the noun phrase
-    assert "using `wiki-retrieval` skill — load the `wiki-retrieval` skill and follow its procedure" in translated
+    assert "using `wiki-ask` skill — load the `wiki-ask` skill and follow its procedure" in translated
     assert "preloaded above" not in translated
 
 
@@ -274,7 +274,7 @@ def test_translate_command_agent_backed_for_ingest():
 
 
 def test_translate_command_researcher_agent_is_wiki_researcher():
-    out = generate_opencode.translate_command("wiki-retrieval", "Answer from the vault.")
+    out = generate_opencode.translate_command("wiki-ask", "Answer from the vault.")
     assert out["agent"] == "wiki-researcher"
 
 
@@ -310,7 +310,7 @@ def test_render_command_covers_all_six_skills_with_templates():
     assert set(generate_opencode.SKILLS) == set(generate_opencode.COMMAND_TEMPLATE)
     assert set(generate_opencode.SKILLS) == {
         "wiki-conventions", "wiki-ingest", "wiki-init",
-        "wiki-retrieval", "wiki-watch", "save-conversation",
+        "wiki-ask", "wiki-watch", "save-conversation",
     }
 
 
