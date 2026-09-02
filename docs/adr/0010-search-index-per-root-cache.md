@@ -1,6 +1,6 @@
 # 10. Shared `SearchIndex` connection lives behind a per-root cache, not a caller-side memo
 
-Grilled 2026-08-07, from [#127](https://github.com/dhague/enchiridion/issues/127).
+Grilled 2026-08-07, from [#127](https://github.com/dhague/wiki-knowledge/issues/127).
 
 ## Context
 
@@ -58,7 +58,7 @@ No eviction/close hook: every current entrypoint is a one-shot CLI process —
 unbounded per-root cache is bounded in practice to a handful of roots for the
 life of one invocation.
 
-## The current implementation (2026-08-14, from [#174](https://github.com/dhague/enchiridion/issues/174))
+## The current implementation (2026-08-14, from [#174](https://github.com/dhague/wiki-knowledge/issues/174))
 
 The `searchindex` module satisfies this decision by the opposite
 mechanism, and deliberately has **no `ForRoot`**. `Open` pairs with `Close`,

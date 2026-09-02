@@ -4,7 +4,7 @@ description: Watch a vault's raw/ folder and auto-ingest new or changed files as
 ---
 # Wiki Watch
 
-Per [Auto-ingest new files as they appear](https://github.com/dhague/enchiridion/issues/37): user-initiated, foreground, event-driven watcher — not system daemon, not hook. User runs `/wiki-watch` in open session, Ctrl-Cs when done. Nothing installed as service, nothing auto-starts.
+User-initiated, foreground, event-driven watcher — not system daemon, not hook. User runs `/wiki-watch` in open session, Ctrl-Cs when done. Nothing installed as service, nothing auto-starts.
 
 Substantive logic in the `watch` subcommand of the enchiridion script layer (`<plugin-root>/bin/enchiridion watch` — event detection, per-file debounce, lock file, queue file) and existing sweep machinery (`enchiridion ingest-scan`, `wiki-ingest` agent, `enchiridion ingest`). This file is procedural glue: launch watcher, run startup sweep, poll queue, dispatch one `wiki-ingest` subagent per file.
 

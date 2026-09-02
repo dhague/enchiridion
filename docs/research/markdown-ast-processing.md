@@ -1,6 +1,6 @@
 # Markdown AST parsing for position-splice body editing
 
-Research for [#48](https://github.com/dhague/enchiridion/issues/48). The question: is `mistune`'s AST mode a better fit than the current `markdown-it-py` dependency for `wikipage.py`'s job — finding headings/links/code-fences in a page body and splicing edits back into the *original source text* without disturbing any untouched byte?
+Research for [#48](https://github.com/dhague/wiki-knowledge/issues/48). The question: is `mistune`'s AST mode a better fit than the current `markdown-it-py` dependency for `wikipage.py`'s job — finding headings/links/code-fences in a page body and splicing edits back into the *original source text* without disturbing any untouched byte?
 
 Sources are primary: each library's own docs site, PyPI package metadata, and GitHub source/issues (read directly, including maintainer comments). Claims are labelled **[verified]** where read from a primary source, **[measured]** where read directly from this repo's own code, and **[inferred]** where reasoned from those.
 
@@ -18,7 +18,7 @@ Sources are primary: each library's own docs site, PyPI package metadata, and Gi
 
 ## 1. What `wikipage.py` actually does with markdown-it-py today
 
-**[measured]**, read directly from `wiki-plugin/scripts/wikipage.py` (and its predecessor `wiki-plugin/scripts/lib/md.py`, replaced in [#32](https://github.com/dhague/enchiridion/issues/32) / commit `ced8ec9`, which has the same logic and a more explicit docstring about *why*):
+**[measured]**, read directly from `wiki-plugin/scripts/wikipage.py` (and its predecessor `wiki-plugin/scripts/lib/md.py`, replaced in [#32](https://github.com/dhague/wiki-knowledge/issues/32) / commit `ced8ec9`, which has the same logic and a more explicit docstring about *why*):
 
 ```python
 _MD = MarkdownIt("commonmark")

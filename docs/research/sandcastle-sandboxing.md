@@ -1,6 +1,6 @@
 # Sandcastle integration for prompt-free sandboxed development
 
-Research for [#24](https://github.com/dhague/enchiridion/issues/24). Scope, per the ticket's clarification, is **development-time**: letting agent sessions that *build and test* the wiki-knowledge plugin run without constant permission prompts. It is not about the shipped plugin's runtime behaviour for end users.
+Research for [#24](https://github.com/dhague/wiki-knowledge/issues/24). Scope, per the ticket's clarification, is **development-time**: letting agent sessions that *build and test* the wiki-knowledge plugin run without constant permission prompts. It is not about the shipped plugin's runtime behaviour for end users.
 
 Sources are primary throughout: the sandcastle repo's own source and ADRs, and Claude Code's official docs at `code.claude.com`. Claims are labelled **[verified]** where read directly from a primary source and **[inferred]** where reasoned from those sources.
 

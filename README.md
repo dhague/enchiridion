@@ -37,7 +37,7 @@ Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to i
 
 Install individual skills into Joule Work Desktop via the AI Skills Library:
 
-Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/enchiridion/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
+Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/wiki-knowledge/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
 
 ### Standalone CLI
 

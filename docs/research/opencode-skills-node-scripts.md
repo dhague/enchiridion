@@ -97,7 +97,7 @@ A corollary worth its own section, because it changes the install story for anyo
 
 The consequence for skill-shipped scripts:
 
-**[inferred]** Because the runtime inside OpenCode is Bun, a skill script written in Node-compatible JavaScript/TypeScript can be run with the bundled `bun` instead of requiring the user to install Node separately. `node` on PATH remains the safest target for maximum portability (a user may or may not have it), but `bun` is guaranteed to exist wherever OpenCode runs — a skill can rely on it. This is the same argument that drives this repo's own script layer ([ADR-0017](https://github.com/dhague/enchiridion/blob/main/docs/adr/0017-bundled-typescript-on-installed-interpreter.md)): ship a bundled bundle and run it on an already-installed interpreter. Here the "already-installed interpreter" is Bun, shipped with OpenCode itself.
+**[inferred]** Because the runtime inside OpenCode is Bun, a skill script written in Node-compatible JavaScript/TypeScript can be run with the bundled `bun` instead of requiring the user to install Node separately. `node` on PATH remains the safest target for maximum portability (a user may or may not have it), but `bun` is guaranteed to exist wherever OpenCode runs — a skill can rely on it. This is the same argument that drives this repo's own script layer ([ADR-0017](https://github.com/dhague/wiki-knowledge/blob/main/docs/adr/0017-bundled-typescript-on-installed-interpreter.md)): ship a bundled bundle and run it on an already-installed interpreter. Here the "already-installed interpreter" is Bun, shipped with OpenCode itself.
 
 ---
 

@@ -18,3 +18,4 @@ opencode.json
 # Derived from skills/*/SKILL.md + skills/*/scripts/ — attached to GitHub
 # Releases by tag-release.yml, not committed to the repo.
 joule-desktop/
+.wiki-knowledge/
