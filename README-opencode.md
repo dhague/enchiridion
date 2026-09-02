@@ -11,8 +11,7 @@ below for what isn't wired up yet.
 ## Prerequisites
 
 - OpenCode installed (`curl -fsSL https://opencode.ai/install | bash`)
-
-No repo clone needed — the installer and all runtime assets ship inside the npm package.
+- Node.js 22.12.0+
 
 ## What gets installed
 
