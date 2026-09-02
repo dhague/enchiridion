@@ -67,6 +67,13 @@ def _fixture_generate_source() -> str:
 
 
 _FIXTURE_TRACKER = "export const SessionTracker: Plugin = () => ({})\n"
+_FIXTURE_ENCHIRIDION = "export const WikiEnchiridion: Plugin = async () => ({})\n"
+_FIXTURE_OPENCODE_PKG = {
+    "name": "wiki-knowledge-opencode-wiring",
+    "private": True,
+    "version": "0.0.0",
+    "devDependencies": {"@opencode-ai/plugin": "^1.18.15"},
+}
 
 _FIXTURE_PLUGIN_JSON = {
     "name": "wiki-knowledge",
@@ -112,6 +119,9 @@ def plugin_root(tmp_path):
     wiring = root / "wiring" / "opencode" / "plugins"
     wiring.mkdir(parents=True)
     (wiring / "session-tracker.ts").write_text(_FIXTURE_TRACKER, encoding="utf-8")
+    (wiring / "wiki-enchiridion.ts").write_text(_FIXTURE_ENCHIRIDION, encoding="utf-8")
+    wiring_pkg = root / "wiring" / "opencode" / "package.json"
+    wiring_pkg.write_text(json.dumps(_FIXTURE_OPENCODE_PKG), encoding="utf-8")
 
     plugin_json = root / ".claude-plugin" / "plugin.json"
     plugin_json.parent.mkdir(parents=True)
@@ -157,9 +167,11 @@ def test_assemble_produces_expected_layout(tmp_path, plugin_root):
         assert f"commands/{skill}.md" in _relpaths(pkg)
         assert f"skills/{skill}/SKILL.md" in _relpaths(pkg)
     assert "plugins/session-tracker.ts" in _relpaths(pkg)
+    assert "plugins/wiki-enchiridion.ts" in _relpaths(pkg)
     assert {"wiki-knowledge/cli.cjs", "wiki-knowledge/node-sqlite3-wasm.wasm"} <= _relpaths(pkg)
     assert "templates/config.json" in _relpaths(pkg)
     assert "templates/model-config.json" in _relpaths(pkg)
+    assert "templates/opencode-deps.json" in _relpaths(pkg)
 
 
 def test_assemble_copies_runtime_bytes_verbatim(tmp_path, plugin_root):
@@ -173,6 +185,19 @@ def test_assemble_copies_session_tracker_verbatim(tmp_path, plugin_root):
     pkg = _make_package_dir(tmp_path)
     _run_assemble(plugin_root, pkg)
     assert (pkg / "plugins" / "session-tracker.ts").read_text(encoding="utf-8") == _FIXTURE_TRACKER
+
+
+def test_assemble_copies_wiki_enchiridion_verbatim(tmp_path, plugin_root):
+    pkg = _make_package_dir(tmp_path)
+    _run_assemble(plugin_root, pkg)
+    assert (pkg / "plugins" / "wiki-enchiridion.ts").read_text(encoding="utf-8") == _FIXTURE_ENCHIRIDION
+
+
+def test_assemble_writes_opencode_deps_template(tmp_path, plugin_root):
+    pkg = _make_package_dir(tmp_path)
+    _run_assemble(plugin_root, pkg)
+    deps = json.loads((pkg / "templates" / "opencode-deps.json").read_text(encoding="utf-8"))
+    assert deps == {"@opencode-ai/plugin": "^1.18.15"}
 
 
 def test_assemble_writes_config_templates(tmp_path, plugin_root):
@@ -294,6 +319,18 @@ def test_assemble_missing_runtime_raises(tmp_path, plugin_root):
 def test_assemble_missing_tracker_raises(tmp_path, plugin_root):
     (plugin_root / "wiring" / "opencode" / "plugins" / "session-tracker.ts").unlink()
     with pytest.raises(assemble_opencode_package.AssemblyError, match="session-tracker"):
+        _run_assemble(plugin_root, _make_package_dir(tmp_path))
+
+
+def test_assemble_missing_wiki_enchiridion_raises(tmp_path, plugin_root):
+    (plugin_root / "wiring" / "opencode" / "plugins" / "wiki-enchiridion.ts").unlink()
+    with pytest.raises(assemble_opencode_package.AssemblyError, match="wiki-enchiridion"):
+        _run_assemble(plugin_root, _make_package_dir(tmp_path))
+
+
+def test_assemble_missing_opencode_wiring_package_json_raises(tmp_path, plugin_root):
+    (plugin_root / "wiring" / "opencode" / "package.json").unlink()
+    with pytest.raises(assemble_opencode_package.AssemblyError, match="wiring/opencode/package.json"):
         _run_assemble(plugin_root, _make_package_dir(tmp_path))
 
 

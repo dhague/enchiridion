@@ -13,8 +13,8 @@ What it produces, from the canonical sources:
   package's own ``templates/model-config.json`` so the shipped agents carry
   the same model mapping that deploys.
 - ``skills/<six skill dirs>/`` — copied from ``skills/``.
-- ``plugins/session-tracker.ts`` — copied from
-  ``wiring/opencode/plugins/``.
+- ``plugins/session-tracker.ts`` + ``plugins/wiki-enchiridion.ts`` — copied
+  from ``wiring/opencode/plugins/``.
 - ``wiki-knowledge/cli.cjs`` + ``wiki-knowledge/node-sqlite3-wasm.wasm`` —
   the ADR-0017 bundled runtime, copied from ``scripts/`` (release.sh has
   already refreshed them from a fresh build).
@@ -23,13 +23,18 @@ What it produces, from the canonical sources:
 - ``templates/model-config.json`` — the default model mapping, derived from
   ``generate-opencode.py --default-models`` (its DEFAULT_MODELS is the single
   source for the mapping).
+- ``templates/opencode-deps.json`` — the ``@opencode-ai/plugin`` runtime
+  dependency version, read from ``wiring/opencode/package.json`` (the single
+  source); deploy.js merges this into ``<target>/package.json`` so OpenCode's
+  startup ``bun install`` picks up the dependency.
 - ``package.json`` ``version`` — written from ``.claude-plugin/plugin.json``
   (the single source for the version; one cut-release bumps both).
 
 The generated content (agents/, commands/, skills/, plugins/,
 wiki-knowledge/) is gitignored — it is regenerated on every release, never
 edited by hand. ``package.json``, ``templates/``, and ``.gitignore`` are the
-committed durable source.
+committed durable source (``templates/opencode-deps.json`` is committed and
+refreshed by this script on every release).
 
 CLI::
 
@@ -139,6 +144,42 @@ def write_config_templates(package_dir: Path | str, model_map: dict) -> list[Pat
     return [marker_path, models_path]
 
 
+def read_opencode_plugin_version(plugin_root: Path | str) -> str:
+    """The ``@opencode-ai/plugin`` version from ``wiring/opencode/package.json``
+    devDependencies — the single source of truth. deploy.js needs this to write
+    the runtime dependency into the target's package.json."""
+    path = Path(plugin_root) / "wiring" / "opencode" / "package.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AssemblyError(
+            f"wiring/opencode/package.json is not readable or not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise AssemblyError("wiring/opencode/package.json must be a JSON object")
+    version = data.get("devDependencies", {}).get("@opencode-ai/plugin")
+    if not version:
+        raise AssemblyError(
+            "wiring/opencode/package.json has no devDependencies['@opencode-ai/plugin']"
+        )
+    return version
+
+
+def write_opencode_deps(package_dir: Path | str, version: str) -> Path:
+    """Write ``templates/opencode-deps.json`` carrying the ``@opencode-ai/plugin``
+    version that deploy.js merges into ``<target>/package.json`` at install time.
+    This is the single committed record of the runtime dependency version."""
+    out = Path(package_dir)
+    templates = out / "templates"
+    templates.mkdir(parents=True, exist_ok=True)
+    deps_path = templates / "opencode-deps.json"
+    deps_path.write_text(
+        json.dumps({"@opencode-ai/plugin": version}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return deps_path
+
+
 def copy_skills(plugin_root: Path | str, package_dir: Path | str) -> list[Path]:
     """Copy the six skill dirs into the package, replacing the whole skills/
     tree so a skill renamed/removed upstream can't leave a stale copy."""
@@ -164,6 +205,22 @@ def copy_session_tracker(plugin_root: Path | str, package_dir: Path | str) -> Pa
     src = root / "wiring" / "opencode" / "plugins" / "session-tracker.ts"
     _read_text(src, "session-tracker.ts")
     dst = Path(package_dir) / "plugins" / "session-tracker.ts"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return dst
+
+
+def copy_wiki_enchiridion(plugin_root: Path | str, package_dir: Path | str) -> Path:
+    """Copy the wiki-enchiridion OpenCode plugin into the package's plugins/.
+
+    This plugin exposes the script layer as an in-process ``wiki`` tool so
+    OpenCode sessions can call enchiridion subcommands without ``node`` on PATH.
+    deploy.js ships and deploys it alongside session-tracker.ts.
+    """
+    root = Path(plugin_root)
+    src = root / "wiring" / "opencode" / "plugins" / "wiki-enchiridion.ts"
+    _read_text(src, "wiki-enchiridion.ts")
+    dst = Path(package_dir) / "plugins" / "wiki-enchiridion.ts"
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
     return dst
@@ -232,6 +289,9 @@ def assemble(
     model_map = fetch_default_models(root)
     written.extend(write_config_templates(out, model_map))
 
+    opencode_plugin_version = read_opencode_plugin_version(root)
+    written.append(write_opencode_deps(out, opencode_plugin_version))
+
     generate_argv = [
         sys.executable,
         str(root / "scripts" / "generate-opencode.py"),
@@ -243,6 +303,7 @@ def assemble(
 
     written.extend(copy_skills(root, out))
     written.append(copy_session_tracker(root, out))
+    written.append(copy_wiki_enchiridion(root, out))
     written.extend(copy_runtime(root, out))
 
     return written
