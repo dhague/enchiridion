@@ -129,7 +129,7 @@ jobs:
           import json, sys
           names = {s.get("name") for s in json.load(open(sys.argv[1]))}
           need = {"wiki-conventions", "wiki-ingest", "wiki-init",
-                  "wiki-retrieval", "wiki-watch", "save-conversation"}
+                  "wiki-ask", "wiki-watch", "save-conversation"}
           missing = need - names
           assert not missing, f"missing skills: {sorted(missing)}"
           print("all wiki skills discoverable:", ", ".join(sorted(need)))

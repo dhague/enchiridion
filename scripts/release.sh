@@ -68,8 +68,8 @@ cp enchiridion-ts/dist/node-sqlite3-wasm.wasm wiki-plugin/scripts/node-sqlite3-w
 # 4. Copy the same artifacts to the Joule skills directories. The AI Skills
 #    Library fetches them directly from the repo; the freshness guard in
 #    ts-enchiridion.yml verifies they match wiki-plugin/scripts/ before merge.
-cp enchiridion-ts/dist/cli.cjs skills/wiki-retrieval/scripts/enchiridion.cjs
-cp enchiridion-ts/dist/node-sqlite3-wasm.wasm skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm
+cp enchiridion-ts/dist/cli.cjs skills/wiki-ask/scripts/enchiridion.cjs
+cp enchiridion-ts/dist/node-sqlite3-wasm.wasm skills/wiki-ask/scripts/node-sqlite3-wasm.wasm
 cp enchiridion-ts/dist/cli.cjs skills/wiki-ingest/scripts/enchiridion.cjs
 cp enchiridion-ts/dist/node-sqlite3-wasm.wasm skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm
 
@@ -91,7 +91,7 @@ fi
 
 # 6. Commit and push to the current branch's remote.
 git add "$plugin_json" wiki-plugin/scripts/cli.cjs wiki-plugin/scripts/node-sqlite3-wasm.wasm
-git add skills/wiki-retrieval/scripts/enchiridion.cjs skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm
+git add skills/wiki-ask/scripts/enchiridion.cjs skills/wiki-ask/scripts/node-sqlite3-wasm.wasm
 git add skills/wiki-ingest/scripts/enchiridion.cjs skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm
 git add wiki-plugin/opencode-npm/package.json wiki-plugin/opencode-npm/templates/
 git commit -m "chore: release v$new_version (bundle + wasm + npm package)"

@@ -110,7 +110,7 @@ flowchart LR
     skIngest["/wiki-ingest"] --> agIngest["wiki-ingest agent (sonnet)"]
     agIngest --> cIngestion["Ingestion pipeline"]
 
-    skRetrieval["/wiki-retrieval"] --> agResearcher["wiki-researcher agent (haiku)"]
+    skRetrieval["/wiki-ask"] --> agResearcher["wiki-researcher agent (haiku)"]
     agResearcher --> cSearch["Search"]
 
     skInit["/wiki-init"] --> cVaultOps["Vault ops"]

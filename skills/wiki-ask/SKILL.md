@@ -1,5 +1,5 @@
 ---
-name: wiki-retrieval
+name: wiki-ask
 description: Turn a question into a grounded, cited answer over the wiki vault — query-expanded, BM25-ranked, frontmatter-first, and budget-bounded, with each citation's age and volatility stated honestly. Invoke whenever the vault should be asked something. Runs on the bundled node scripts in this skill's scripts/ directory; no MCP tools, no network.
 compatibility: requires node on PATH; the vault is a git repository reachable on local disk
 metadata:
@@ -7,7 +7,7 @@ metadata:
   license: Apache-2.0
 ---
 
-# Wiki Retrieval (host-neutral)
+# Wiki Ask (host-neutral)
 
 Reads `wiki-conventions` for anything this procedure doesn't cover — folder structure, frontmatter schema, link format, typed-edge vocabulary. That skill is the contract: ingestion writes it, this reads from it. (On a host where `wiki-conventions` is a sibling installed skill, consult it the same way; where only this skill is installed, the vocabulary it needs is condensed inline in [Wiki-conventions contract (condensed)](#wiki-conventions-contract-condensed).)
 

@@ -33,7 +33,7 @@
  * courtesy to the agent — [commit.commit] re-runs it as the hard gate, so a
  * hand-built manifest can't route around validation into history.
  *
- * Ingestion isn't the only caller: wiki-retrieval's confirmed synthesis-page
+ * Ingestion isn't the only caller: wiki-ask's confirmed synthesis-page
  * save is the same shape (one `create` of kind `synthesis`, `source` edges,
  * no raw artifact) and passes `action: "synthesize"` so the history
  * distinguishes the two without reading the diff.
@@ -153,7 +153,7 @@ export interface PagePlan {
 export interface Plan {
   title: string;
   /** The structured commit's verb ([Manifest.action]): `ingest`, or
-   * `synthesize` for a wiki-retrieval synthesis save. */
+   * `synthesize` for a wiki-ask synthesis save. */
   action: string;
   source_date: string;
   raw: string;

@@ -22,7 +22,7 @@ Running the installer writes:
 - `.opencode/agents/wiki-ingest.md`, `.opencode/agents/wiki-researcher.md` —
   agent definitions with `model:` set to your configured model IDs.
 - `.opencode/commands/*.md` — one slash command per skill
-  (`wiki-conventions`, `wiki-ingest`, `wiki-init`, `wiki-retrieval`,
+  (`wiki-conventions`, `wiki-ingest`, `wiki-init`, `wiki-ask`,
   `wiki-watch`, `save-conversation`).
 - `.opencode/plugins/session-tracker.ts` — OpenCode's equivalent of the
   Claude Code session-tracking hook, used by `/save-conversation`.
@@ -103,7 +103,7 @@ opencode debug skill      # should list all six wiki-* / save-conversation skill
 
 Then from inside the vault (dedicated mode) or with `$WIKI_ROOT` set (global
 mode), the same slash commands work as in Claude Code: `/wiki-init`,
-`/wiki-ingest`, `/wiki-retrieval`, `/wiki-watch`, `/save-conversation`,
+`/wiki-ingest`, `/wiki-ask`, `/wiki-watch`, `/save-conversation`,
 `/wiki-conventions`.
 
 ## Updating after a plugin upgrade

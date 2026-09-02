@@ -1,8 +1,8 @@
 ---
-name: wiki-retrieval
-description: Answer questions from the wiki vault — search, follow typed edges, synthesise, cite with age and volatility. Invoke via /wiki-retrieval <question>, or whenever the vault should be queried.
+name: wiki-ask
+description: Answer questions from the wiki vault — search, follow typed edges, synthesise, cite with age and volatility. Invoke via /wiki-ask <question>, or whenever the vault should be queried.
 ---
-# Wiki Retrieval
+# Wiki Ask
 
 Reads `wiki-conventions` for anything this procedure doesn't cover — folder structure, frontmatter schema, link format, typed-edge vocabulary.
 
@@ -10,7 +10,7 @@ Retrieval **never modifies an existing page** — no edit, no move, no delete, e
 
 ## Invocation
 
-- **If not already running as `wiki-researcher` agent** (system prompt doesn't identify you as it — e.g. invoked directly via `/wiki-retrieval <question>`): only action is delegate. Call `Task` with `subagent_type: "wiki-researcher"` and prompt containing the question, then relay the answer. Keeps reading and link-following inside subagent's context — on its Haiku model — regardless of invoking session's model.
+- **If not already running as `wiki-researcher` agent** (system prompt doesn't identify you as it — e.g. invoked directly via `/wiki-ask <question>`): only action is delegate. Call `Task` with `subagent_type: "wiki-researcher"` and prompt containing the question, then relay the answer. Keeps reading and link-following inside subagent's context — on its Haiku model — regardless of invoking session's model.
 
   If returned answer carries `save-candidate` block, you also **put the offer to user and perform save on yes** — see [saving-synthesis.md](saving-synthesis.md). You hold the conversation; confirmation can only happen here.
 - **If you are `wiki-researcher` agent**: continue directly with procedure below using own tools. **Recommend** save (step 8); never perform one — subagent can't ask user, and unconfirmed save is the exact failure this design prevents.

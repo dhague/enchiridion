@@ -37,7 +37,7 @@ Deploys the plugin into the vault's `.opencode/` directory. Pass `--global` to i
 
 Install individual skills into Joule Work Desktop via the AI Skills Library:
 
-Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/wiki-knowledge/releases/latest) (`wiki-ingest.zip`, `wiki-retrieval.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
+Download the per-skill ZIP files from the [latest GitHub Release](https://github.com/dhague/wiki-knowledge/releases/latest) (`wiki-ingest.zip`, `wiki-ask.zip`) and install each via Joule Desktop's "Install from file" option (Extensions > Add Skill > Upload).
 
 ### Standalone CLI
 
@@ -63,7 +63,7 @@ The script layer ships as a TypeScript bundle invoked through
 | `/wiki-init [path]` | Scaffold a new vault (folders, git repo, index) |
 | `/wiki-ingest <path>` | Ingest one file, a folder, or sweep `raw/` |
 | `/wiki-watch` | Long-running auto-ingest watcher for `raw/` |
-| `/wiki-retrieval <question>` | Grounded, cited answer from the vault |
+| `/wiki-ask <question>` | Grounded, cited answer from the vault |
 | `/save-conversation` | Capture and ingest the current session |
 
 ## Vault structure

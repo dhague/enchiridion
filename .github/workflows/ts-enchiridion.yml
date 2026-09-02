@@ -168,8 +168,8 @@ jobs:
           fail=0
           check wiki-plugin/scripts/cli.cjs enchiridion-ts/dist/cli.cjs || fail=1
           check wiki-plugin/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
-          check skills/wiki-retrieval/scripts/enchiridion.cjs enchiridion-ts/dist/cli.cjs || fail=1
-          check skills/wiki-retrieval/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
+          check skills/wiki-ask/scripts/enchiridion.cjs enchiridion-ts/dist/cli.cjs || fail=1
+          check skills/wiki-ask/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
           check skills/wiki-ingest/scripts/enchiridion.cjs enchiridion-ts/dist/cli.cjs || fail=1
           check skills/wiki-ingest/scripts/node-sqlite3-wasm.wasm enchiridion-ts/dist/node-sqlite3-wasm.wasm || fail=1
           if [ "$fail" = "1" ]; then
