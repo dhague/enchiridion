@@ -37154,8 +37154,7 @@ async function captureSession(wikiRoot, slug, cwd, lookupEnv = processLookupEnv,
     );
   }
   if (openCodeID) {
-    try {
-      findOpenCodeSessionID(cwd, lookupEnv);
+    if (isOpenCodeSessionTracked(cwd, lookupEnv)) {
       return captureOpenCodeSession(
         wikiRoot,
         slug,
@@ -37164,7 +37163,6 @@ async function captureSession(wikiRoot, slug, cwd, lookupEnv = processLookupEnv,
         now,
         exportSeam
       );
-    } catch {
     }
     return captureClaudeCodeSession(wikiRoot, slug, cwd, lookupEnv, now);
   }
@@ -37246,7 +37244,7 @@ function openCodeSessionIsTracked(sessionID, stateDir) {
     return false;
   }
 }
-function findOpenCodeSessionID(cwd, lookupEnv = processLookupEnv) {
+function openCodeSessionIDFromEnv(lookupEnv = processLookupEnv) {
   const [sessionIDRaw, ok] = lookupEnv("OPENCODE_SESSION_ID");
   const sessionID = sessionIDRaw ?? "";
   if (!ok || sessionID === "") {
@@ -37254,27 +37252,19 @@ function findOpenCodeSessionID(cwd, lookupEnv = processLookupEnv) {
       "$OPENCODE_SESSION_ID is not set in this environment. (The session-tracker plugin's shell.env hook injects it; is the plugin installed and loaded in this project?)"
     );
   }
-  const stateDir = openCodeSessionsDir(cwd);
-  let stat4;
-  try {
-    stat4 = import_node_fs4.default.statSync(stateDir);
-  } catch {
-    throw openCodeStateNotLocated(cwd, stateDir);
-  }
-  if (!stat4.isDirectory()) {
-    throw openCodeStateNotLocated(cwd, stateDir);
-  }
-  if (!openCodeSessionIsTracked(sessionID, stateDir)) {
-    throw new CaptureError(
-      "No state recorded for session " + sessionID + " under " + stateDir + ", per the session-tracker plugin. (If this session was started before the plugin was installed, it was never recorded; start a new session and try again.)"
-    );
-  }
   return sessionID;
 }
-function openCodeStateNotLocated(cwd, stateDir) {
-  return new CaptureError(
-    "Could not locate OpenCode session-tracker state. Searched " + cwd + " and its ancestors for a '.opencode/' directory, and found no " + stateDir + ". (Has the session-tracker plugin ever run in this project? Start a new session in the project root and try again.)"
-  );
+function isOpenCodeSessionTracked(cwd, lookupEnv = processLookupEnv) {
+  const [sessionIDRaw, ok] = lookupEnv("OPENCODE_SESSION_ID");
+  const sessionID = sessionIDRaw ?? "";
+  if (!ok || sessionID === "") return false;
+  const stateDir = openCodeSessionsDir(cwd);
+  try {
+    if (!import_node_fs4.default.statSync(stateDir).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return openCodeSessionIsTracked(sessionID, stateDir);
 }
 async function exportTranscript(sessionID, command) {
   let bin = command;
@@ -37401,7 +37391,8 @@ function normalizeExport(exportDoc) {
   return turns;
 }
 async function captureOpenCodeSession(wikiRoot, slug, cwd, lookupEnv, now, exportSeam) {
-  const sessionID = findOpenCodeSessionID(cwd, lookupEnv);
+  void cwd;
+  const sessionID = openCodeSessionIDFromEnv(lookupEnv);
   const timestamp = now.getTime() === 0 ? /* @__PURE__ */ new Date() : now;
   const fetch = exportSeam ?? ((id) => exportTranscript(id, "opencode"));
   const document2 = await fetch(sessionID);
