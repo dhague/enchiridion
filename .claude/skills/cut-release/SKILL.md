@@ -6,7 +6,7 @@ description: Cut a new release of the wiki-knowledge plugin. Use when asked to r
 # Cut a release
 
 Releases are cut by a **human (or agent) running `scripts/release.sh`** on a PR
-branch (D2 #287); CI takes over from the merge. Do **not** manually tag or run
+branch; CI takes over from the merge. Do **not** manually tag or run
 `gh release create` — `tag-release.yml` derives and pushes the tag from
 `plugin.json`, and `release.yml` creates the GitHub Release from that tag.
 
@@ -15,16 +15,19 @@ branch (D2 #287); CI takes over from the merge. Do **not** manually tag or run
 1. Create a worktree + PR branch off `main` (which is protected; never cut
    from main directly).
 2. Choose the new version. The plugin version lives in
-   `wiki-plugin/.claude-plugin/plugin.json` (currently `0.9.0`).
+   `wiki-plugin/.claude-plugin/plugin.json`.
 3. Run, from the repo root:
 
    ```sh
    scripts/release.sh <new-version>
    ```
 
-   The script: bumps `plugin.json`, runs `npm ci && npm run build` in
-   `enchiridion-ts/`, copies the freshly-built `cli.cjs` + `node-sqlite3-wasm.wasm`
-   into `wiki-plugin/scripts/`, commits, and pushes the branch.
+   The script: bumps `plugin.json` **and the "Plugin version" line in
+   `CLAUDE.md`**, runs `npm ci && npm run build` in `enchiridion-ts/`, copies
+   the freshly-built `cli.cjs` + `node-sqlite3-wasm.wasm` into
+   `wiki-plugin/scripts/`, commits all of the above, and pushes the branch.
+   Do **not** open a separate PR for the `CLAUDE.md` version bump — it is
+   already included in the release commit.
 4. Open a PR for the branch. CI's **freshness guard** (`ts-enchiridion.yml`)
    independently rebuilds and fails the PR if the committed bundle drifts from
    source, so this is the safety net if the script's copy was stale.
