@@ -206,15 +206,22 @@ test(
 // calling run().  This test simulates the result of that injection by setting
 // OPENCODE_SESSION_ID directly in process.env, then calling run(['save-session',
 // ...]).  We assert that the command moves past the "neither ID is set" check
-// (i.e., it reads the env var) before failing on the tracker state check,
-// which is the expected failure when no .opencode/wiki-knowledge/sessions/
-// directory exists in cwd's ancestor chain.
+// (i.e., it reads the env var) before failing further downstream.  Since #402
+// an untracked OpenCode session no longer errors on tracker state — it falls
+// through to `opencode export`, so in CI (no opencode CLI on PATH) the expected
+// failure is the missing-CLI error, which still proves the env var was read.
 test(
   "run(['save-session']): reads OPENCODE_SESSION_ID from process.env (not 'neither ID' error)",
   { skip: skipReason },
   async () => {
     const prevSessionID = process.env.OPENCODE_SESSION_ID;
+    const prevClaudeID = process.env.CLAUDE_CODE_SESSION_ID;
     process.env.OPENCODE_SESSION_ID = "test-opencode-session-id";
+    // Isolate the OpenCode dispatch: with both host IDs set the tie-break would
+    // route an untracked session to Claude Code. Unset the Claude ID so only the
+    // OpenCode path runs, regardless of the ambient session (this suite may run
+    // inside a Claude Code session that sets CLAUDE_CODE_SESSION_ID).
+    delete process.env.CLAUDE_CODE_SESSION_ID;
     try {
       const result = await run(["save-session", "--slug", "test-session"]);
       // Must not succeed (no real OpenCode session), but the failure must NOT be
@@ -225,12 +232,18 @@ test(
         !result.stderr.includes("Neither $CLAUDE_CODE_SESSION_ID"),
         `Expected OPENCODE_SESSION_ID to be read; got: ${result.stderr.trim()}`,
       );
-      // The expected error is about the tracker state (state not located), not
-      // about the ID being absent.
-      assert.match(result.stderr, /OPENCODE_SESSION_ID|session-tracker/);
+      // The expected failure is downstream of the ID being read: either the
+      // env/tracker diagnostics, or (post-#402, untracked → `opencode export`)
+      // the missing-CLI error when opencode is absent from PATH.
+      assert.match(
+        result.stderr,
+        /OPENCODE_SESSION_ID|session-tracker|opencode CLI/,
+      );
     } finally {
       if (prevSessionID === undefined) delete process.env.OPENCODE_SESSION_ID;
       else process.env.OPENCODE_SESSION_ID = prevSessionID;
+      if (prevClaudeID === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+      else process.env.CLAUDE_CODE_SESSION_ID = prevClaudeID;
     }
   },
 );

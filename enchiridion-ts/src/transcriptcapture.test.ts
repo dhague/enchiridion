@@ -18,7 +18,8 @@ import {
   normalizeExport,
   captureOpenCodeSession,
   captureSession,
-  findOpenCodeSessionID,
+  openCodeSessionIDFromEnv,
+  isOpenCodeSessionTracked,
   ErrTooFewTurns,
   CaptureError,
 } from "./transcriptcapture.js";
@@ -516,26 +517,73 @@ test("captureOpenCodeSession fails when the export seam errors", async () => {
   );
 });
 
-test("findOpenCodeSessionID throws when OPENCODE_SESSION_ID is unset", () => {
+test("captureOpenCodeSession captures a session that predates the tracker", async () => {
+  // No `.opencode/` state dir at all: the session was started before the
+  // session-tracker plugin was installed, so it was never recorded. `opencode
+  // export` still has the transcript, so the capture must succeed anyway (#402).
+  const project = tmp();
+  const sessionID = "oc-pre-plugin-777";
+  const lookupEnv = env({ OPENCODE_SESSION_ID: sessionID });
+  const doc = JSON.stringify({
+    info: { id: sessionID },
+    messages: [
+      { info: { role: "user" }, parts: [{ type: "text", text: "hi" }] },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "hello" }] },
+    ],
+  });
+  const exportSeam = async (): Promise<Uint8Array> =>
+    new TextEncoder().encode(doc);
+
+  const wikiRoot = tmp();
+  const rel = await captureOpenCodeSession(
+    wikiRoot,
+    "",
+    project,
+    lookupEnv,
+    NOW,
+    exportSeam,
+  );
+  assert.match(rel, /-oc\.md$/);
+  const written = fs.readFileSync(path.join(wikiRoot, rel), "utf8");
+  assert.match(written, /^# Session oc-pre-plugin-777/);
+});
+
+test("openCodeSessionIDFromEnv throws when OPENCODE_SESSION_ID is unset", () => {
   assert.throws(
-    () => findOpenCodeSessionID("", env({})),
+    () => openCodeSessionIDFromEnv(env({})),
     (err: unknown) =>
       err instanceof CaptureError &&
       /OPENCODE_SESSION_ID is not set/.test(err.message),
   );
 });
 
-test("findOpenCodeSessionID throws when the session is untracked", () => {
-  const { project, sessionID } = openCodeEnvAndState();
+test("openCodeSessionIDFromEnv returns the id whether or not it is tracked", () => {
+  const id = openCodeSessionIDFromEnv(env({ OPENCODE_SESSION_ID: "oc-x" }));
+  assert.equal(id, "oc-x");
+});
+
+test("isOpenCodeSessionTracked is true when the tracker recorded the session", () => {
+  const { project, lookupEnv } = openCodeEnvAndState();
+  assert.equal(isOpenCodeSessionTracked(project, lookupEnv), true);
+});
+
+test("isOpenCodeSessionTracked is false when the session is untracked", () => {
+  const { project } = openCodeEnvAndState();
   // A different id than the tracked one.
   const other = env({ OPENCODE_SESSION_ID: "oc-other" });
-  assert.throws(
-    () => findOpenCodeSessionID(project, other),
-    (err: unknown) =>
-      err instanceof CaptureError &&
-      /No state recorded for session oc-other/.test(err.message),
+  assert.equal(isOpenCodeSessionTracked(project, other), false);
+});
+
+test("isOpenCodeSessionTracked is false when the env var is unset", () => {
+  const { project } = openCodeEnvAndState();
+  assert.equal(isOpenCodeSessionTracked(project, env({})), false);
+});
+
+test("isOpenCodeSessionTracked is false when there is no state directory", () => {
+  assert.equal(
+    isOpenCodeSessionTracked(tmp(), env({ OPENCODE_SESSION_ID: "oc-x" })),
+    false,
   );
-  void sessionID;
 });
 
 // ---------------------------------------------------------------------------
@@ -610,16 +658,26 @@ test("captureSession falls back to Claude Code when OpenCode id is untracked", a
   assert.match(rel, /^raw\/conversations\/2026-01-02-0304-transcript\.md$/);
 });
 
-test("captureSession dispatches to OpenCode when only OPENCODE_SESSION_ID is set", async () => {
-  // Only OPENCODE_SESSION_ID set: the host is OpenCode regardless of tracker
-  // state, so with no `.opencode` marker the OpenCode path fails before it
-  // ever shells out — the assertion is about *which* host path ran.
-  const lookupEnv = env({ OPENCODE_SESSION_ID: "oc-nope" });
-  await assert.rejects(
-    () => captureSession(tmp(), "", tmp(), lookupEnv, NOW),
-    (err: unknown) =>
-      err instanceof CaptureError &&
-      /session-tracker/.test(err.message) &&
-      !/CLAUDE_CODE_SESSION_ID/.test(err.message),
+test("captureSession dispatches to OpenCode when only OPENCODE_SESSION_ID is set, even untracked", async () => {
+  // Only OPENCODE_SESSION_ID set and no tracker state at all: the host is
+  // OpenCode regardless, and the export path must still run and succeed (#402).
+  const lookupEnv = env({ OPENCODE_SESSION_ID: "oc-nope-123" });
+  const doc = JSON.stringify({
+    messages: [
+      { info: { role: "user" }, parts: [{ type: "text", text: "hi" }] },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "hello" }] },
+    ],
+  });
+  const wikiRoot = tmp();
+  const rel = await captureSession(
+    wikiRoot,
+    "",
+    tmp(),
+    lookupEnv,
+    NOW,
+    async () => new TextEncoder().encode(doc),
   );
+  assert.match(rel, /-oc\.md$/);
+  const written = fs.readFileSync(path.join(wikiRoot, rel), "utf8");
+  assert.match(written, /\*\*Source:\*\* OpenCode session transcript/);
 });
