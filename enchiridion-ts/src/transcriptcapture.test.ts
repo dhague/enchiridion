@@ -679,8 +679,5 @@ test("captureSession dispatches to OpenCode when only OPENCODE_SESSION_ID is set
   );
   assert.match(rel, /-oc\.md$/);
   const written = fs.readFileSync(path.join(wikiRoot, rel), "utf8");
-  assert.match(
-    written,
-    /\*\*Source:\*\* OpenCode session transcript/,
-  );
+  assert.match(written, /\*\*Source:\*\* OpenCode session transcript/);
 });
