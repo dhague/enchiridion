@@ -197,3 +197,40 @@ test(
     }
   },
 );
+
+// save-session: OPENCODE_SESSION_ID visible to run() via process.env (#399)
+//
+// The wiki-enchiridion OpenCode plugin runs the bundle in-process — the
+// session-tracker's shell.env hook never fires for it. The plugin therefore
+// injects context.sessionID into process.env.OPENCODE_SESSION_ID before
+// calling run().  This test simulates the result of that injection by setting
+// OPENCODE_SESSION_ID directly in process.env, then calling run(['save-session',
+// ...]).  We assert that the command moves past the "neither ID is set" check
+// (i.e., it reads the env var) before failing on the tracker state check,
+// which is the expected failure when no .opencode/wiki-knowledge/sessions/
+// directory exists in cwd's ancestor chain.
+test(
+  "run(['save-session']): reads OPENCODE_SESSION_ID from process.env (not 'neither ID' error)",
+  { skip: skipReason },
+  async () => {
+    const prevSessionID = process.env.OPENCODE_SESSION_ID;
+    process.env.OPENCODE_SESSION_ID = "test-opencode-session-id";
+    try {
+      const result = await run(["save-session", "--slug", "test-session"]);
+      // Must not succeed (no real OpenCode session), but the failure must NOT be
+      // the "neither $CLAUDE_CODE_SESSION_ID nor $OPENCODE_SESSION_ID" error —
+      // that error means the env var was invisible, i.e. the bug is present.
+      assert.notEqual(result.exitCode, 0);
+      assert.ok(
+        !result.stderr.includes("Neither $CLAUDE_CODE_SESSION_ID"),
+        `Expected OPENCODE_SESSION_ID to be read; got: ${result.stderr.trim()}`,
+      );
+      // The expected error is about the tracker state (state not located), not
+      // about the ID being absent.
+      assert.match(result.stderr, /OPENCODE_SESSION_ID|session-tracker/);
+    } finally {
+      if (prevSessionID === undefined) delete process.env.OPENCODE_SESSION_ID;
+      else process.env.OPENCODE_SESSION_ID = prevSessionID;
+    }
+  },
+);

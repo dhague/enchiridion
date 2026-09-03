@@ -18,6 +18,14 @@
  * `@opencode-ai/plugin` as a runtime dependency — this plugin imports `tool`
  * as a value (not just `type Plugin`), and OpenCode runs `bun install` on the
  * config directory's package.json at startup.
+ *
+ * Session-id propagation (#399): OpenCode's `shell.env` hook (session-tracker
+ * plugin) injects `OPENCODE_SESSION_ID` into every *shell* command's
+ * environment, but this tool runs the enchiridion bundle in-process, so the
+ * hook never fires for it. The tool therefore injects `context.sessionID`
+ * directly into `process.env.OPENCODE_SESSION_ID` before the `run()` call and
+ * restores the prior value in a `finally`, making `save-session` and any other
+ * subcommand that reads the session id work correctly.
  */
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -78,15 +86,33 @@ export const WikiEnchiridion: Plugin = async ({ directory }) => {
           const bundle = await resolveBundle(dir)
           const mod = await import(bundle) // CJS → default-interop namespace
           const { run } = mod as { run: (argv: string[]) => Promise<unknown> }
-          const result = (await run(input.args)) as {
-            stdout: string
-            stderr: string
-            exitCode: number
+          // Propagate the session id into the in-process environment so that
+          // `save-session` (and any other subcommand that reads
+          // OPENCODE_SESSION_ID) can find it. The session-tracker plugin's
+          // shell.env hook covers *shell* commands; this tool runs the bundle
+          // in-process and must bridge the gap itself. Restored in a finally so
+          // a concurrent tool call that set a different value is unaffected.
+          const prevSessionID = process.env.OPENCODE_SESSION_ID
+          if (context.sessionID) {
+            process.env.OPENCODE_SESSION_ID = context.sessionID
           }
-          if (result.exitCode !== 0) {
-            return `enchiridion exited ${result.exitCode}\n${result.stderr.trim()}`
+          try {
+            const result = (await run(input.args)) as {
+              stdout: string
+              stderr: string
+              exitCode: number
+            }
+            if (result.exitCode !== 0) {
+              return `enchiridion exited ${result.exitCode}\n${result.stderr.trim()}`
+            }
+            return result.stdout
+          } finally {
+            if (prevSessionID === undefined) {
+              delete process.env.OPENCODE_SESSION_ID
+            } else {
+              process.env.OPENCODE_SESSION_ID = prevSessionID
+            }
           }
-          return result.stdout
         },
       }),
     },
