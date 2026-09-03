@@ -385,8 +385,7 @@ export async function captureSession(
     );
   }
   if (openCodeID) {
-    try {
-      findOpenCodeSessionID(cwd, lookupEnv);
+    if (isOpenCodeSessionTracked(cwd, lookupEnv)) {
       return captureOpenCodeSession(
         wikiRoot,
         slug,
@@ -395,8 +394,6 @@ export async function captureSession(
         now,
         exportSeam,
       );
-    } catch {
-      // fall through to Claude Code
     }
     return captureClaudeCodeSession(wikiRoot, slug, cwd, lookupEnv, now);
   }
@@ -522,16 +519,15 @@ function openCodeSessionIsTracked(
 }
 
 /**
- * Returns the sessionID if tracked, or raises a CaptureError.
+ * Reads `$OPENCODE_SESSION_ID`, or raises a CaptureError.
  *
- * Three distinct failures, kept distinct so the user can tell them apart: no
- * `$OPENCODE_SESSION_ID` (the session-tracker plugin's `shell.env` hook must
- * inject it); state directory not located (no `.opencode/` ancestor of cwd, so
- * the plugin has never recorded state in this project); located but no entry
- * for this session (started before the plugin was installed).
+ * This is the *only* hard prerequisite for an OpenCode capture. `opencode
+ * export <id>` returns the transcript whether or not the session-tracker plugin
+ * ever recorded the session, so a session started before the plugin was
+ * installed can still be saved (#402) — the tracker state is consulted only as
+ * tie-break evidence when both host ids are set (isOpenCodeSessionTracked).
  */
-export function findOpenCodeSessionID(
-  cwd: string,
+export function openCodeSessionIDFromEnv(
   lookupEnv: LookupEnv = processLookupEnv,
 ): string {
   const [sessionIDRaw, ok] = lookupEnv("OPENCODE_SESSION_ID");
@@ -543,42 +539,34 @@ export function findOpenCodeSessionID(
         "installed and loaded in this project?)",
     );
   }
-
-  const stateDir = openCodeSessionsDir(cwd);
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(stateDir);
-  } catch {
-    throw openCodeStateNotLocated(cwd, stateDir);
-  }
-  if (!stat.isDirectory()) {
-    throw openCodeStateNotLocated(cwd, stateDir);
-  }
-
-  if (!openCodeSessionIsTracked(sessionID, stateDir)) {
-    throw new CaptureError(
-      "No state recorded for session " +
-        sessionID +
-        " under " +
-        stateDir +
-        ", per the session-tracker plugin. (If this session was " +
-        "started before the plugin was installed, it was never recorded; " +
-        "start a new session and try again.)",
-    );
-  }
-
   return sessionID;
 }
 
-function openCodeStateNotLocated(cwd: string, stateDir: string): CaptureError {
-  return new CaptureError(
-    "Could not locate OpenCode session-tracker state. Searched " +
-      cwd +
-      " and its ancestors for a '.opencode/' directory, and found no " +
-      stateDir +
-      ". (Has the session-tracker plugin ever run in this " +
-      "project? Start a new session in the project root and try again.)",
-  );
+/**
+ * Whether the session-tracker plugin recorded this OpenCode session in this
+ * project — the tie-break evidence when both host session-id variables are set.
+ *
+ * Never throws: false when `$OPENCODE_SESSION_ID` is unset, no `.opencode/`
+ * state directory exists, or no matching `<id>.json` entry was written. It is a
+ * signal about *which host is innermost*, not a capture prerequisite, so a
+ * false result no longer blocks a save — captureOpenCodeSession exports
+ * regardless.
+ */
+export function isOpenCodeSessionTracked(
+  cwd: string,
+  lookupEnv: LookupEnv = processLookupEnv,
+): boolean {
+  const [sessionIDRaw, ok] = lookupEnv("OPENCODE_SESSION_ID");
+  const sessionID = sessionIDRaw ?? "";
+  if (!ok || sessionID === "") return false;
+
+  const stateDir = openCodeSessionsDir(cwd);
+  try {
+    if (!fs.statSync(stateDir).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return openCodeSessionIsTracked(sessionID, stateDir);
 }
 
 /** Fetches one OpenCode session's export document. Injectable so the pipeline
@@ -765,9 +753,12 @@ export function normalizeExport(exportDoc: Uint8Array): Turn[] {
  * Resolves the current OpenCode session, exports and normalizes its
  * transcript, and writes the capture; returns its vault-relative path.
  *
- * The whole pipeline (findOpenCodeSessionID -> export -> normalizeExport ->
- * transcriptToPage -> writeCapture) in one call. exportSeam is the injectable
- * fetch seam; undefined runs the real `opencode export`.
+ * The whole pipeline (openCodeSessionIDFromEnv -> export -> normalizeExport ->
+ * transcriptToPage -> writeCapture) in one call. The session id comes from
+ * `$OPENCODE_SESSION_ID` alone — no tracker state is required, so a session
+ * that predates the plugin still captures via `opencode export` (#402).
+ * exportSeam is the injectable fetch seam; undefined runs the real
+ * `opencode export`.
  */
 export async function captureOpenCodeSession(
   wikiRoot: string,
@@ -777,7 +768,10 @@ export async function captureOpenCodeSession(
   now: Date,
   exportSeam?: Exporter,
 ): Promise<string> {
-  const sessionID = findOpenCodeSessionID(cwd, lookupEnv);
+  // cwd is retained for capture-function signature parity with the Claude Code
+  // path; the OpenCode capture needs no vault-root walk, only the env var.
+  void cwd;
+  const sessionID = openCodeSessionIDFromEnv(lookupEnv);
   const timestamp = now.getTime() === 0 ? new Date() : now;
   const fetch =
     exportSeam ?? ((id: string) => exportTranscript(id, "opencode"));
