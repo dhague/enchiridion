@@ -8,7 +8,9 @@ Captures session transcript into `$WIKI_ROOT/raw/conversations/`, files it into 
 
 ## Procedure
 
-**Host-neutral.** `save-session` detects host from which session-id var is set — `$CLAUDE_CODE_SESSION_ID` or `$OPENCODE_SESSION_ID` — and fetches transcript accordingly. Same invocation either way.
+**On OpenCode:** replace every `Bash` + `"<plugin-root>/bin/enchiridion" <subcommand> <args...>` call in this procedure with `wiki(args=["<subcommand>", ...])` — same subcommand, same flags, no path to resolve. See `## Scripts` in `wiki-conventions` for detail.
+
+`save-session` detects the host from which session-id var is set — `$CLAUDE_CODE_SESSION_ID` or `$OPENCODE_SESSION_ID` — and fetches transcript accordingly.
 
 1. Run capture script with `WIKI_ROOT` set to target vault (per deployment-mode resolution — script runs outside vault, can't use marker-directory discovery from cwd). Script lives in plugin's install directory; invoke via `<plugin-root>`:
    ```
